@@ -109,3 +109,39 @@ def test_template_sections_in_order(name, sections):
     h2 = [m.group(1).strip() for m in re.finditer(r"^## (.+)$", text, re.M)]
     positions = [next(i for i, h in enumerate(h2) if h.startswith(s)) for s in sections]
     assert positions == sorted(positions), f"{name}: 섹션 순서 {h2}"
+
+
+import subprocess
+
+EXEMPLARS = REFS / "exemplars"
+EXEMPLAR_NAMES = list(TEMPLATE_SECTIONS) + ["non-technical.md"]
+
+
+@pytest.mark.parametrize("name", EXEMPLAR_NAMES)
+def test_exemplar_annotated_and_clean(name):
+    text = (EXEMPLARS / name).read_text(encoding="utf-8")
+    assert text.startswith("<!-- 독자:"), "맨 위 독자·어조 주석 없음"
+    assert len(re.findall(r"<!-- ✓ [A-Z]-\d+:", text)) >= 8
+    assert not [f for f in lint_doc.lint(text) if f.level == "error"]
+    assert "TODO" not in text
+
+
+@pytest.mark.parametrize("name,sections", TEMPLATE_SECTIONS.items())
+def test_exemplar_follows_template(name, sections):
+    text = (EXEMPLARS / name).read_text(encoding="utf-8")
+    h2 = [m.group(1).strip() for m in re.finditer(r"^## (.+)$", text, re.M)]
+    for s in sections:
+        assert any(h.startswith(s) for h in h2), f"{name}: '{s}' 섹션 없음"
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name", EXEMPLAR_NAMES)
+def test_exemplar_mermaid_renders(name, tmp_path):
+    text = (EXEMPLARS / name).read_text(encoding="utf-8")
+    blocks = re.findall(r"^```mermaid\n(.*?)^```", text, re.M | re.S)
+    for i, block in enumerate(blocks):
+        src = tmp_path / f"{i}.mmd"
+        src.write_text(block)
+        proc = subprocess.run(["bash", str(SKILL / "scripts/render-mermaid.sh"), str(src), str(tmp_path / f"{i}.svg")],
+                              capture_output=True, text=True, timeout=300)
+        assert proc.returncode == 0, f"{name} 블록 {i}: {proc.stderr}"
