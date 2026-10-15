@@ -6,3 +6,5 @@ docs/research/dodont-catalog.md
 __pycache__/
 .pytest_cache/
 .superpowers/
+evals/runs/
+evals/blind/
