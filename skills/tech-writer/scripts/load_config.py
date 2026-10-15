@@ -63,25 +63,39 @@ def find_project_config(start: Path) -> Path | None:
         cur = cur.parent
 
 
-def validate(config: dict) -> list[str]:
+def validate(config: dict) -> list[tuple[str, str]]:
+    """(문제가 된 키 경로, 메시지) 목록을 돌려준다."""
     errors = []
     aud = config.get("audiences") or {}
     profiles = aud.get("profiles") or {}
     default = aud.get("default")
     if default is not None and default not in profiles:
-        errors.append(f"audiences.default '{default}'가 profiles에 없다.")
+        errors.append(("audiences.default", f"audiences.default '{default}'가 profiles에 없다."))
     for name, prof in profiles.items():
         if not isinstance(prof, dict):
-            errors.append(f"audiences.profiles.{name}는 role·level 등을 담은 매핑이어야 한다(지금 값: {prof!r}).")
+            errors.append((f"audiences.profiles.{name}", f"audiences.profiles.{name}는 role·level 등을 담은 매핑이어야 한다(지금 값: {prof!r})."))
             continue
         level = prof.get("level")
         if level not in LEVELS:
-            errors.append(f"audiences.profiles.{name}.level '{level}'은 {sorted(LEVELS)} 중 하나여야 한다.")
+            errors.append((f"audiences.profiles.{name}.level", f"audiences.profiles.{name}.level '{level}'은 {sorted(LEVELS)} 중 하나여야 한다."))
     for (section, key), allowed in ENUMS.items():
         value = (config.get(section) or {}).get(key)
         if value not in allowed:
-            errors.append(f"{section}.{key} '{value}'은 {sorted(allowed)} 중 하나여야 한다.")
+            errors.append((f"{section}.{key}", f"{section}.{key} '{value}'은 {sorted(allowed)} 중 하나여야 한다."))
     return errors
+
+
+def owner(keypath: str, loaded: list[tuple[Path, dict]]) -> str:
+    """키 경로를 마지막으로 정한 config 파일. 아무 파일도 정하지 않았으면 기본값 파일."""
+    for path, data in reversed(loaded):
+        node = data
+        for part in keypath.split("."):
+            if not isinstance(node, dict) or part not in node:
+                break
+            node = node[part]
+        else:
+            return str(path)
+    return str(DEFAULTS)
 
 
 def unknown_keys(config: dict, defaults: dict, prefix="") -> list[str]:
@@ -111,8 +125,10 @@ def main(argv=None) -> int:
         defaults = read_yaml(DEFAULTS)
         merged = defaults
         warnings = []
+        loaded = []
         for path in present:
             data = read_yaml(path)
+            loaded.append((path, data))
             warnings += [f"{path}: 알 수 없는 키 '{k}'" for k in unknown_keys(data, defaults)]
             merged = deep_merge(merged, data)
     except ConfigError as e:
@@ -123,7 +139,7 @@ def main(argv=None) -> int:
         print(json.dumps({"status": "missing", "reason": "audiences.default 없음: 독자 프로필 인터뷰가 필요하다", "sources": [str(x) for x in present]}, ensure_ascii=False))
         return 3
     if errors:
-        print(json.dumps({"status": "error", "errors": [{"file": str(present[-1]), "line": 0, "message": m} for m in errors]}, ensure_ascii=False))
+        print(json.dumps({"status": "error", "errors": [{"file": owner(keypath, loaded), "line": 0, "message": m} for keypath, m in errors]}, ensure_ascii=False))
         return 2
     print(json.dumps({"status": "ok", "config": merged, "sources": [str(x) for x in present], "warnings": warnings}, ensure_ascii=False))
     return 0

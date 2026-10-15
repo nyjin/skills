@@ -14,7 +14,7 @@ import sys
 from dataclasses import asdict, dataclass
 
 TITLE_MAX = 30
-FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})\s*(.*)$")
+FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*(.*)$")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 ABBR = re.compile(r"(?<![A-Za-z0-9_])([A-Z]{2}[A-Z0-9]{0,4})(?![A-Za-z0-9_])")
 # 널리 알려져 풀어 쓰지 않아도 되는 약어. 독자에 따라 다르면 문서에서 풀어 쓴다.
@@ -35,10 +35,14 @@ class Finding:
 
 
 def visible_len(title: str) -> int:
-    title = re.sub(r"`([^`]*)`", r"\1", title)
-    title = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", title)
-    title = re.sub(r"[*_]", "", title)
-    return len(title.strip())
+    parts = re.split(r"(`[^`]*`)", title)
+    for i, part in enumerate(parts):
+        if part.startswith("`"):
+            parts[i] = part.strip("`")
+        else:
+            part = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", part)
+            parts[i] = re.sub(r"(\*\*|\*)(.+?)\1", r"\2", part)
+    return len("".join(parts).strip())
 
 
 def check_abbr(line: str, no: int, seen: set[str], findings: list[Finding]) -> None:

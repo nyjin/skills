@@ -103,3 +103,10 @@ def test_non_mapping_profile_is_config_error(tmp_path):
     code, out = run(tmp_path, user="audiences:\n  default: pm\n  profiles:\n    pm: PM\n")
     assert code == 2
     assert "pm" in out["errors"][0]["message"]
+
+
+def test_validation_error_points_to_file_that_set_the_value(tmp_path):
+    bad_user = "audiences:\n  default: ghost\n  profiles:\n    a: {role: x, level: expert}\n"
+    code, out = run(tmp_path, user=bad_user, project="style: {tone: 해요체}\n")
+    assert code == 2
+    assert out["errors"][0]["file"].endswith("user.yaml")

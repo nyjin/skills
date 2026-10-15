@@ -102,3 +102,13 @@ def test_abbreviation_expanded_on_first_use_ok():
 def test_common_abbreviations_and_code_are_ignored():
     text = "# 제목\n\nAPI와 URL, JSON, SQL은 그대로 씁니다. `XYZQ` 값과\n\n```bash\nFOO=1 BAR=2\n```\n"
     assert rules(text) == []
+
+
+def test_fence_indented_in_long_ordered_list_is_checked():
+    text = "# 제목\n\n10. 실행합니다.\n\n    ```\n    ls\n    ```\n"
+    assert ("code-lang", "error") in [(r, l) for _, r, l in rules(text)]
+
+
+def test_title_length_keeps_underscores_in_identifiers():
+    assert lint_doc.visible_len("`max_pool_size` 설정") == len("max_pool_size 설정")
+    assert lint_doc.visible_len("**굵게** 쓰기") == len("굵게 쓰기")
