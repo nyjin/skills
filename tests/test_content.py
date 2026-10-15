@@ -89,3 +89,23 @@ def test_examples_have_dont_do_why():
 def test_skill_docs_pass_lint(doc):
     errors = [f for f in lint_doc.lint(doc.read_text(encoding="utf-8")) if f.level == "error"]
     assert not errors, errors
+
+
+TEMPLATE_SECTIONS = {
+    "tutorial.md": ["목표", "사전 준비", "결과 확인", "다음 단계"],
+    "how-to.md": ["이 가이드로 할 수 있는 것", "사전 준비", "절차", "확인 방법", "문제가 생기면"],
+    "troubleshooting.md": ["증상", "원인", "해결 방법", "해결 확인", "재발 방지"],
+    "reference.md": ["개요", "사전 정보", "시그니처", "매개변수", "반환값", "오류", "예제"],
+    "explanation.md": ["한 줄 정의", "등장 배경", "동작 원리", "대안과 비교", "활용"],
+    "design-adr.md": ["요약", "배경", "목표와 비목표", "대안 비교", "결정", "영향과 리스크", "후속 작업"],
+    "runbook.md": ["개요", "언제 쓰는가", "사전 확인", "절차", "롤백", "확인 방법", "연락처"],
+    "postmortem.md": ["요약", "영향", "타임라인", "원인", "대응", "재발 방지 조치", "교훈"],
+}
+
+
+@pytest.mark.parametrize("name,sections", TEMPLATE_SECTIONS.items())
+def test_template_sections_in_order(name, sections):
+    text = (REFS / "templates" / name).read_text(encoding="utf-8")
+    h2 = [m.group(1).strip() for m in re.finditer(r"^## (.+)$", text, re.M)]
+    positions = [next(i for i, h in enumerate(h2) if h.startswith(s)) for s in sections]
+    assert positions == sorted(positions), f"{name}: 섹션 순서 {h2}"
