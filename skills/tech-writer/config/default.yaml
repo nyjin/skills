@@ -1,0 +1,15 @@
+# tech-writer config 기본값.
+# 유저: ~/.claude/tech-writing/config.yaml / 프로젝트: <repo>/.tech-writing.yaml
+# 프로젝트 파일이 유저 파일을 키 단위로 덮어쓴다.
+audiences:
+  default: null            # profiles의 키 하나
+  profiles: {}             # 예) backend-dev: {role, level, knows, needs, context}
+style:
+  tone: 합니다체            # 합니다체 | 해요체 | 개조식 — 한 문서 안에서 섞지 않는다
+  loanword_policy: usage   # usage(사용 빈도) | standard(국립국어원)
+  glossary: {}             # 다른 표기 → 통일 표기. 모든 표기 규칙보다 우선한다
+output:
+  format: markdown         # markdown | confluence | html
+  diagrams: auto           # auto | mermaid | archify | none
+  assets_dir: docs/assets
+  confluence_mermaid_macro: false
