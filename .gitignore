@@ -5,3 +5,4 @@ docs/research/dodont-catalog.md
 .venv/
 __pycache__/
 .pytest_cache/
+.superpowers/

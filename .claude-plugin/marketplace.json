@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "tech-writing",
+  "owner": { "name": "yeonjin.roh" },
+  "description": "한국어 기술 문서 작성 도구 모음",
+  "plugins": [
+    {
+      "name": "tech-writing",
+      "source": "./",
+      "description": "독자에 맞춰 한국어 기술 문서를 구성·작성·개선한다.",
+      "version": "0.1.0",
+      "author": { "name": "yeonjin.roh" },
+      "license": "MIT",
+      "keywords": ["technical-writing", "documentation", "korean"]
+    }
+  ]
+}
