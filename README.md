@@ -62,7 +62,7 @@ uv run pytest -m "not slow"   # mermaid 렌더링 제외
 | [Docs for Developers 리뷰](https://shinjungoh.tistory.com/entry/Docs-for-Developers-기술-문서-작성-완벽-가이드-리뷰) | |
 | [테크니컬 라이팅 문서 작성 가이드](https://velog.io/@ailab/테크니컬-라이팅-문서-작성-가이드) | |
 
-본보기 분석에 쓴 한국어 문서 목록은 `skills/tech-writer/references/exemplar-notes.md`에 있습니다. 모범 문서는 분석한 패턴을 바탕으로 새로 썼습니다.
+본보기(`references/exemplars/`)를 쓸 때 분석한 한국어 참고 문서 목록은 `skills/tech-writer/references/exemplar-notes.md`에 있습니다. 본보기는 분석한 패턴을 바탕으로 새로 썼습니다.
 
 ## 라이선스
 

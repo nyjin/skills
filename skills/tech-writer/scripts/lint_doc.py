@@ -80,8 +80,12 @@ def main(argv: list[str]) -> int:
     if len(args) != 1:
         print("사용: lint_doc.py <file.md> [--json]", file=sys.stderr)
         return 2
-    with open(args[0], encoding="utf-8") as f:
-        findings = lint(f.read())
+    try:
+        with open(args[0], encoding="utf-8") as f:
+            findings = lint(f.read())
+    except (OSError, UnicodeDecodeError) as e:
+        print(f"파일을 읽을 수 없다: {args[0]} ({e})", file=sys.stderr)
+        return 2
     if "--json" in argv:
         print(json.dumps([asdict(x) for x in findings], ensure_ascii=False))
     else:

@@ -77,3 +77,13 @@ def test_cli_json_and_exit_code(tmp_path: Path):
     assert proc.returncode == 1
     data = json.loads(proc.stdout)
     assert data[0]["rule"] == "code-lang"
+
+
+def test_cli_missing_file_reports_error_without_traceback(tmp_path: Path):
+    proc = subprocess.run(
+        ["uv", "run", str(SCRIPTS / "lint_doc.py"), str(tmp_path / "없음.md")],
+        capture_output=True, text=True, cwd=ROOT,
+    )
+    assert proc.returncode == 2
+    assert "Traceback" not in proc.stderr
+    assert "없음.md" in proc.stderr
