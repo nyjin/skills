@@ -1,0 +1,15 @@
+audiences:
+  default: backend-dev
+  profiles:
+    backend-dev:
+      role: 백엔드 개발자
+      level: intermediate
+      knows: [Spring Boot, Kafka, Redis, Kubernetes, PostgreSQL]
+      needs: [원인과 재발 방지, 운영 방법]
+    pm:
+      role: 프로덕트 매니저
+      level: non-technical
+      knows: [주문, 결제, 앱 버전]
+      needs: [고객 영향, 일정, 결정할 것]
+style:
+  tone: 합니다체

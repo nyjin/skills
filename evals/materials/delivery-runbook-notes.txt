@@ -1,0 +1,9 @@
+배송사 연동 장애 시 대응 (구두로만 전해지던 것 정리)
+- 증상: delivery-sync 배치에서 "carrier timeout" 에러, 배송 상태가 '배송준비중'에서 안 바뀜
+- 확인: grafana "Delivery Sync" 대시보드, carrier별 성공률 패널. 특정 배송사만 떨어지면 그 배송사 문제
+- 배송사 API 상태: 각 배송사 파트너 포털 (A사 partner.a-logis.example, B사 api-status.b-express.example)
+- 조치1: 해당 배송사만 동기화 중지 -> kubectl -n delivery set env deploy/delivery-sync CARRIER_DISABLED=A
+- 조치2: 배송사 복구되면 CARRIER_DISABLED 제거하고, 누락 구간 재동기화 -> ./bin/resync --carrier A --from "2026-10-01T10:00" --to "2026-10-01T12:00"
+- resync는 같은 구간 여러 번 돌려도 됨(멱등). 단 6시간 넘는 구간은 배송사 rate limit 걸려서 나눠서 돌려야 함
+- 고객 문의 많아지면 CS팀 #cs-ops 에 공지 템플릿으로 알림
+- 에스컬레이션: 물류개발팀 리드, 배송사 담당자 연락처는 파트너 시트

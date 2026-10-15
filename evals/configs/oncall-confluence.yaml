@@ -1,0 +1,14 @@
+audiences:
+  default: oncall
+  profiles:
+    oncall:
+      role: 물류개발팀 당번 개발자
+      level: intermediate
+      knows: [kubectl, Grafana]
+      needs: [지금 무엇부터 할지]
+      context: 장애 알림을 받고 새벽에 읽음
+style:
+  tone: 합니다체
+output:
+  format: confluence
+  assets_dir: assets
