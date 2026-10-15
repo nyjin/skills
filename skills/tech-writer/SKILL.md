@@ -85,6 +85,8 @@ uv가 없으면 사용자에게 설치를 안내하고, 그동안은 config 파�
 - 구조·흐름·관계·상태를 글로만 설명한 곳을 찾아 다이어그램으로 바꾼다. 비교·속성은 표로 쓴다.
 - 도구는 config `output.format`과 복잡도로 고른다(mermaid / mermaid + archify).
 - mermaid는 `scripts/render-mermaid.sh`로 렌더링해 문법을 확인한다.
+- 출력이 confluence나 html이면 다이어그램을 이미지(SVG)로 만들어 `output.assets_dir`에 두고 본문에서 참조한다. 이 형식들은 mermaid 코드 블록을 그림으로 보여 주지 않기 때문이다.
+- 런북·설명·설계 문서에 분기 셋 이상의 판단 흐름이나 컴포넌트 관계가 있는데 다이어그램이 0개면, 빼먹은 것이 아닌지 다시 본다.
 
 ### 6. 포매팅
 

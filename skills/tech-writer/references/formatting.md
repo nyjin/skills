@@ -120,6 +120,16 @@ batch:
 
 ### Confluence
 
+결과물은 Confluence 편집기에 붙여 넣거나 Atlassian MCP로 게시할 Markdown 원고다. Markdown에 없는 Confluence 요소는 아래 표기로 남긴다. GitHub 전용 문법(`> [!WARNING]`)은 쓰지 않는다. Confluence에서 그대로 인용문으로 보이기 때문이다.
+
+| Confluence 요소 | 원고 표기 |
+|---|---|
+| 경고 패널 | `> **⚠️ 경고** ...` 바로 위 줄에 `<!-- confluence: warning panel -->` |
+| 정보·참고 패널 | `> **ℹ️ 참고** ...` 바로 위 줄에 `<!-- confluence: info panel -->` |
+| 목차 매크로 | `<!-- confluence: toc -->` (런북에는 넣지 않음) |
+| 확장(접기) | `<!-- confluence: expand "제목" -->` ... `<!-- /confluence: expand -->` |
+| 다이어그램 | `![그림 N. 설명](<assets_dir>/<이름>.svg)` — 이미지 파일을 반드시 만든다 |
+
 - 맨 위에 개요 1~2문장, 그다음 구분선, 그다음 목차 매크로를 둔다. 런북처럼 첫 화면에 행동이 보여야 하는 문서는 목차 매크로를 넣지 않는다.
 - 경고·참고는 정보·주의·경고 패널로 바꾼다. 아이콘과 색은 의미별로 하나씩만 쓴다.
 - 접기는 확장(expand) 매크로로 바꾼다.
