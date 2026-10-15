@@ -71,7 +71,10 @@ def validate(config: dict) -> list[str]:
     if default is not None and default not in profiles:
         errors.append(f"audiences.default '{default}'가 profiles에 없다.")
     for name, prof in profiles.items():
-        level = (prof or {}).get("level")
+        if not isinstance(prof, dict):
+            errors.append(f"audiences.profiles.{name}는 role·level 등을 담은 매핑이어야 한다(지금 값: {prof!r}).")
+            continue
+        level = prof.get("level")
         if level not in LEVELS:
             errors.append(f"audiences.profiles.{name}.level '{level}'은 {sorted(LEVELS)} 중 하나여야 한다.")
     for (section, key), allowed in ENUMS.items():
@@ -116,6 +119,9 @@ def main(argv=None) -> int:
         print(json.dumps({"status": "error", "errors": [{"file": e.file, "line": e.line, "message": e.message}]}, ensure_ascii=False))
         return 2
     errors = validate(merged)
+    if not errors and (merged.get("audiences") or {}).get("default") is None:
+        print(json.dumps({"status": "missing", "reason": "audiences.default 없음: 독자 프로필 인터뷰가 필요하다", "sources": [str(x) for x in present]}, ensure_ascii=False))
+        return 3
     if errors:
         print(json.dumps({"status": "error", "errors": [{"file": str(present[-1]), "line": 0, "message": m} for m in errors]}, ensure_ascii=False))
         return 2

@@ -49,9 +49,9 @@ D-1 독자의 목표로 유형을 고른다 · D-2 유형마다 빠지면 안 �
 | 운영 런북, 절차서 | 문제 해결 (절차) | `templates/runbook.md` | `exemplars/runbook.md` |
 | API 레퍼런스, 에러 코드, 설정 목록 | 참조 | `templates/reference.md` | `exemplars/reference.md` |
 | 개념 설명, 아키텍처 개요 | 설명 | `templates/explanation.md` | `exemplars/explanation.md` |
-| 설계 문서, ADR | 설명 + 결정 기록 | `templates/design-adr.md` | `exemplars/design-adr.md` |
+| 설계 문서, ADR(Architecture Decision Record, 아키텍처 결정 기록) | 설명 + 결정 기록 | `templates/design-adr.md` | `exemplars/design-adr.md` |
 | 장애 보고서, 포스트모템 | 설명 + 타임라인 | `templates/postmortem.md` | `exemplars/postmortem.md` |
-| 비개발 독자용 기술 설명 | 설명 (non-technical) | `templates/explanation.md` | `exemplars/non-technical.md` |
+| 비개발 독자용 기술 설명 | 설명 (non-technical, 중요도순) | `templates/non-technical.md` | `exemplars/non-technical.md` |
 
 README는 단일 유형이 아니다. 맨 위에 한 줄 소개와 빠른 시작(학습), 아래에 설정·명령 목록(참조)을 두고, 긴 내용은 별도 문서로 링크한다.
 

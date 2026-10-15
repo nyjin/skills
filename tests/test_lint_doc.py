@@ -87,3 +87,18 @@ def test_cli_missing_file_reports_error_without_traceback(tmp_path: Path):
     assert proc.returncode == 2
     assert "Traceback" not in proc.stderr
     assert "없음.md" in proc.stderr
+
+
+def test_abbreviation_first_use_without_expansion_warns():
+    assert ("abbr-first", "warn") in [(r, l) for _, r, l in rules("# 제목\n\nDLQ를 매일 확인합니다.\n")]
+
+
+def test_abbreviation_expanded_on_first_use_ok():
+    text = "# 제목\n\n실패 메시지 큐(Dead Letter Queue, DLQ)를 봅니다. DLQ는 매일 비웁니다.\n"
+    assert rules(text) == []
+    assert rules("# 제목\n\nDLQ(Dead Letter Queue)를 봅니다.\n") == []
+
+
+def test_common_abbreviations_and_code_are_ignored():
+    text = "# 제목\n\nAPI와 URL, JSON, SQL은 그대로 씁니다. `XYZQ` 값과\n\n```bash\nFOO=1 BAR=2\n```\n"
+    assert rules(text) == []

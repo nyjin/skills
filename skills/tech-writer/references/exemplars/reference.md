@@ -26,7 +26,7 @@ GET /v1/settlements/{date}/retries/{retryId} HTTP/1.1
 {"retryId": "rt_01J9X4K2", "status": "COMPLETED", "settledCount": 312, "failedCount": 0, "finishedAt": "2026-10-15T14:08:11+09:00"}
 ```
 
-`status`는 `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED` 중 하나입니다. `FAILED`면 `failedCount`만큼의 주문이 정산 DLQ로 갔다는 뜻이며, 정산플랫폼팀이 재처리합니다. 같은 요청을 다시 보내지 않습니다.
+`status`는 `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED` 중 하나입니다. `FAILED`면 `failedCount`만큼의 주문이 정산 DLQ(Dead Letter Queue, 처리에 실패한 메시지를 모아 두는 큐)로 갔다는 뜻이며, 정산플랫폼팀이 재처리합니다. 같은 요청을 다시 보내지 않습니다.
 
 ## 사전 정보
 

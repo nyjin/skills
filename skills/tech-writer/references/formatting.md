@@ -120,7 +120,7 @@ batch:
 
 ### Confluence
 
-결과물은 Confluence 편집기에 붙여 넣거나 Atlassian MCP로 게시할 Markdown 원고다. Markdown에 없는 Confluence 요소는 아래 표기로 남긴다. GitHub 전용 문법(`> [!WARNING]`)은 쓰지 않는다. Confluence에서 그대로 인용문으로 보이기 때문이다.
+결과물은 Confluence 편집기에 붙여 넣거나 Atlassian MCP(Model Context Protocol)로 게시할 Markdown 원고다. Markdown에 없는 Confluence 요소는 아래 표기로 남긴다. GitHub 전용 문법(`> [!WARNING]`)은 쓰지 않는다. Confluence에서 그대로 인용문으로 보이기 때문이다.
 
 | Confluence 요소 | 원고 표기 |
 |---|---|

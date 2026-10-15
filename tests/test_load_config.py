@@ -90,3 +90,16 @@ def test_project_search_stops_at_git_root(tmp_path):
     outer.write_text("style: {tone: 해요체}\n")
     code, out = run(tmp_path, user=USER)
     assert out["config"]["style"]["tone"] == "합니다체"
+
+
+def test_config_without_default_audience_requests_interview(tmp_path):
+    code, out = run(tmp_path, user="style: {tone: 해요체}\n")
+    assert code == 3
+    assert out["status"] == "missing"
+    assert "audiences.default" in out["reason"]
+
+
+def test_non_mapping_profile_is_config_error(tmp_path):
+    code, out = run(tmp_path, user="audiences:\n  default: pm\n  profiles:\n    pm: PM\n")
+    assert code == 2
+    assert "pm" in out["errors"][0]["message"]

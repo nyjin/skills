@@ -16,6 +16,14 @@ from dataclasses import asdict, dataclass
 TITLE_MAX = 30
 FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})\s*(.*)$")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+ABBR = re.compile(r"(?<![A-Za-z0-9_])([A-Z]{2}[A-Z0-9]{0,4})(?![A-Za-z0-9_])")
+# 널리 알려져 풀어 쓰지 않아도 되는 약어. 독자에 따라 다르면 문서에서 풀어 쓴다.
+COMMON_ABBR = {
+    "API", "URL", "URI", "HTTP", "HTTPS", "JSON", "YAML", "SQL", "CLI", "UI", "UX", "ID", "DB",
+    "OS", "CPU", "GPU", "PR", "CI", "CD", "KST", "UTC", "UUID", "TODO", "README", "IDE", "SDK",
+    "AWS", "GCP", "CSS", "HTML", "JS", "TS", "PDF", "CSV", "SSH", "TLS", "SSL", "DNS", "IP",
+    "TCP", "UDP", "VM", "OK", "FAQ", "QA", "PM", "CS", "TL", "DR", "AI", "SVG", "PNG",
+}
 
 
 @dataclass
@@ -33,12 +41,26 @@ def visible_len(title: str) -> int:
     return len(title.strip())
 
 
+def check_abbr(line: str, no: int, seen: set[str], findings: list[Finding]) -> None:
+    body = re.sub(r"`[^`]*`", "", line)
+    body = re.sub(r"\]\([^)]*\)", "]", body)
+    for m in ABBR.finditer(body):
+        tok = m.group(1)
+        if tok in COMMON_ABBR or tok in seen:
+            continue
+        seen.add(tok)
+        expanded = body[m.end():m.end() + 1] == "(" or re.search(r"\([^)]*\b" + tok + r"\)", body)
+        if not expanded:
+            findings.append(Finding(no, "abbr-first", "warn", f"약어 {tok}가 처음 나온다. 풀어 쓴 이름을 함께 쓴다. 예) {tok}(풀어 쓴 이름)"))
+
+
 def lint(text: str) -> list[Finding]:
     findings: list[Finding] = []
     fence: str | None = None
     fence_line = 0
     prev_level = 0
     h1_seen = False
+    seen_abbr: set[str] = set()
 
     for no, line in enumerate(text.splitlines(), 1):
         m = FENCE.match(line)
@@ -54,6 +76,8 @@ def lint(text: str) -> list[Finding]:
 
         h = HEADING.match(line)
         if not h:
+            if not line.lstrip().startswith("<!--"):
+                check_abbr(line, no, seen_abbr, findings)
             continue
         level, title = len(h.group(1)), h.group(2)
         if level == 1:

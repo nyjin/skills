@@ -1,5 +1,5 @@
 <!-- 독자: backend-dev(beginner) — 정산플랫폼팀 신규 입사자, Spring Boot는 알지만 정산 도메인과 사내 인프라는 처음 / 어조: 합니다체 / 유형: 학습(튜토리얼) -->
-<!-- 이 문서는 tech-writer 스킬의 본보기다. 소재(정산 배치, 사내 도구 이름, 수치)는 설명을 위해 만든 것이다. -->
+<!-- 이 문서는 tech-writer 스킬의 본보기다. 소재(정산 배치, 사내 도구 이름, 수치)는 설명을 위해 만든 것이다. 하루 1회 정산 시절(design-adr.md 이전) 기준이다. -->
 
 # 로컬에서 정산 배치 처음 실행하기
 
@@ -27,7 +27,7 @@
 <!-- ✓ C-5: 독자 knows에 없는 사내 도구(settlement-cli)는 설치 경로까지 적는다 -->
 | 준비물 | 버전 | 확인 명령 |
 |---|---|---|
-| JDK | 21 | `java -version` |
+| JDK(Java Development Kit) | 21 | `java -version` |
 | Docker Desktop | 4.30 이상 | `docker compose version` |
 | settlement-cli (사내 배치 실행 도구) | 2.3 이상 | `settlement-cli --version` |
 
@@ -50,7 +50,7 @@ docker compose -f local/docker-compose.yml up -d
 ```
 
 <!-- ✓ N-2: 단계마다 성공 판정 기준 -->
-두 컨테이너의 STATUS가 `healthy`면 다음 단계로 갑니다.
+두 컨테이너의 `STATUS`가 `healthy`면 다음 단계로 갑니다.
 
 ```bash
 docker compose -f local/docker-compose.yml ps

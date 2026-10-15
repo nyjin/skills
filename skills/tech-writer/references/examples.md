@@ -128,8 +128,8 @@ kubectl rollout undo deployment/order-api -n order
 왜: 수치가 필요하지만 재료에 없으면 비워 두는 것이 지어내는 것보다 안전하다.
 
 ### F-3a 어디에서 확인하는지 쓴다
-❌ 오류가 나면 로그를 확인하세요.
-✅ 오류가 나면 Kibana의 `order-api-*` 인덱스에서 `level:ERROR AND traceId:<요청 ID>`로 검색하세요.
+❌ 배치가 멈추면 로그부터 봅니다.
+✅ 배치가 멈추면 Kibana의 `order-api-*` 인덱스에서 `level:ERROR AND traceId:<요청 ID>`로 검색하세요.
 왜: "로그"는 서버 파일, 수집 시스템, 대시보드 중 어디인지 알려 주지 않는다.
 
 ### F-4a 지시어 대신 이름을 쓴다
@@ -221,7 +221,7 @@ kubectl rollout undo deployment/order-api -n order
 왜: PM에게 필요한 것은 전달 보장 방식의 이름이 아니라 그 결과(중복 가능성과 대비책)다.
 
 ### I-2a 약어는 처음에 풀어 쓴다
-❌ DLQ에 쌓인 메시지는 매일 확인합니다.
+❌ DLQ(Dead Letter Queue, 처리에 실패한 메시지를 모아 두는 큐)에 쌓인 메시지는 매일 확인합니다.
 ✅ 처리에 실패한 메시지를 모아 두는 큐(Dead Letter Queue, DLQ)를 매일 확인합니다. 이후 문단에서는 DLQ로만 쓴다.
 왜: 약어를 처음 보는 독자는 검색부터 해야 한다.
 

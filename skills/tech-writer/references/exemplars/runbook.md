@@ -9,7 +9,7 @@
 ## 개요
 
 <!-- ✓ E-1: 다루는 범위, 소요 시간, 기한 -->
-정산 배치가 실패하거나 지연될 때 원인을 세 갈래로 가르고 복구합니다. 대부분 20분 안에 끝납니다.
+정산 배치가 실패하거나 지연될 때 원인을 세 갈래로 가르고 복구합니다. 회차 정산은 평소 3분이면 끝나고, 지연 알림은 시작 15분 뒤에 오므로 알림부터 복구 기한까지 15분이 있습니다. 이 런북의 절차는 대부분 10분 안에 끝납니다.
 
 <!-- ✓ F-2: 기한을 회차별 시각으로 -->
 | 회차 | 정산 시작 | 송금 시작 | 복구 기한 (송금 30분 전) |
@@ -28,7 +28,7 @@
 |---|---|
 | `SettlementBatchFailed` | 정산 배치 상태가 `FAILED` |
 | `SettlementBatchDelayed` | 시작 후 15분이 지나도 `COMPLETED`가 아님 |
-| `SettlementDlqGrowing` | DLQ 적체가 10분 동안 500건 넘게 늘어남 |
+| `SettlementDlqGrowing` | DLQ(Dead Letter Queue, 처리에 실패한 메시지를 모아 두는 큐) 적체가 10분 동안 500건 넘게 늘어남 |
 
 ## 사전 확인
 
@@ -61,8 +61,12 @@ flowchart TD
   log -->|"Connection is not available"| a["2-A. 커넥션 부족"]
   log -->|"그 밖의 오류"| esc["2차 담당 호출"]
   a --> rerun["3. 재실행"]
-  b --> rerun
+  b -->|"잠금 풀림, FAILED"| rerun
+  b -->|"잠금 남음"| dba["DBA·2차 담당 호출"]
+  b -->|"COMPLETED"| done["확인 방법"]
 ```
+
+3단계 재실행으로 모이는 길은 2-A와 잠금은 풀렸지만 `FAILED`인 2-B뿐입니다. 2-C는 재실행 없이 확인으로 갑니다.
 
 <!-- ✓ L-2: 한 단계 한 동작, 분기는 하위 조치로 나눠 번호로 다시 합류 -->
 ### 1. 상태와 마지막 오류를 확인합니다
@@ -86,11 +90,12 @@ settlement-cli status --env prod --date <날짜> --round <회차>
    kubectl get configmap settlement-batch -n settlement -o yaml | grep -E "concurrency|maximum-pool-size"
    ```
 
-2. 풀 크기가 정상이면 DB 계정 커넥션을 확인합니다. `settlement_app`이 90을 넘고 정산 배치가 아닌 `application_name`이 섞여 있으면, 그 서비스 담당 팀에 중단을 요청합니다(2027-02-10 장애 원인).
+2. 풀 크기가 정상이면 DB 계정 커넥션을 확인합니다. 아래 쿼리의 마지막 줄(`합계`)이 90을 넘고 `settlement-batch`가 아닌 `application_name`이 섞여 있으면, 그 서비스 담당 팀에 중단을 요청합니다(2027-02-10 장애 원인).
 
    ```sql
-   SELECT application_name, count(*) FROM pg_stat_activity
-   WHERE usename = 'settlement_app' GROUP BY 1 ORDER BY 2 DESC;
+   SELECT coalesce(application_name, '합계') AS app, count(*)
+   FROM pg_stat_activity WHERE usename = 'settlement_app'
+   GROUP BY ROLLUP(application_name) ORDER BY 2;
    ```
 
 3. 3단계로 갑니다.
@@ -134,7 +139,7 @@ settlement-cli status --env prod --date <날짜> --round <회차>
 settlement-cli run --env prod --date <날짜> --round <회차> --resume
 ```
 
-재실행은 한 번만 합니다. 재실행이 다시 `FAILED`가 되거나, 복구 기한 15분 전까지 `COMPLETED`가 되지 않으면 더 시도하지 말고 2차 담당과 재무시스템팀 당번을 동시에 호출해 송금 연기를 요청합니다.
+재실행은 한 번만 합니다. 재실행이 다시 `FAILED`가 되거나 복구 기한까지 `COMPLETED`가 되지 않으면 더 시도하지 말고 2차 담당과 재무시스템팀 당번을 동시에 호출해 송금 연기를 요청합니다. 송금 연기는 결정에 5분쯤 걸리므로, 재실행 뒤 5분이 지나도 `RUNNING`이면 미리 재무시스템팀 당번에게 상황을 알립니다.
 
 ## 롤백
 

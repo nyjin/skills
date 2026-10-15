@@ -100,6 +100,7 @@ TEMPLATE_SECTIONS = {
     "design-adr.md": ["요약", "배경", "목표와 비목표", "대안 비교", "결정", "영향과 리스크", "후속 작업"],
     "runbook.md": ["개요", "언제 쓰는가", "사전 확인", "절차", "롤백", "확인 방법", "연락처"],
     "postmortem.md": ["요약", "영향", "타임라인", "원인", "대응", "재발 방지 조치", "교훈"],
+    "non-technical.md": ["왜", "무엇이 바뀌나", "영향", "할 일", "결정할 것"],
 }
 
 
@@ -114,7 +115,7 @@ def test_template_sections_in_order(name, sections):
 import subprocess
 
 EXEMPLARS = REFS / "exemplars"
-EXEMPLAR_NAMES = list(TEMPLATE_SECTIONS) + ["non-technical.md"]
+EXEMPLAR_NAMES = list(TEMPLATE_SECTIONS)
 
 
 @pytest.mark.parametrize("name", EXEMPLAR_NAMES)

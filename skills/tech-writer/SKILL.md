@@ -1,13 +1,13 @@
 ---
 name: tech-writer
-description: 한국어 기술 문서를 독자에 맞춰 구성·작성·개선하는 스킬. 코드·메모·대화·장애 기록 같은 재료로 README, 튜토리얼, how-to, 트러블슈팅, API 참조, 개념 설명, 설계 문서·ADR, 운영 런북, 장애 보고서(포스트모템)를 쓰거나, 이미 있는 기술 문서의 구조·흐름·시각화를 진단해 고칠 때 쓴다. "문서 써줘", "README 만들어줘", "설계 문서로 정리해줘", "포스트모템 작성해줘", "런북 만들어줘", "이 문서 구조 개선해줘", "PM도 읽을 수 있게 정리해줘", "기술 문서 독자 설정 바꿔줘"처럼 요청하면 발동한다. 독자 config(~/.claude/tech-writing/config.yaml, .tech-writing.yaml)를 만들거나 바꾸는 요청도 포함한다. 요청에 문서 유형이 명시되지 않아도 기술 내용을 다른 사람이 읽을 문서로 만드는 일이면 이 스킬을 쓴다. 문장만 다듬는 교정 요청은 korean-proofreader가 맡고, 비즈니스 문서(사업계획서·보도자료)와 영어 문서는 제외한다.
+description: 한국어 기술 문서를 독자에 맞춰 구성·작성·개선하는 스킬. 코드·메모·대화·장애 기록 같은 재료로 README, 튜토리얼, how-to, 트러블슈팅, API 참조, 개념 설명, 설계 문서·ADR(Architecture Decision Record, 아키텍처 결정 기록), 운영 런북, 장애 보고서(포스트모템)를 쓰거나, 이미 있는 기술 문서의 구조·흐름·시각화를 진단해 고칠 때 쓴다. "문서 써줘", "README 만들어줘", "설계 문서로 정리해줘", "포스트모템 작성해줘", "런북 만들어줘", "이 문서 구조 개선해줘", "PM도 읽을 수 있게 정리해줘", "기술 문서 독자 설정 바꿔줘"처럼 요청하면 발동한다. 독자 config(~/.claude/tech-writing/config.yaml, .tech-writing.yaml)를 만들거나 바꾸는 요청도 포함한다. 요청에 문서 유형이 명시되지 않아도 기술 내용을 다른 사람이 읽을 문서로 만드는 일이면 이 스킬을 쓴다. 문장만 다듬는 교정 요청은 korean-proofreader가 맡고, 비즈니스 문서(사업계획서·보도자료)와 영어 문서는 제외한다.
 ---
 
 # 기술 문서 작성 (Tech Writer)
 
 독자가 문서를 읽고 목표를 이루도록 기술 문서를 구성하고 쓴다. 기준은 하나다. **이 독자가 이 문서로 무엇을 하려는가.** 독자는 config에서 가져오고, 유형과 구조는 독자의 목표로 정하고, 문장·포매팅·시각화는 그 구조를 독자에게 빨리 전달하는 수단으로 쓴다.
 
-스킬 디렉터리는 이 SKILL.md가 있는 곳이다(로드할 때 "Base directory"로 표시된다). 아래 경로는 모두 스킬 디렉터리 기준이다.
+스킬 디렉터리는 이 `SKILL.md`가 있는 곳이다(로드할 때 "Base directory"로 표시된다). 아래 경로는 모두 스킬 디렉터리 기준이다.
 
 ## 준비물
 
@@ -16,7 +16,7 @@ description: 한국어 기술 문서를 독자에 맞춰 구성·작성·개선�
 | `uv` | config 병합(`scripts/load_config.py`), 문서 검사(`scripts/lint_doc.py`). PyYAML은 uv가 자동 설치 | 사용자에게 설치를 안내하고, config는 직접 읽어 합친다 |
 | Node.js(`npx`) 또는 `mmdc` | mermaid 렌더링(`scripts/render-mermaid.sh`) | 다이어그램을 코드 블록으로 두고 보고에 렌더링 미확인을 적는다 |
 | korean-proofreader, eli5, archify 스킬 | 문장 교정, 개념 설명, 복잡한 다이어그램 | "연동 스킬" 절의 대체 방법 |
-| Atlassian MCP(`createConfluencePage`, `updateConfluencePage`) | Confluence 게시(사용자가 요청할 때만) | Markdown 파일로 넘긴다 |
+| Atlassian MCP(Model Context Protocol) 서버의 `createConfluencePage`·`updateConfluencePage` 도구(환경에 따라 `mcp__<서버 이름>__createConfluencePage` 형태로 노출) | Confluence 게시(사용자가 요청할 때만) | Markdown 파일로 넘긴다 |
 
 ## 모드 판별
 
@@ -37,7 +37,7 @@ uv run <스킬 디렉터리>/scripts/load_config.py
 | 종료 코드 | 뜻 | 할 일 |
 |---|---|---|
 | 0 | 정상 | 출력 JSON의 `config`를 쓴다. `warnings`가 있으면 한 줄로 알린다 |
-| 3 | config 없음 | `references/audience.md`의 "config가 없을 때" 절대로 인터뷰해 유저 config를 만들고 다시 실행한다 |
+| 3 | config 없음, 또는 기본 독자(`audiences.default`) 없음 | `references/audience.md`의 "config가 없을 때" 절에 따라 인터뷰한다. 유저 config 파일이 이미 있으면 그 파일에 `audiences`만 추가하고 다시 실행한다 |
 | 2 | config 오류 | `errors`의 파일·줄·메시지를 보여 주고 고칠 내용을 제안한다. 사용자가 동의하면 고치고 다시 실행한다 |
 
 uv가 없으면 사용자에게 설치를 안내하고, 그동안은 config 파일을 직접 읽어 같은 규칙(프로젝트 파일이 유저 파일을 키 단위로 덮어씀)으로 합친다.
@@ -85,7 +85,7 @@ uv가 없으면 사용자에게 설치를 안내하고, 그동안은 config 파�
 - 구조·흐름·관계·상태를 글로만 설명한 곳을 찾아 다이어그램으로 바꾼다. 비교·속성은 표로 쓴다.
 - 도구는 config `output.format`과 복잡도로 고른다(mermaid / mermaid + archify).
 - mermaid는 `scripts/render-mermaid.sh`로 렌더링해 문법을 확인한다.
-- 출력이 confluence나 html이면 다이어그램을 이미지(SVG)로 만들어 `output.assets_dir`에 두고 본문에서 참조한다. 이 형식들은 mermaid 코드 블록을 그림으로 보여 주지 않기 때문이다.
+- 출력이 confluence나 html이면 다이어그램을 이미지(SVG)로 만들어 `output.assets_dir`에 두고 본문에서 참조한다. 이 형식들은 mermaid 코드 블록을 그림으로 보여 주지 않기 때문이다. 예외: config `confluence_mermaid_macro: true`면 Confluence에는 mermaid 코드를 매크로용으로 넣는다(렌더링 확인은 그대로 한다).
 - 런북·설명·설계 문서에 분기 셋 이상의 판단 흐름이나 컴포넌트 관계가 있는데 다이어그램이 0개면, 빼먹은 것이 아닌지 다시 본다.
 
 ### 6. 포매팅
