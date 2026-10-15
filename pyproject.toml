@@ -9,3 +9,7 @@ dev = [
     "pytest>=9.1.1",
     "pyyaml>=6.0.3",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: mermaid-cli 실행이 필요한 테스트"]
