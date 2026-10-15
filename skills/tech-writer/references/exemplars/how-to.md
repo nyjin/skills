@@ -36,7 +36,12 @@ date=2026-10-14 pending=182 oldest=2026-10-15T02:14:09+09:00
 ```
 
 <!-- ✓ F-6: 이 숫자를 4단계에서 다시 쓴다는 것을 미리 알린다 -->
-`pending` 값(이 예에서는 182)을 적어 둡니다. "확인 방법" 절에서 재처리 결과와 비교합니다.
+`pending` 값(이 예에서는 182)을 적어 둡니다. 재처리 전 반영 건수도 함께 적어 둡니다. 두 값은 "확인 방법" 절에서 재처리 결과와 비교합니다.
+
+```sql
+SELECT coalesce(sum(replayed_count), 0) AS replayed_before
+FROM daily_settlement WHERE settlement_date = '2026-10-14';
+```
 
 ### 2. 재처리 범위를 미리 봅니다
 
@@ -76,7 +81,7 @@ settlement-cli dlq count --env prod --date 2026-10-14
 
 ## 확인 방법
 
-정산 결과 테이블에 재처리 건이 반영됐는지 확인합니다. 1단계에서 적어 둔 `pending` 값만큼 `replayed_count`가 늘어 있어야 합니다.
+정산 결과 테이블에 재처리 건이 반영됐는지 확인합니다. 아래 쿼리의 `replayed` 값이 1단계의 `replayed_before`보다 1단계의 `pending` 값만큼 커야 합니다(이 예에서는 182 증가).
 
 ```sql
 SELECT settlement_date, sum(replayed_count) AS replayed

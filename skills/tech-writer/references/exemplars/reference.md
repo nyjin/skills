@@ -16,14 +16,36 @@
 | 같은 날짜 동시 요청 | 불가. 진행 중이면 `409`를 돌려줍니다 |
 
 <!-- ✓ J-2: 시스템 동작 설명은 시스템을 주어로 -->
-재계산이 끝나면 정산 배치가 `settlement.retried` 토픽에 완료 이벤트를 발행합니다. 완료를 기다려야 하면 이 이벤트를 구독하거나, `GET /v1/settlements/{date}/retries/{retryId}`로 상태(`QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`)를 조회합니다.
+재계산이 끝나면 정산 배치가 `settlement.retried` 토픽에 완료 이벤트를 발행합니다. 완료를 기다려야 하면 Kafka 토픽 `settlement.retried`를 구독하거나, 상태 조회 API를 30초 간격으로 호출합니다. 상태 조회에도 같은 토큰(`settlement:retry`)을 씁니다.
+
+```http
+GET /v1/settlements/{date}/retries/{retryId} HTTP/1.1
+```
+
+```json
+{"retryId": "rt_01J9X4K2", "status": "COMPLETED", "settledCount": 312, "failedCount": 0, "finishedAt": "2026-10-15T14:08:11+09:00"}
+```
+
+`status`는 `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED` 중 하나입니다. `FAILED`면 `failedCount`만큼의 주문이 정산 DLQ로 갔다는 뜻이며, 정산플랫폼팀이 재처리합니다. 같은 요청을 다시 보내지 않습니다.
 
 ## 사전 정보
 
 <!-- ✓ D-2: 모든 호출에 필요한 인증 정보를 앞에 모은다 -->
 - 기본 URL: `https://settlement-api.example.internal`
-- 인증: OAuth 2.0 클라이언트 자격 증명(Client Credentials). 사내 인증 서버(`https://auth.example.internal/oauth2/token`)에서 `settlement:retry` 범위(scope)의 토큰을 받습니다. 토큰은 1시간 동안 유효합니다.
+- 인증: OAuth 2.0 클라이언트 자격 증명(Client Credentials). 호출 서비스용 `client_id`와 `client_secret`은 사내 개발자 포털의 "API 클라이언트 등록"에서 발급받고, 같은 화면에서 `settlement:retry` 범위(scope)를 신청합니다(정산플랫폼팀 승인, 영업일 1일). 토큰은 1시간 동안 유효합니다.
 - 공통 헤더: `Authorization: Bearer <액세스 토큰>`, `Idempotency-Key: <요청마다 새로 만든 UUID>`
+
+토큰은 다음처럼 받습니다.
+
+```bash
+curl -X POST "https://auth.example.internal/oauth2/token" \
+  -d "grant_type=client_credentials&scope=settlement:retry" \
+  -u "$CLIENT_ID:$CLIENT_SECRET"
+```
+
+```json
+{"access_token": "eyJhbGciOi...", "token_type": "Bearer", "expires_in": 3600}
+```
 
 <!-- ✓ M-3: 그림 앞 안내, 뒤 핵심 -->
 다음 그림은 토큰을 받아 재처리를 요청하고 완료를 확인하는 순서입니다.
@@ -39,7 +61,9 @@ sequenceDiagram
   C->>S: POST /v1/settlements/{date}/retry
   S-->>C: 202 Accepted (retryId)
   S->>B: 재계산 작업 등록
-  B-->>C: settlement.retried 이벤트
+  B-->>S: 재계산 완료
+  C->>S: GET .../retries/{retryId}
+  S-->>C: status=COMPLETED
 ```
 
 <!-- ✓ C-5: 독자가 모를 수 있는 멱등 키를 한 문장으로 정의 -->
@@ -82,7 +106,7 @@ Content-Type: application/json
 |---|---|---|---|
 | 400 | `INVALID_DATE` | 날짜 형식이 틀렸거나 오늘 이후 날짜 | `YYYY-MM-DD` 형식의 오늘 이전 날짜로 다시 요청합니다 |
 | 401 | `INVALID_TOKEN` | 토큰이 없거나 만료됨 | 토큰을 다시 발급받아 요청합니다 |
-| 403 | `INSUFFICIENT_SCOPE` | 토큰에 `settlement:retry` 범위가 없음 | 사내 인증 서버에서 범위를 추가 신청합니다 |
+| 403 | `INSUFFICIENT_SCOPE` | 토큰에 `settlement:retry` 범위가 없음 | 개발자 포털 "API 클라이언트 등록"에서 범위를 신청하고, 승인 뒤 토큰을 새로 받습니다 |
 | 404 | `SETTLEMENT_NOT_FOUND` | 그 날짜에 정산 결과가 아직 없음 | 정산 배치(매일 02:00 KST 시작, 02:30께 완료)가 끝난 뒤 다시 요청합니다 |
 | 409 | `SETTLEMENT_IN_PROGRESS` | 같은 날짜의 재처리가 진행 중 | 응답의 `retryId`로 상태를 조회하고, `COMPLETED`가 된 뒤 요청합니다 |
 | 429 | `TOO_MANY_REQUESTS` | 호출 서비스별 분당 10회 초과 | `Retry-After` 헤더의 초만큼 기다린 뒤 같은 멱등 키로 다시 보냅니다 |

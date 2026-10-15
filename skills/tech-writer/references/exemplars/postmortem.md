@@ -89,8 +89,18 @@ flowchart LR
 - **알림 시점은 복구 시간에서 거꾸로 정한다.** 송금까지 60분이 남았는데 45분에 울리는 알림은 늦습니다.
 - **런북의 첫 분기는 가장 흔한 원인이 아니라 가장 빨리 배제할 수 있는 원인부터 본다.**
 
-다른 팀에서 점검해 볼 것: 여러 배치나 서비스가 같은 DB 계정을 쓰는지 다음 쿼리로 확인할 수 있습니다.
+다른 팀에서 점검해 볼 것(PostgreSQL 기준, MySQL은 `information_schema.processlist`를 `user`, `host`로 묶어 같은 방법으로 봅니다):
 
-```sql
-SELECT usename, application_name, count(*) FROM pg_stat_activity GROUP BY 1, 2 ORDER BY 1, 3 DESC;
-```
+1. 계정마다 연결 한도를 확인합니다.
+
+   ```sql
+   SELECT rolname, rolconnlimit FROM pg_roles WHERE rolcanlogin;
+   ```
+
+2. 계정마다 어떤 작업이 몇 개를 쓰는지 봅니다.
+
+   ```sql
+   SELECT usename, application_name, count(*) FROM pg_stat_activity GROUP BY 1, 2 ORDER BY 1, 3 DESC;
+   ```
+
+3. 한 계정을 둘 이상의 작업(`application_name`)이 쓰고, 합계가 한도의 80%를 넘는 시간대가 있으면 이번과 같은 위험이 있습니다. 데이터플랫폼팀(`#dba-help`)에 작업별 계정 분리를 요청합니다.

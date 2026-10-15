@@ -66,7 +66,16 @@ WHERE datname = 'settlement' AND state <> 'idle'
   AND now() - xact_start > interval '5 minutes';
 ```
 
-결과가 있으면 그 쿼리를 실행한 작업을 찾아 멈추고, 정산 배치를 재실행합니다. 쿼리를 강제로 끊는 방법은 "정산 배치 장애 대응 런북"의 "DB 잠금" 절을 따릅니다.
+결과의 `pid`로 어떤 작업인지 확인합니다.
+
+```sql
+SELECT pid, application_name, client_addr FROM pg_stat_activity WHERE pid = <pid>;
+```
+
+- `application_name`이 `settlement-batch`면 정산 배치 자신의 쿼리입니다. 끊어도 되며, 재실행하면 커밋된 단위 다음부터 이어서 처리합니다.
+- 다른 이름이면 끊지 말고 그 작업의 담당 팀에 중단을 요청합니다. 송금 배치(`payout-batch`)는 절대 끊지 않습니다.
+
+끊는 명령과 이후 절차는 "정산 배치 장애 대응 런북"의 2-B 절을 따릅니다.
 
 ### 원인 3: 계정 커넥션 한도
 
@@ -74,7 +83,9 @@ WHERE datname = 'settlement' AND state <> 'idle'
 SELECT usename, count(*) FROM pg_stat_activity GROUP BY usename ORDER BY 2 DESC;
 ```
 
-`settlement_app` 계정이 한도(100)에 가까우면 같은 계정을 쓰는 다른 배치가 있는지 플랫폼팀에 문의합니다.
+`settlement_app` 계정이 90을 넘으면 원인 3입니다. 같은 계정을 쓰는 다른 작업은 `application_name`으로 구분합니다. 정산 배치가 아닌 작업이 있으면 그 담당 팀에 중단을 요청하고, 계정 분리는 데이터플랫폼팀(`#dba-help`)에 요청합니다.
+
+원인 1~3 어디에도 해당하지 않으면 `#settlement-alert`에 오류 로그 첫 20줄과 위 세 쿼리 결과를 붙여 2차 담당을 호출합니다.
 
 ## 해결 확인
 

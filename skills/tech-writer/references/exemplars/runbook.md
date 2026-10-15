@@ -116,7 +116,10 @@ settlement-cli status --env prod --date <날짜> --round <회차>
    SELECT pg_terminate_backend(<pid>);
    ```
 
-3. 5분 동안 상태를 봅니다. 배치가 스스로 이어서 `COMPLETED`가 되면 "확인 방법"으로, 그대로면 3단계로 갑니다.
+3. 5분 동안 상태를 봅니다.
+   - 배치가 스스로 이어서 `COMPLETED`가 되면 "확인 방법"으로 갑니다.
+   - 1번 쿼리에 같은 세션이 아직 있으면(잠금이 풀리지 않음) 재실행하지 말고 데이터플랫폼팀(`#dba-help`)과 2차 담당을 함께 호출합니다.
+   - 잠금은 풀렸는데 배치가 `FAILED`면 3단계로 갑니다.
 
 ### 2-C. 실패 건을 재처리합니다
 
@@ -130,6 +133,8 @@ settlement-cli status --env prod --date <날짜> --round <회차>
 ```bash
 settlement-cli run --env prod --date <날짜> --round <회차> --resume
 ```
+
+재실행은 한 번만 합니다. 재실행이 다시 `FAILED`가 되거나, 복구 기한 15분 전까지 `COMPLETED`가 되지 않으면 더 시도하지 말고 2차 담당과 재무시스템팀 당번을 동시에 호출해 송금 연기를 요청합니다.
 
 ## 롤백
 

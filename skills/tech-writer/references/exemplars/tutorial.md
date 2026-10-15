@@ -131,13 +131,21 @@ LIMIT 3;
 
 ## 결과 확인
 
-다음 두 가지가 맞으면 튜토리얼을 마친 것입니다.
+4단계에서 psql을 나왔다면 같은 명령으로 다시 접속한 뒤 확인합니다. 다음 두 가지가 맞으면 튜토리얼을 마친 것입니다.
 
 - 3단계 로그의 `settled=1000`
 - 아래 쿼리 결과가 `1000`
 
 ```sql
 SELECT sum(order_count) FROM daily_settlement WHERE settlement_date = '2026-10-14';
+```
+
+결과가 1000보다 작으면 3단계 로그의 `failed` 값만큼 비어 있는지 봅니다. 같으면 정산 실패 건이고("문제가 생기면" 참고), 다르면 2단계를 다시 실행한 뒤 3단계부터 반복합니다.
+
+실습이 끝나면 로컬 인프라를 내립니다. 같은 날짜로 배치를 다시 실행해도 결과는 덮어써지므로 안전합니다.
+
+```bash
+docker compose -f local/docker-compose.yml down
 ```
 
 <details>
