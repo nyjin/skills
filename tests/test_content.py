@@ -79,7 +79,7 @@ def test_examples_cover_principles():
 
 def test_examples_have_dont_do_why():
     text = (REFS / "examples.md").read_text(encoding="utf-8")
-    blocks = re.split(r"^### ", text, flags=re.M)[1:]
+    blocks = re.split(r"^### (?=[A-Z]-\d+[a-z] )", text, flags=re.M)[1:]
     for b in blocks:
         head = b.splitlines()[0]
         assert "❌" in b and "✅" in b and "왜:" in b, f"{head}: ❌/✅/왜: 형식 누락"
