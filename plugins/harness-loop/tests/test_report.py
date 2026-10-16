@@ -424,7 +424,7 @@ def test_mark_reported_skips_locked_session(tmp_projects):
 
 def test_decide_gives_up_on_locked_session_without_writing(tmp_projects, monkeypatch):
     sleeps = []
-    monkeypatch.setattr(report.time, "sleep", sleeps.append)
+    monkeypatch.setattr(state.time, "sleep", sleeps.append)
     t1, t2 = transcript(tmp_projects, "s1"), transcript(tmp_projects, "s2")
     put_items(t1, item("C1:a"))
     put_items(t2, item("C1:a"))
@@ -441,7 +441,7 @@ def test_decide_waits_for_lock_release(tmp_projects, monkeypatch):
     t = transcript(tmp_projects, "s1")
     put_items(t, item("C1:a"))
     assert state.acquire_lock(hdir_of(t))
-    monkeypatch.setattr(report.time, "sleep", lambda s: state.release_lock(hdir_of(t)))
+    monkeypatch.setattr(state.time, "sleep", lambda s: state.release_lock(hdir_of(t)))
     report.decide("C1:a", "approved")
     assert state.load_items(hdir_of(t))["C1:a"]["status"] == "approved"
     assert state.load_decisions()["C1:a"]["decision"] == "approved"

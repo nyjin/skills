@@ -299,3 +299,48 @@ def test_c1_retry_after_queued_prompt_is_signal(tmp_path):
     assert [(x["sig"], x["turn"]) for x in s] == [("C1:make: *** No rule to make target build", 1)]
     t = T(1, "해줘", [bash("a", "x")], [ToolError("a", "Bash", "boom")])
     assert by_cond(collect.signals([t, T(2, "다른 거", [bash("b", "y")])], "normal"), "C1") == []
+
+
+def _cli_fixture(root):
+    t = root / "proj" / "cli.jsonl"
+    t.parent.mkdir(exist_ok=True)
+    shutil.copy(Path(__file__).parent / "fixtures" / "basic.jsonl", t)
+    return t
+
+
+def test_collect_cli_holds_session_lock_and_releases(tmp_projects, capsys, monkeypatch):
+    t = _cli_fixture(tmp_projects)
+    hdir = state.harness_dir(t)
+    seen = []
+    real = collect.run
+    monkeypatch.setattr(collect, "run", lambda p: seen.append((hdir / "lock").is_dir()) or real(p))
+    collect.main([str(t)])
+    assert seen == [True]
+    assert json.loads(capsys.readouterr().out)
+    assert not (hdir / "lock").exists()
+
+
+def test_collect_cli_exits_3_when_session_locked(tmp_projects, capsys, monkeypatch):
+    import pytest
+
+    sleeps = []
+    monkeypatch.setattr(state.time, "sleep", sleeps.append)
+    t = _cli_fixture(tmp_projects)
+    hdir = state.harness_dir(t)
+    assert state.acquire_lock(hdir)
+    with pytest.raises(SystemExit) as e:
+        collect.main([str(t)])
+    assert e.value.code == 3
+    assert "잠겨" in capsys.readouterr().err
+    assert sleeps and sum(sleeps) <= 5
+    assert not (hdir / "signals.jsonl").exists()
+    assert (hdir / "lock").exists()   # 남의 락은 풀지 않는다
+
+
+def test_collect_cli_waits_for_lock_release(tmp_projects, capsys, monkeypatch):
+    t = _cli_fixture(tmp_projects)
+    hdir = state.harness_dir(t)
+    assert state.acquire_lock(hdir)
+    monkeypatch.setattr(state.time, "sleep", lambda s: state.release_lock(hdir))
+    collect.main([str(t)])
+    assert (hdir / "signals.jsonl").exists() and not (hdir / "lock").exists()

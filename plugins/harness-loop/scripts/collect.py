@@ -207,5 +207,15 @@ def run(transcript_path: Path) -> list[dict]:
     return new
 
 
+def main(argv=None) -> None:
+    """명시 호출용 CLI. 세션 락을 잡고 run 한다. judge.background 는 이미 락을 쥐고 run 을 직접 부른다."""
+    path = Path((sys.argv[1:] if argv is None else argv)[0])
+    hdir = state.locked_cli(state.harness_dir(path), "신호를 모으지 않았다")
+    try:
+        print(json.dumps(run(path), ensure_ascii=False))
+    finally:
+        state.release_lock(hdir)
+
+
 if __name__ == "__main__":
-    print(json.dumps(run(Path(sys.argv[1])), ensure_ascii=False))
+    main()

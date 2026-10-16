@@ -7,6 +7,7 @@
 import json
 import os
 import shutil
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,9 @@ from pathlib import Path
 import yaml
 
 DEFAULTS = Path(__file__).resolve().parents[1] / "defaults"
+LOCK_TRIES = 10
+LOCK_SLEEP = 0.5
+LOCKED_EXIT = 3
 
 DEFAULT_CONFIG = {
     "weights": {"recurrence": 0.4, "impact": 0.4, "actionability": 0.2},
@@ -110,6 +114,31 @@ def acquire_lock(hdir, stale_sec=600) -> bool:
             except OSError:
                 return False
     return False
+
+
+def lock_all(hdirs) -> list[Path]:
+    """hdirs 의 락을 모두 잡는다. LOCK_TRIES 번 안에 못 잡으면 잡은 것을 풀고 못 잡은 디렉터리를 돌려준다. 다 잡으면 []."""
+    held, waiting = [], [Path(h) for h in hdirs]
+    for attempt in range(LOCK_TRIES):
+        for hdir in list(waiting):
+            if acquire_lock(hdir):
+                held.append(hdir)
+                waiting.remove(hdir)
+        if not waiting:
+            return []
+        if attempt < LOCK_TRIES - 1:
+            time.sleep(LOCK_SLEEP)
+    for hdir in held:
+        release_lock(hdir)
+    return waiting
+
+
+def locked_cli(hdir, what: str):
+    """CLI 진입점용: 세션 락을 lock_all 로 잡는다. 못 잡으면 stderr 에 알리고 LOCKED_EXIT 로 끝낸다. 잡으면 hdir 를 돌려준다(호출 쪽이 finally 에서 release_lock)."""
+    if lock_all([hdir]):
+        print(f"세션 {Path(hdir).parent.name} 이 잠겨 있어(백그라운드 판정 중일 수 있다) {what}. 잠시 뒤 다시 실행한다.", file=sys.stderr)
+        sys.exit(LOCKED_EXIT)
+    return hdir
 
 
 def release_lock(hdir) -> None:

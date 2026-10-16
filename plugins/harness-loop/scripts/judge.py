@@ -443,7 +443,11 @@ def main(argv=None) -> None:
     if args.cmd == "digest":
         print(digest(args.transcript, pending_signals(state.harness_dir(args.transcript))), end="")
     elif args.cmd == "merge":
-        print(json.dumps(merge(args.transcript, json.load(sys.stdin), args.mode), ensure_ascii=False, indent=2))
+        hdir = state.locked_cli(state.harness_dir(args.transcript), "판정을 병합하지 않았다")
+        try:
+            print(json.dumps(merge(args.transcript, json.load(sys.stdin), args.mode), ensure_ascii=False, indent=2))
+        finally:
+            state.release_lock(hdir)
     elif args.cmd == "background":
         sys.exit(background_status(args.transcript, args.mode))
     else:

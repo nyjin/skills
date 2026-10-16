@@ -8,7 +8,6 @@ import argparse
 import json
 import os
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -18,8 +17,6 @@ import state
 REPORTABLE = {"propose", "regressed"}
 DECISIONS = ("approved", "rejected", "applied", "edit-score")
 OPEN_SESSION_SEC = 600
-DECIDE_LOCK_TRIES = 10
-DECIDE_LOCK_SLEEP = 0.5
 
 
 def _now() -> datetime:
@@ -246,21 +243,11 @@ def mark_reported(pairs) -> None:
 
 
 def _lock_all(hdirs: list[Path]) -> None:
-    """hdirs 의 락을 모두 잡는다. DECIDE_LOCK_TRIES 번 안에 못 잡으면 잡은 것을 풀고 ValueError."""
-    held, waiting = [], list(hdirs)
-    for attempt in range(DECIDE_LOCK_TRIES):
-        for hdir in list(waiting):
-            if state.acquire_lock(hdir):
-                held.append(hdir)
-                waiting.remove(hdir)
-        if not waiting:
-            return
-        if attempt < DECIDE_LOCK_TRIES - 1:
-            time.sleep(DECIDE_LOCK_SLEEP)
-    for hdir in held:
-        state.release_lock(hdir)
-    names = ", ".join(h.parent.name for h in waiting)
-    raise ValueError(f"세션 {names} 이 잠겨 있어(판정 중일 수 있다) 결정을 기록하지 않았다. 잠시 뒤 다시 실행한다.")
+    """hdirs 의 락을 모두 잡는다(state.lock_all). 못 잡으면 ValueError."""
+    waiting = state.lock_all(hdirs)
+    if waiting:
+        names = ", ".join(h.parent.name for h in waiting)
+        raise ValueError(f"세션 {names} 이 잠겨 있어(판정 중일 수 있다) 결정을 기록하지 않았다. 잠시 뒤 다시 실행한다.")
 
 
 def decide(sig: str, decision: str, session: str | None = None, impact: int | None = None, actionability: int | None = None) -> dict:

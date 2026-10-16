@@ -185,7 +185,7 @@ def test_pasted_content_is_user_turn():
   - `run(transcript: Path) -> list[dict]` — cursor 이후를 파싱해 신호를 `signals.jsonl` 에 덧붙이고 cursor 를 옮긴 뒤 새 신호를 돌려준다. `kind == "eval"` 이면 `skip` 을 쓰고 `[]`.
   - `normalize_error(text: str) -> str` — 경로 → `P`, 숫자 → `N`, `<tool_use_error>` 태그 제거, 80자.
   - `command_signature(cmd: str) -> str` — 앞쪽 `cd …&&` 제거, inline python 은 `py-inline[<sys·os·re·json·collections 를 뺀 import>]`, 그 밖은 첫 줄 앞 3토큰.
-  - CLI: `uv run --script collect.py <transcript.jsonl>` → 새 신호를 JSON 배열로 stdout.
+  - CLI: `uv run --script collect.py <transcript.jsonl>` → 새 신호를 JSON 배열로 stdout. CLI 는 세션 락을 `state.lock_all`(`report.decide` 와 같은 재시도)로 잡고 `finally` 에서 푼다. 못 잡으면 stderr 에 한국어 안내, 종료 코드 3. `judge.background` 는 락을 쥔 채 `collect.run` 을 직접 부른다.
 
 추출 규칙(sig 형식 포함):
 
@@ -266,7 +266,7 @@ def test_eval_session_writes_skip(tmp_projects):
   - `score(item: dict, cfg: dict) -> tuple[float, str]` — `item["sessions"]`(재발 세션 수)·`impact`·`actionability` 로 가중합과 상태를 낸다. 재발성 점수는 Global Constraints 구간. 대상 경로가 `~/.claude/CLAUDE.md` 이거나 `/memory/` 를 포함하면 `propose`·`watch` 에 `global_bump` 를 더한다. `duplicate_of_rule` 가 있고 `rule_unenforced` 가 거짓이면 `discarded`. `decisions` 의 마지막 결정이 `rejected` 면 `rejected`.
   - `merge(transcript: Path, judge_output: dict, mode: str) -> dict` — 스키마 검증 → 사용자 점수(`state.load_score_overrides()`)를 덮은 실효 `impact`·`actionability` 가 모두 1 인 항목은 버림(고칠 것 없음 하한. 사용자가 1/1 보다 높게 고친 sig 는 남는다) → 토픽(sig 의 첫 `:` 뒤)이 같은 C2·C7 항목 쌍은 출력 순서상 앞의 것만 남김 → 항목마다 `state.load_score_overrides()` 의 사용자 점수로 judge 의 `impact`·`actionability` 를 덮고 `sessions = recurrence(sig, 이 세션)`·`score`·`target.owner` 계산 → 기존 `action-items.json` 과 sig 로 병합(근거는 덧붙이고, `KEPT = approved|rejected|applied|regressed` 상태와 `regressed_after` 가 있는 `watch` 는 유지) → `runs/NNN-<mode>.json` 저장. 반환값은 병합된 items.
   - `rescore() -> int` — 모든 세션의 items 를 현재 `scoring.yaml` 로 다시 계산, 바뀐 항목 수를 돌려준다. 저장된 점수에 사용자 점수(`load_score_overrides`)를 덮어 쓰고, 상태는 `merge` 와 같은 규칙으로 유지한다.
-  - CLI: `judge.py digest <transcript>`, `judge.py merge <transcript> --mode explicit < judge.json`, `judge.py rescore`, `judge.py background <transcript> --mode <mode>`(Task 5, 종료 코드는 `background_status` 값: 0 판정했거나 할 일 없음, 1 실패, 2 하루 상한, 3 락이 잡혀 있음).
+  - CLI: `judge.py digest <transcript>`, `judge.py merge <transcript> --mode explicit < judge.json`(collect CLI 와 같이 세션 락을 잡고, 못 잡으면 종료 코드 3), `judge.py rescore`, `judge.py background <transcript> --mode <mode>`(Task 5, 종료 코드는 `background_status` 값: 0 판정했거나 할 일 없음, 1 실패, 2 하루 상한, 3 락이 잡혀 있음).
 
 `judge-schema.json`: `{"items": [{"sig": str, "condition": "C1".."C11", "impact": 1..3, "actionability": 1..3, "evidence": [{"session", "turn", "quote"}] (최소 1), "target": {"path": str}, "proposal": str, "duplicate_of_rule": str|null, "rule_unenforced": bool, "skills": {str: int}}]}`. sig 규칙: `?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다(digest 에 이 문장을 그대로 넣는다). `C2:?` 후보마다 `condition` 을 C2 와 C7 중 하나로 골라 항목을 최대 하나만 낸다(`C2_C7_RULE`, digest 에 함께 넣는다).
 

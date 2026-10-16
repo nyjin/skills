@@ -372,3 +372,46 @@ def test_rescore_keeps_watch_left_by_plugin_cache_regression(tmp_projects):
     got = state.load_items(h)
     assert got["C1:a"]["status"] == "watch"
     assert got["C1:b"]["status"] == "propose"
+
+
+def test_merge_cli_holds_session_lock_and_releases(tmp_projects, capsys, monkeypatch):
+    import io
+    import sys
+
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    hdir = state.harness_dir(t)
+    seen = []
+    real = judge.merge
+    monkeypatch.setattr(judge, "merge", lambda *a: seen.append((hdir / "lock").is_dir()) or real(*a))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"items": [out_item()]})))
+    judge.main(["merge", str(t), "--mode", "explicit"])
+    assert seen == [True]
+    assert "C1:app-not-installed" in json.loads(capsys.readouterr().out)
+    assert not (hdir / "lock").exists()
+
+
+def test_merge_cli_releases_lock_on_validation_error(tmp_projects, monkeypatch):
+    import io
+    import sys
+
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"items": [out_item(impact=4)]})))
+    with pytest.raises(ValueError):
+        judge.main(["merge", str(t), "--mode", "explicit"])
+    assert not (state.harness_dir(t) / "lock").exists()
+
+
+def test_merge_cli_exits_3_when_session_locked(tmp_projects, capsys, monkeypatch):
+    import io
+    import sys
+
+    monkeypatch.setattr(state.time, "sleep", lambda s: None)
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    hdir = state.harness_dir(t)
+    assert state.acquire_lock(hdir)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"items": [out_item()]})))
+    with pytest.raises(SystemExit) as e:
+        judge.main(["merge", str(t), "--mode", "explicit"])
+    assert e.value.code == 3
+    assert "잠겨" in capsys.readouterr().err
+    assert state.load_items(hdir) == {} and (hdir / "lock").exists()
