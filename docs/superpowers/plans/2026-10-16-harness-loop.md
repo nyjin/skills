@@ -122,7 +122,7 @@ def test_decisions_last_wins(tmp_projects):
 - Produces (`transcript.py`):
   - `@dataclass Turn`: `index: int`(1부터), `cwd: str | None`(그 사람 발화 줄의 `cwd` 필드), `line: int`(사람 발화 줄 번호), `user: str`, `calls: list[Call]`, `errors: list[ToolError]`, `rejected: list[str]`, `interrupted: bool`, `ai_tail: str`(마지막 AI 텍스트 끝 500자), `api_error: bool`, `queued: bool`(AI 가 일하는 도중 친 발화 `queued_command` 로 연 턴).
   - `@dataclass Call`: `id, name, input: dict, skill: str | None`(그 시점 실행 중인 스킬).
-  - `@dataclass ToolError`: `call_id, tool, text`(주제 줄 200자). 주제 줄은 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 의 `total N` 줄과 권한 표기 줄·글자나 숫자가 없는 줄을 건너뛴 첫 줄이고, `Traceback (most recent call last):` 줄이 있으면 마지막 예외 줄(`EXCEPTION_LINE`, 건너뛸 줄 제외)이다. 모두 건너뛰면 `""`.
+  - `@dataclass ToolError`: `call_id, tool, text`(주제 줄 200자). 주제 줄은 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 의 `total N` 줄과 권한 표기 줄·글자나 숫자가 없는 줄을 건너뛴 첫 줄이고, `Traceback (most recent call last):` 줄이 있으면 마지막 예외 줄(`EXCEPTION_LINE`, 건너뛸 줄 제외)이다. 모두 건너뛰면 `""`. `Bash` 오류는 이보다 먼저, 건너뛸 줄을 뺀 나머지 중 오류 낱말(`BASH_ERROR`: `error|exception|fatal|failed|failure|denied|not found|no such file|cannot|can't|invalid|unknown|refused|timed out`, 대소문자 무시, 단어 일치)이 있는 마지막 줄을 쓴다.
   - `parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]` — `start_line` 이후만 읽고, 마지막으로 완전히 읽은 줄 번호를 돌려준다.
   - `session_kind(turns: list[Turn], cfg: dict) -> str` — `"eval"`(오류 문구에 `eval_markers` 포함), `"worker"`(첫 발화가 `[ibs-`·`executor`·`Read the brief`·`export HERDR_PW_WORKER`·`## 격리` 로 시작), 그 밖은 `"normal"`.
 

@@ -142,3 +142,49 @@ def test_queued_command_prompt_starts_new_human_turn():
     assert [c.name for c in turns[0].calls] == ["Bash"]
     assert [c.name for c in turns[1].calls] == ["Edit"]
     assert turns[2].ai_tail == "사용법 절을 고치고 예시를 넣었습니다."
+
+
+DOC_THEN_ERROR = "Exit code 1\n# 개발 티켓\n\n본문 첫 줄입니다\n둘째 줄\ngrep: x: No such file or directory"
+
+
+def test_bash_error_line_prefers_last_error_pattern_line():
+    assert transcript._error_line(DOC_THEN_ERROR, "Bash") == "grep: x: No such file or directory"
+    assert transcript._error_line("Exit code 1\nwarning: a failed\nok\nfatal: not a git repository", "Bash") == "fatal: not a git repository"
+    assert transcript._error_line("Exit code 2\nusage: x\nCan't open file", "Bash") == "Can't open file"
+    assert transcript._error_line("Exit code 1\nconnection TIMED OUT after 5s\ndone", "Bash") == "connection TIMED OUT after 5s"
+
+
+def test_bash_error_line_word_match_only():
+    # `ValueError`·`errors`·`notfound` 는 단어 일치가 아니다 → 기존 규칙(Traceback 마지막 예외 줄, 아니면 첫 줄)
+    tb = "Traceback (most recent call last):\n  File \"x.py\", line 3\nValueError: bad"
+    assert transcript._error_line(tb, "Bash") == "ValueError: bad"
+    assert transcript._error_line("Exit code 1\nfirst line\n3 errors found here", "Bash") == "first line"
+
+
+def test_bash_doc_only_output_keeps_first_remaining_line():
+    assert transcript._error_line("Exit code 1\n# 개발 티켓\n\n본문 첫 줄입니다\n둘째 줄", "Bash") == "본문 첫 줄입니다"
+
+
+def test_non_bash_error_line_unchanged():
+    assert transcript._error_line(DOC_THEN_ERROR, "Read") == "본문 첫 줄입니다"
+    assert transcript._error_line(DOC_THEN_ERROR) == "본문 첫 줄입니다"
+
+
+def test_parse_bash_doc_then_error_topic(tmp_path):
+    import json
+
+    lines = [
+        {"type": "user", "message": {"role": "user", "content": "티켓 찾아줘"}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "b1", "name": "Bash", "input": {"command": "cat t.md; grep x y"}},
+            {"type": "tool_use", "id": "r1", "name": "Read", "input": {"file_path": "/t.md"}},
+        ]}},
+        {"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "b1", "content": DOC_THEN_ERROR, "is_error": True},
+            {"type": "tool_result", "tool_use_id": "r1", "content": DOC_THEN_ERROR, "is_error": True},
+        ]}},
+    ]
+    p = tmp_path / "s.jsonl"
+    p.write_text("".join(json.dumps(l, ensure_ascii=False) + "\n" for l in lines))
+    turns, _ = transcript.parse(p)
+    assert [(e.tool, e.text) for e in turns[0].errors] == [("Bash", "grep: x: No such file or directory"), ("Read", "본문 첫 줄입니다")]

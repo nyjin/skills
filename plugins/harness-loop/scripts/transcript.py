@@ -86,6 +86,7 @@ LS_LINE = re.compile(r"[dlcbps.\-]([rwxsStT\-]{9})[@+.]?\s")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 TRACEBACK = "Traceback (most recent call last):"
 EXCEPTION_LINE = re.compile(r"[\w.]*(Error|Exception|Exit|Interrupt)\b.*")
+BASH_ERROR = re.compile(r"\b(?:error|exception|fatal|failed|failure|denied|not found|no such file|cannot|can't|invalid|unknown|refused|timed out)\b", re.I)
 
 
 def _skippable(line):
@@ -93,9 +94,13 @@ def _skippable(line):
     return bool(SKIP_LINE.match(line)) or bool(ls and any(ch in "rwx" for ch in ls.group(1))) or not any(ch.isalnum() for ch in line)
 
 
-def _error_line(text):
-    """오류 주제 줄. ANSI 이스케이프를 지운 뒤, Traceback 이면 마지막 예외 줄, 아니면 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 줄(`total N` 포함)·글자나 숫자가 없는 줄을 건너뛴 첫 줄. 다 건너뛰면 빈 문자열."""
+def _error_line(text, tool=""):
+    """오류 주제 줄. ANSI 이스케이프를 지운 뒤, Bash 오류면 건너뛸 줄을 뺀 나머지 중 오류 낱말(BASH_ERROR)이 있는 마지막 줄, 그다음 Traceback 이면 마지막 예외 줄, 아니면 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 줄(`total N` 포함)·글자나 숫자가 없는 줄을 건너뛴 첫 줄. 다 건너뛰면 빈 문자열."""
     lines = [l.strip() for l in ANSI.sub("", text).splitlines() if l.strip()]
+    if tool == "Bash":
+        hits = [l for l in lines if BASH_ERROR.search(l) and not _skippable(l)]
+        if hits:
+            return hits[-1][:200]
     if TRACEBACK in lines:
         exc = [l for l in lines if EXCEPTION_LINE.match(l) and not _skippable(l)]
         if exc:
@@ -133,7 +138,8 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                             turn.rejected.append(b.get("tool_use_id"))
                         elif b.get("is_error"):
                             cid = b.get("tool_use_id")
-                            turn.errors.append(ToolError(cid, tools.get(cid, ""), _error_line(body)))
+                            tool = tools.get(cid, "")
+                            turn.errors.append(ToolError(cid, tool, _error_line(body, tool)))
                 text = _human_text(content)
                 if text is None or text.startswith(CONTINUED):
                     continue

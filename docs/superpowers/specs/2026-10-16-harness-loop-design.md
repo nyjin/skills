@@ -122,7 +122,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 잡음 규칙:
 
 - 권한 프롬프트 오류(`requires approval`, `multiple operations` 등)는 신호가 아니다.
-- C1 토픽은 오류 본문에서 건너뛸 줄을 뺀 첫 줄이다. 건너뛰는 줄은 `Exit code N`, 셔뱅(`#!`), 마크다운 제목(`# `~`###### `), `ls -l` 출력의 `total N` 줄과 권한 표기로 시작하는 줄(`drwxr-xr-x  2 …`, 링크 수가 없는 lsd·eza 형식과 그 일반 파일 표기 `.rw-r--r--` 포함. 권한 9자에 r·w·x 가 하나도 없으면 건너뛰지 않는다), 글자·숫자가 없는 줄(구분선·괄호만 있는 줄)이다. 본문에 `Traceback (most recent call last):` 줄이 있으면 마지막 예외 줄(`…Error`·`…Exception` 등)을 토픽으로 쓴다. 모든 줄을 건너뛰면 토픽이 없으므로 C1 신호를 만들지 않는다(`Exit code N` 단독 오류가 여기에 해당한다).
+- C1 토픽은 오류 본문에서 건너뛸 줄을 뺀 첫 줄이다. 건너뛰는 줄은 `Exit code N`, 셔뱅(`#!`), 마크다운 제목(`# `~`###### `), `ls -l` 출력의 `total N` 줄과 권한 표기로 시작하는 줄(`drwxr-xr-x  2 …`, 링크 수가 없는 lsd·eza 형식과 그 일반 파일 표기 `.rw-r--r--` 포함. 권한 9자에 r·w·x 가 하나도 없으면 건너뛰지 않는다), 글자·숫자가 없는 줄(구분선·괄호만 있는 줄)이다. 본문에 `Traceback (most recent call last):` 줄이 있으면 마지막 예외 줄(`…Error`·`…Exception` 등)을 토픽으로 쓴다. `Bash` 오류는 이보다 먼저, 건너뛸 줄을 뺀 나머지 줄 중 오류 낱말(`error`·`exception`·`fatal`·`failed`·`failure`·`denied`·`not found`·`no such file`·`cannot`·`can't`·`invalid`·`unknown`·`refused`·`timed out`, 대소문자 무시, 단어 단위)이 있는 마지막 줄을 토픽으로 쓴다. 문서를 출력한 뒤 실패한 명령(`cat 문서; grep …`)에서 문서 첫 줄 대신 실제 오류 줄을 잡기 위해서다. 다른 도구는 이 규칙을 쓰지 않는다. 모든 줄을 건너뛰면 토픽이 없으므로 C1 신호를 만들지 않는다(`Exit code N` 단독 오류가 여기에 해당한다).
 - 스킬 eval 세션(훅 차단 메시지로 식별)은 수집하지 않는다.
 - 워커 세션(dispatcher 가 보낸 브리프로 시작)은 C1·C3·C10 만 수집한다.
 - 다른 스킬 파일 수정은 그 스킬을 작업 대상으로 한 것이라 스킬 결함 신호가 아니다. 실행 중인 그 스킬 자신의 파일을 고친 경우만 C1 후보다.
