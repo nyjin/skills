@@ -97,7 +97,7 @@ def test_merge_twice_same_sig_appends_evidence_keeps_approved(tmp_projects):
     assert it["score"] == pytest.approx(2.2)
     assert it["scores"] == {"recurrence": 1, "impact": 3, "actionability": 3}
     assert it["sessions"] == 1
-    assert it["target"] == {"path": "/r/skills/ticket-creator/SKILL.md", "owner": "unknown"}
+    assert it["target"] == {"path": "/r/skills/ticket-creator/SKILL.md", "owner": "new"}
     assert it["duplicate_of_rule"] is None and it["rule_unenforced"] is False
 
     hdir = state.harness_dir(t)
