@@ -332,3 +332,16 @@ def test_merge_keeps_watch_left_by_plugin_cache_regression(tmp_projects):
     got = state.load_items(state.harness_dir(t))
     assert got["C1:app-not-installed"]["status"] == "watch"
     assert got["C1:plain"]["status"] == "propose"
+
+
+def test_rescore_keeps_watch_left_by_plugin_cache_regression(tmp_projects):
+    base = {"condition": "C1", "status": "watch", "scores": {"recurrence": 1, "impact": 3, "actionability": 3}, "score": 2.2, "sessions": 1,
+            "target": {"path": "/c/SKILL.md", "owner": "plugin_cache"}, "evidence": EV, "skills": {}, "duplicate_of_rule": None, "rule_unenforced": False}
+    h = other_session(tmp_projects, "s1", items={
+        "C1:a": {**base, "sig": "C1:a", "regressed_after": "2026-10-01T09:00:00+09:00"},
+        "C1:b": {**base, "sig": "C1:b"}})
+    state.data_dir().joinpath("scoring.yaml").write_text("propose: 1.0\nwatch: 0.5\n")
+    judge.rescore()
+    got = state.load_items(h)
+    assert got["C1:a"]["status"] == "watch"
+    assert got["C1:b"]["status"] == "propose"

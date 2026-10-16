@@ -284,7 +284,7 @@ def rescore() -> int:
                 total, status = score({**it, "impact": scores["impact"], "actionability": scores["actionability"]}, cfg)
             except (KeyError, TypeError):
                 continue
-            if it.get("status") in KEPT:
+            if it.get("status") in KEPT or (it.get("status") == "watch" and it.get("regressed_after")):
                 status = it["status"]
             if total != it.get("score") or status != it.get("status") or scores != stored:
                 it["score"], it["status"], it["scores"] = total, status, scores
