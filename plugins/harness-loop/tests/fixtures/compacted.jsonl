@@ -1,0 +1,9 @@
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": "This session is being continued from a previous conversation that ran out of context. Summary: sample."}, "isCompactSummary": true}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": [{"type": "text", "text": "<command-name>/clear</command-name>"}]}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": "README 고쳐줘"}}
+{"type": "assistant", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "e1", "name": "Edit", "input": {"file_path": "/tmp/proj/README.md", "old_string": "a", "new_string": "b"}}]}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "e1", "content": "The user doesn't want to proceed with this tool use. The tool use was rejected.", "is_error": true}]}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": [{"type": "text", "text": "[Request interrupted by user for tool use]"}]}}
+{"type": "assistant", "isSidechain": true, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "s1", "name": "Bash", "input": {"command": "ls"}}]}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": "다시 해봐"}}
+{"type": "assistant", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "text", "text": "API Error: The response stopped arriving."}]}, "isApiErrorMessage": true}

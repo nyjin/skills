@@ -1,0 +1,2 @@
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": "<pasted_content id=\"p1\">## 격리\n이 워커는 자기 worktree 안에서만 작업한다.</pasted_content>\n작업을 시작해"}}
+{"type": "assistant", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "text", "text": "작업을 시작합니다."}]}}
