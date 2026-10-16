@@ -15,7 +15,7 @@ import state
 import transcript
 from transcript import Turn
 
-PERMISSION_NOISE = ("requires approval", "multiple operations", "was blocked. For security", "Contains simple_expansion", "changes directory before", "This session is isolated in the worktree")
+PERMISSION_NOISE = ("requires approval", "multiple operations", "was blocked. For security", "Contains simple_expansion", "changes directory before", "This session is isolated in the worktree", "Claude requested permissions to")
 CORRECTION = re.compile(r"^아니|그게 아니|말고|왜 .{0,20}(했|하지|하냐)|다시 (해|하|작성)|취지|벗어나|대충|빈약|지나치|너무 (길|많|복잡)")
 QUESTION = re.compile(r"(할까요|갈까요|될까요|드릴까요|볼까요|좋을까요|괜찮을까요|어떨까요)\??\s*$")
 BARE_YES = re.compile(r"^(네|넵|예|어|응|ㅇㅇ|ㅇㅋ|좋아요?|진행|ok|yes|그래)(?![가-힣A-Za-z])", re.I)
@@ -149,7 +149,10 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
             add("C6:?", turn, turn.user, _skill_of(prev))
         # C8
         if not any(c.name == "Skill" for c in turn.calls):
-            for slash, word in SKILL_MENTION.findall(turn.user):
+            for m in SKILL_MENTION.finditer(turn.user):
+                slash, word = m.groups()
+                if slash and ":" not in slash and turn.user[:m.start(1)].strip() != "/":
+                    continue
                 add(f"C8:skill:{slash or word}", turn, turn.user, slash or word)
         searches = sum(1 for c in turn.calls if SEARCH_CMD.search(_cmd(c)))
         if searches >= 5 and not any("codegraph" in c.name or "codegraph" in _cmd(c) for c in turn.calls) and _codegraph_repo(turn.cwd):

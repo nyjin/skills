@@ -71,18 +71,21 @@ def _first_line(text):
     return next((l.strip() for l in text.splitlines() if l.strip()), "")[:200]
 
 
-SKIP_LINE = re.compile(r"Exit code \d+$|#!|#{1,6}\s|total \d+$|[dlcbps\-][rwxsStT\-]{9}[@+.]?\s+\d")
+SKIP_LINE = re.compile(r"Exit code \d+$|#!|#{1,6}\s|total \d+$")
+LS_LINE = re.compile(r"[dlcbps\-]([rwxsStT\-]{9})[@+.]?\s")
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 TRACEBACK = "Traceback (most recent call last):"
 EXCEPTION_LINE = re.compile(r"[\w.]*(Error|Exception|Exit|Interrupt)\b.*")
 
 
 def _skippable(line):
-    return bool(SKIP_LINE.match(line)) or not any(ch.isalnum() for ch in line)
+    ls = LS_LINE.match(line)
+    return bool(SKIP_LINE.match(line)) or bool(ls and any(ch in "rwx" for ch in ls.group(1))) or not any(ch.isalnum() for ch in line)
 
 
 def _error_line(text):
-    """오류 주제 줄. Traceback 이면 마지막 예외 줄, 아니면 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 줄(`total N` 포함)·글자나 숫자가 없는 줄을 건너뛴 첫 줄. 다 건너뛰면 빈 문자열."""
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    """오류 주제 줄. ANSI 이스케이프를 지운 뒤, Traceback 이면 마지막 예외 줄, 아니면 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 줄(`total N` 포함)·글자나 숫자가 없는 줄을 건너뛴 첫 줄. 다 건너뛰면 빈 문자열."""
+    lines = [l.strip() for l in ANSI.sub("", text).splitlines() if l.strip()]
     if TRACEBACK in lines:
         exc = [l for l in lines if EXCEPTION_LINE.match(l) and not _skippable(l)]
         if exc:

@@ -235,3 +235,26 @@ def test_worktree_isolation_denial_is_c1_noise():
     text = "This session is isolated in the worktree /w/x. Edit outside is blocked"
     t = T(1, "해줘", [bash("a", "x"), bash("b", "y")], [ToolError("a", "Bash", text)])
     assert by_cond(collect.signals([t], "normal"), "C1") == []
+
+
+def test_permission_request_denial_is_c1_noise():
+    text = "Claude requested permissions to write to /w/x.md, but you haven't granted it yet."
+    t = T(1, "해줘", [bash("a", "x"), bash("b", "y")], [ToolError("a", "Bash", text)])
+    assert by_cond(collect.signals([t], "normal"), "C1") == []
+
+
+def test_ansi_escapes_stripped_from_c1_topic():
+    body = "\x1b[31m[bat error]\x1b[0m: 'x': No such file"
+    text = transcript._error_line(body)
+    assert text == "[bat error]: 'x': No such file"
+    t = T(1, "해줘", [bash("a", "cat x"), bash("b", "ls")], [ToolError("a", "Bash", text)])
+    assert sigs_of([t]) == ["C1:[bat error]: 'x': No such file"]
+
+
+def test_c8_slash_mention_only_plugin_form_or_utterance_start():
+    assert by_cond(collect.signals([T(1, "ls /tmp 해줘")], "normal"), "C8") == []
+    assert by_cond(collect.signals([T(1, "cat /nonexistent-probe-1 결과 알려줘")], "normal"), "C8") == []
+    assert "C8:skill:harness-loop:retro" in sigs_of([T(1, "/harness-loop:retro 를 했는데")])
+    assert "C8:skill:harness-loop:retro" in sigs_of([T(1, "아까 /harness-loop:retro 를 했는데")])
+    assert "C8:skill:eli5" in sigs_of([T(1, "  /eli5 설명해줘")])
+    assert [x["sig"] for x in by_cond(collect.signals([T(1, "/tmpfoo 말고 ls /tmp 해줘")], "normal"), "C8")] == ["C8:skill:tmpfoo"]

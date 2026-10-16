@@ -109,6 +109,14 @@ def test_error_line_skips_headings_and_ls_listing():
     assert transcript._error_line("---------- ERROR: x ----------\nmore") == "---------- ERROR: x ----------"
 
 
+def test_error_line_skips_ls_listing_without_link_count():
+    assert transcript._error_line("drwxr-xr-x yeonjin.roh wheel 160 B Fri Oct 16 12:00:00 2026 .\nboom") == "boom"
+    assert transcript._error_line("drwxr-xr-x  5 u  staff  160 Oct 16 12:00 .\nboom") == "boom"
+    assert transcript._error_line("-rw-r--r--@ u staff 10 B a\nboom") == "boom"
+    assert transcript._error_line("---------- ERROR: x ----------\nmore") == "---------- ERROR: x ----------"
+    assert transcript._error_line("---------- x\nmore") == "---------- x"
+
+
 def test_error_line_traceback_takes_last_exception_line():
     tb = "Traceback (most recent call last):\n  File \"x.py\", line 3, in <module>\nKeyError: 'a'"
     assert transcript._error_line(tb) == "KeyError: 'a'"
