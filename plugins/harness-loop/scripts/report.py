@@ -160,8 +160,9 @@ def _regress(hdir: Path, items: dict, decided: dict, started: datetime, sources:
 
 
 def _log_locked(what: str, hdir: Path) -> None:
+    """락 경합은 훅 오류가 아니라 hook-events.log 에 한 줄 남긴다(SessionStart 의 훅 오류 건수에 들어가지 않는다)."""
     try:
-        with open(_errors_log(), "a", encoding="utf-8") as f:
+        with open(state.data_dir() / "hook-events.log", "a", encoding="utf-8") as f:
             f.write(f"{_now().isoformat()} report {what}: 세션 {hdir.parent.name} 이 잠겨 있어 건너뜀 ({hdir})\n")
     except OSError:
         pass

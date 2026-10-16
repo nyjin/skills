@@ -389,6 +389,11 @@ def error_lines():
     return log.read_text().splitlines() if log.exists() else []
 
 
+def event_lines():
+    log = state.data_dir() / "hook-events.log"
+    return log.read_text().splitlines() if log.exists() else []
+
+
 def test_regressions_skip_locked_session_and_retry_later(tmp_projects):
     old = transcript(tmp_projects, "old", start=T0)
     put_items(old, item("C1:a", status="approved"))
@@ -397,7 +402,8 @@ def test_regressions_skip_locked_session_and_retry_later(tmp_projects):
     assert state.acquire_lock(hdir_of(new))
     assert report.regressions() == []
     assert "C1:a" not in state.load_items(hdir_of(new))
-    assert len(error_lines()) == 1 and "new" in error_lines()[0]
+    assert len(event_lines()) == 1 and "new" in event_lines()[0]
+    assert error_lines() == [] and report.hook_errors() == (0, 0)   # 락 경합은 훅 오류가 아니다
     state.release_lock(hdir_of(new))
     assert [c["sig"] for c in report.regressions()] == ["C1:a"]
     assert not (hdir_of(new) / "lock").exists()
@@ -411,7 +417,8 @@ def test_mark_reported_skips_locked_session(tmp_projects):
     report.mark_reported(report.pending(5))
     assert "reported_at" not in state.load_items(hdir_of(t1))["C1:a"]
     assert state.load_items(hdir_of(t2))["C1:b"]["reported_at"]
-    assert len(error_lines()) == 1 and "s1" in error_lines()[0]
+    assert len(event_lines()) == 1 and "s1" in event_lines()[0]
+    assert error_lines() == [] and report.hook_errors() == (0, 0)
     assert (hdir_of(t1) / "lock").exists() and not (hdir_of(t2) / "lock").exists()
 
 
