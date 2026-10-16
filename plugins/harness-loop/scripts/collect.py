@@ -34,7 +34,7 @@ INLINE_PY = re.compile(r"^(?:uv run\s+)?python3?\s+(?:-c\b|-\s*<<|<<)")
 PY_IMPORT = re.compile(r"(?:^|[;\n])\s*(?:import\s+([\w., ]+)|from\s+([\w.]+)\s+import)")
 PY_STD = {"sys", "os", "re", "json", "collections"}
 EDITS = {"Edit", "Write", "MultiEdit"}
-JUDGED = {"C2", "C5", "C6", "C7", "C9"}
+JUDGED = {"C2", "C5", "C6", "C9"}
 WORKER_ONLY = {"C1", "C3", "C10"}
 
 
@@ -111,7 +111,7 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
         order = {c.id: i for i, c in enumerate(turn.calls)}
         # C1
         for e in turn.errors:
-            if any(p in e.text for p in PERMISSION_NOISE) or EXIT_CODE.fullmatch(e.text.strip()):
+            if not e.text.strip() or any(p in e.text for p in PERMISSION_NOISE) or EXIT_CODE.fullmatch(e.text.strip()):
                 continue
             i = order.get(e.call_id)
             if i is not None and i + 1 < len(turn.calls):
@@ -119,13 +119,11 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
         for c in turn.calls:
             if c.name in EDITS and c.skill and _owns((c.input or {}).get("file_path", ""), c.skill):
                 add("C1:skill-self-edit", turn, c.input.get("file_path"), c.skill)
-        # C2·C7
+        # C2·C7 후보 — C7 여부는 judge 가 condition 으로 고른다
         if prev and CORRECTION.search(turn.user):
-            for sig in ("C2:?", "C7:?"):
-                add(sig, turn, turn.user, _skill_of(prev))
+            add("C2:?", turn, turn.user, _skill_of(prev))
         if turn.rejected or turn.interrupted:
-            for sig in ("C2:?", "C7:?"):
-                add(sig, turn, turn.user, _skill_of(turn))
+            add("C2:?", turn, turn.user, _skill_of(turn))
         # C3
         for c in turn.calls:
             cmd = _cmd(c)

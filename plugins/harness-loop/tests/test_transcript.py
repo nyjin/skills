@@ -84,12 +84,31 @@ def test_resume_after_turn_keeps_session_index():
 
 def test_bash_error_text_skips_exit_code_line():
     turns, _ = transcript.parse(FIX / "signals.jsonl")
-    assert [e.text for e in turns[0].errors if e.tool == "Bash"] == ["This command requires approval", "Exit code 1", "error: unknown flag --json"]
+    assert [e.text for e in turns[0].errors if e.tool == "Bash"] == ["This command requires approval", "", "error: unknown flag --json"]
 
 
 def test_error_line_skips_symbol_only_and_shebang_lines():
     assert transcript._error_line("---\n{\nreal error: x\n}") == "real error: x"
     assert transcript._error_line("Exit code 2\n---\nboom") == "boom"
     assert transcript._error_line("#!/bin/bash\nfoo: not found") == "foo: not found"
-    assert transcript._error_line("---") == "---"
-    assert transcript._error_line("Exit code 1") == "Exit code 1"
+
+
+def test_error_line_empty_when_every_line_skipped():
+    for body in ("---", "Exit code 1", "### 제목", "Exit code 1\n# 개발 티켓\n}"):
+        assert transcript._error_line(body) == ""
+
+
+def test_error_line_skips_headings_and_ls_listing():
+    assert transcript._error_line("### Error\nfoo failed") == "foo failed"
+    assert transcript._error_line("# 개발 티켓\n본문 첫 줄") == "본문 첫 줄"
+    assert transcript._error_line("#제목없음 붙은 해시") == "#제목없음 붙은 해시"
+    ls = "drwxr-xr-x  5 u  staff  160 Oct 16 12:00 .\n-rw-r--r--  1 u  staff  10 Oct 16 12:00 a.txt\nls: b: No such file or directory"
+    assert transcript._error_line(ls) == "ls: b: No such file or directory"
+
+
+def test_error_line_traceback_takes_last_exception_line():
+    tb = "Traceback (most recent call last):\n  File \"x.py\", line 3, in <module>\nKeyError: 'a'"
+    assert transcript._error_line(tb) == "KeyError: 'a'"
+    chained = "Exit code 1\nTraceback (most recent call last):\nValueError: first\n\nDuring handling...\nTraceback (most recent call last):\n  File \"y.py\"\nmod.CustomException: last"
+    assert transcript._error_line(chained) == "mod.CustomException: last"
+    assert transcript._error_line("Traceback (most recent call last):\n  File \"x.py\", line 3") == "Traceback (most recent call last):"

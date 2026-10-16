@@ -71,16 +71,23 @@ def _first_line(text):
     return next((l.strip() for l in text.splitlines() if l.strip()), "")[:200]
 
 
+SKIP_LINE = re.compile(r"Exit code \d+$|#!|#{1,6}\s|[d\-lcbps][rwx\-]{9}")
+TRACEBACK = "Traceback (most recent call last):"
+EXCEPTION_LINE = re.compile(r"\w[\w.]*(Error|Exception|Exit|Interrupt)\b.*")
+
+
 def _skippable(line):
-    return bool(re.fullmatch(r"Exit code \d+", line)) or line.startswith("#!") or not any(ch.isalnum() for ch in line)
+    return bool(SKIP_LINE.match(line)) or not any(ch.isalnum() for ch in line)
 
 
 def _error_line(text):
-    """오류 첫 줄. 앞쪽의 `Exit code N`·셔뱅·글자나 숫자가 없는 줄은 뒤에 내용이 더 있으면 건너뛴다."""
+    """오류 주제 줄. Traceback 이면 마지막 예외 줄, 아니면 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 줄·글자나 숫자가 없는 줄을 건너뛴 첫 줄. 다 건너뛰면 빈 문자열."""
     lines = [l.strip() for l in text.splitlines() if l.strip()]
-    while len(lines) > 1 and _skippable(lines[0]):
-        lines.pop(0)
-    return lines[0][:200] if lines else ""
+    if TRACEBACK in lines:
+        exc = [l for l in lines if EXCEPTION_LINE.match(l)]
+        if exc:
+            return exc[-1][:200]
+    return next((l for l in lines if not _skippable(l)), "")[:200]
 
 
 def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:

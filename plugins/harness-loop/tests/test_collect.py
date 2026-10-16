@@ -95,7 +95,7 @@ def test_worker_has_no_c2_c4_c9():
 def test_worker_collects_only_c1_c3_c10():
     edit = Call("e", "Edit", {"file_path": "/tmp/a"}, None)
     ts = [T(1, "ticket-creator 스킬로 고쳐줘", [edit], ai_tail="앞서 말한 원인은 가정이었습니다."), T(2, "아니 되돌려줘"), T(3, "끝났어?")]
-    assert {x["condition"] for x in collect.signals(ts, "normal")} >= {"C2", "C5", "C6", "C7", "C8", "C10", "C11"}
+    assert {x["condition"] for x in collect.signals(ts, "normal")} >= {"C2", "C5", "C6", "C8", "C10", "C11"}
     assert {x["condition"] for x in collect.signals(ts, "worker")} == {"C10"}
     assert {x["condition"] for x in collect.signals(turns("compacted.jsonl"), "worker")} == set()
 
@@ -103,9 +103,14 @@ def test_worker_collects_only_c1_c3_c10():
 def test_c2_c7_correction_rejection_and_noise():
     s = collect.signals(turns("compacted.jsonl"), "normal")
     assert [(x["sig"], x["turn"]) for x in by_cond(s, "C2")] == [("C2:?", 1), ("C2:?", 2)]
-    assert [(x["sig"], x["turn"]) for x in by_cond(s, "C7")] == [("C7:?", 1), ("C7:?", 2)]
-    assert all(x["needs_judge"] for x in by_cond(s, "C2") + by_cond(s, "C7"))
+    assert by_cond(s, "C7") == []   # C2·C7 은 C2:? 후보 하나로 모으고 judge 가 condition 을 고른다
+    assert all(x["needs_judge"] for x in by_cond(s, "C2"))
     assert by_cond(collect.signals([T(1, "해줘"), T(2, "좋아 다음 거 해줘")], "normal"), "C2") == []
+
+
+def test_c1_empty_error_topic_is_not_signal():
+    t = T(1, "해줘", [bash("a", "x"), bash("b", "y")], [ToolError("a", "Bash", "")])
+    assert by_cond(collect.signals([t], "normal"), "C1") == []
 
 
 def test_c3_repeated_command_and_trivial_excluded():

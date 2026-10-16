@@ -127,6 +127,20 @@ def test_merge_twice_same_sig_appends_evidence_keeps_approved(tmp_projects):
     assert run["mode"] == "explicit" and run["output"] == {"items": [second]} and run["signals_upto"] == 0 and run["at"]
 
 
+def test_merge_accepts_c7_item(tmp_projects):
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    items = judge.merge(t, {"items": [out_item("C7:memory-rule-ignored")]}, "explicit")
+    assert items["C7:memory-rule-ignored"]["condition"] == "C7"
+
+
+def test_merge_keeps_first_of_c2_c7_same_topic(tmp_projects):
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    out = {"items": [out_item("C7:skipped-epic", proposal="첫째"), out_item("C2:other"), out_item("C2:skipped-epic", proposal="둘째"), out_item("C1:skipped-epic"), out_item("C7:skipped-epic", proposal="셋째")]}
+    items = judge.merge(t, out, "explicit")
+    assert sorted(items) == ["C1:skipped-epic", "C2:other", "C7:skipped-epic"]
+    assert items["C7:skipped-epic"]["proposal"] == "셋째"   # 같은 sig 는 기존처럼 뒤 항목이 덮어쓴다
+
+
 def test_merge_recomputes_status_unless_kept(tmp_projects):
     t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
     judge.merge(t, {"items": [out_item()]}, "explicit")   # watch 2.2
@@ -233,6 +247,8 @@ def test_digest_contains_rubric_signals_existing_sigs(tmp_projects):
     assert "`?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다." in md
     assert "`sess-a`" in md
     assert '"rule_unenforced"' in md
+    assert judge.C2_C7_RULE in md
+    assert "C2" in judge.C2_C7_RULE and "C7" in judge.C2_C7_RULE and "하나" in judge.C2_C7_RULE
 
 
 def test_digest_cli_uses_pending_signals(tmp_projects, capsys):
