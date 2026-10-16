@@ -408,3 +408,17 @@ def test_decide_waits_for_lock_release(tmp_projects, monkeypatch):
     assert state.load_items(hdir_of(t))["C1:a"]["status"] == "approved"
     assert state.load_decisions()["C1:a"]["decision"] == "approved"
     assert not (hdir_of(t) / "lock").exists()
+
+
+def test_regressions_and_report_find_transcript_outside_projects_root(tmp_projects, tmp_path):
+    old = transcript(tmp_projects, "old", start=T0)
+    put_items(old, item("C1:a", status="approved"))
+    state.append_decision("C1:a", "approved")
+    when = datetime(2026, 10, 15, 12, 0).astimezone()
+    outside = transcript(tmp_path / "home" / ".claude" / "projects", "new", start=datetime.now().astimezone() + timedelta(hours=1), mtime=when)
+    h = state.harness_dir(outside)
+    assert h == tmp_projects / "proj" / "new" / "harness"
+    (h / "signals.jsonl").write_text(json.dumps({"sig": "C1:a", "line": 3}) + "\n")
+    assert [c["sig"] for c in report.regressions()] == ["C1:a"]
+    assert state.load_items(h)["C1:a"]["status"] == "regressed"
+    assert "(2026-10-15 proj)" in report.session_start_text([(h, item("C1:a"))], 0)

@@ -261,7 +261,7 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
         for name, n in it["skills"].items():
             skills[name] = max(skills.get(name, 0), n)
         merged["skills"] = skills
-        if old.get("status") in KEPT:
+        if old.get("status") in KEPT or (old.get("status") == "watch" and old.get("regressed_after")):
             merged["status"] = old["status"]
         items[sig] = merged
     state.save_items(hdir, items)

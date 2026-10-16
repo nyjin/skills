@@ -317,3 +317,18 @@ def test_schema_file_matches_condition_set():
     assert item["properties"]["condition"]["enum"] == [f"C{i}" for i in range(1, 12)]
     assert item["properties"]["evidence"]["minItems"] == 1
     assert item["properties"]["sig"]["pattern"] == judge.SIG.pattern
+
+
+def test_merge_keeps_watch_left_by_plugin_cache_regression(tmp_projects):
+    for sid in ("s1", "s2", "s3"):
+        other_session(tmp_projects, sid, signals=["C1:app-not-installed", "C1:plain"])
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    watch = {"sig": "C1:app-not-installed", "condition": "C1", "status": "watch", "regressed_after": "2026-10-01T09:00:00+09:00",
+             "scores": {"recurrence": 1, "impact": 3, "actionability": 3}, "score": 2.6, "sessions": 1, "target": {"path": "/c/SKILL.md", "owner": "plugin_cache"}, "evidence": [], "skills": {}}
+    plain = {**watch, "sig": "C1:plain"}
+    del plain["regressed_after"]
+    state.save_items(state.harness_dir(t), {"C1:app-not-installed": watch, "C1:plain": plain})
+    judge.merge(t, {"items": [out_item(), out_item("C1:plain")]}, "sweep")
+    got = state.load_items(state.harness_dir(t))
+    assert got["C1:app-not-installed"]["status"] == "watch"
+    assert got["C1:plain"]["status"] == "propose"

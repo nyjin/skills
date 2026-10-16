@@ -32,7 +32,8 @@ def _aware(text: str) -> datetime:
 
 
 def _transcript_of(hdir: Path) -> Path:
-    return hdir.parent.parent / f"{hdir.parent.name}.jsonl"
+    t = hdir.parent.parent / f"{hdir.parent.name}.jsonl"
+    return t if t.exists() else state.find_transcript(hdir.parent.name) or t
 
 
 def _line_count(path: Path) -> int:
