@@ -1,0 +1,47 @@
+import os
+
+import state
+
+
+def test_data_dir_copies_defaults_once(tmp_projects):
+    d = state.data_dir()
+    assert (d / "scoring.yaml").exists() and (d / "installed_at").exists()
+    (d / "scoring.yaml").write_text("propose: 9\n")
+    state.data_dir()
+    assert state.load_config()["propose"] == 9
+    assert state.load_config()["queue_limit"] == 3
+
+
+def test_lock_is_exclusive_and_stale_lock_reclaimed(tmp_path):
+    assert state.acquire_lock(tmp_path) is True
+    assert state.acquire_lock(tmp_path) is False
+    os.utime(tmp_path / "lock", (0, 0))
+    assert state.acquire_lock(tmp_path, stale_sec=600) is True
+    state.release_lock(tmp_path)
+    assert not (tmp_path / "lock").exists()
+
+
+def test_cursor_and_items_roundtrip(tmp_path):
+    assert state.read_cursor(tmp_path) == 0
+    state.write_cursor(tmp_path, 42)
+    assert state.read_cursor(tmp_path) == 42
+    state.save_items(tmp_path, {"C1:x": {"sig": "C1:x", "status": "watch"}})
+    assert state.load_items(tmp_path)["C1:x"]["status"] == "watch"
+
+
+def test_decisions_last_wins(tmp_projects):
+    state.append_decision("C1:x", "rejected")
+    state.append_decision("C1:x", "approved", target="/a")
+    d = state.load_decisions()["C1:x"]
+    assert d["decision"] == "approved" and d["target"] == "/a" and d["at"]
+
+
+def test_harness_dir_and_discovery(tmp_projects):
+    t = tmp_projects / "proj" / "sess1.jsonl"
+    t.parent.mkdir()
+    t.write_text("")
+    assert state.find_transcript("sess1") == t
+    assert state.find_transcript("nope") is None
+    h = state.harness_dir(t)
+    assert h == tmp_projects / "proj" / "sess1" / "harness" and h.is_dir()
+    assert state.all_harness_dirs() == [h]

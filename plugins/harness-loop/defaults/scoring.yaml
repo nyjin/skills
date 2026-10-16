@@ -1,0 +1,7 @@
+weights: {recurrence: 0.4, impact: 0.4, actionability: 0.2}
+propose: 2.4
+watch: 1.6
+global_bump: 0.3
+queue_limit: 3
+max_background_judges_per_day: 10
+eval_markers: ["트리거 측정 중"]

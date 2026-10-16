@@ -11,5 +11,5 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "plugins/harness-loop/tests"]
 markers = ["slow: mermaid-cli 실행이 필요한 테스트"]
