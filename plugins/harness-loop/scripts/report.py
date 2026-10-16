@@ -168,10 +168,13 @@ def _log_locked(what: str, hdir: Path) -> None:
 
 
 def pending(limit: int) -> list[tuple[Path, dict]]:
+    """보고하지 않은 propose·regressed 항목. 다른 세션에서 이미 보고한 sig 는 regressed 가 아니면 다시 내지 않는다."""
+    loaded = [(hdir, state.load_items(hdir)) for hdir in state.all_harness_dirs()]
+    reported = {sig for _, items in loaded for sig, it in items.items() if it.get("reported_at")}
     out = []
-    for hdir in state.all_harness_dirs():
-        for it in state.load_items(hdir).values():
-            if it.get("status") in REPORTABLE and not it.get("reported_at"):
+    for hdir, items in loaded:
+        for sig, it in items.items():
+            if it.get("status") in REPORTABLE and not it.get("reported_at") and (it.get("status") == "regressed" or sig not in reported):
                 out.append((hdir, it))
     out.sort(key=lambda p: p[1].get("score") or 0, reverse=True)
     return out[:limit]

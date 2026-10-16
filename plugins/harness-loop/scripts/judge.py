@@ -26,6 +26,7 @@ LIVE = {"propose", "watch", "approved", "applied", "regressed"}
 JUDGE_TIMEOUT = 540
 BG_OK, BG_FAILED, BG_CAP, BG_LOCKED = 0, 1, 2, 3
 C2_C7_RULE = "`C2:?` 후보마다 항목의 `condition` 을 C2(AI 가 원치 않는 일을 했다)와 C7(메모리·CLAUDE.md 에 있는 기존 규칙을 따르지 않았거나 잘못된 곳에 저장했다) 중 하나로 골라, 후보 하나에서 항목은 최대 하나만 내고 같은 근거로 C2 항목과 C7 항목을 함께 내지 않는다."
+ITEM_RULE = "항목은 대상 파일에 바꿀 것이 있을 때만 낸다. 결함이 아니거나 고칠 것이 없으면(예: \"변경 불필요\") 항목을 내지 않는다."
 SIG_RULE = "`?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다."
 
 
@@ -120,7 +121,7 @@ def digest(transcript_path: Path, new_signals: list[dict]) -> str:
     decisions = state.load_decisions()
     parts.append("## 결정된 sig\n\n" + ("\n".join(f"- {sig}: {d['decision']}" for sig, d in sorted(decisions.items())) or "- 없음"))
 
-    parts.append(f"## sig 규칙\n\n{SIG_RULE} `?` 가 아닌 신호는 sig 를 그대로 쓴다. {C2_C7_RULE}")
+    parts.append(f"## sig 규칙\n\n{SIG_RULE} `?` 가 아닌 신호는 sig 를 그대로 쓴다. {C2_C7_RULE} {ITEM_RULE}")
     parts.append("## 출력 스키마\n\n```json\n" + SCHEMA.read_text(encoding="utf-8").strip() + "\n```")
     return "\n\n".join(parts) + "\n"
 
@@ -222,7 +223,7 @@ def _next_run(hdir: Path, mode: str) -> Path:
 def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
     if mode not in MODES:
         raise ValueError(f"mode 는 {'|'.join(MODES)} 중 하나다: {mode}")
-    new_items = _drop_c2_c7_twins(_validate(judge_output))
+    new_items = _drop_c2_c7_twins([it for it in _validate(judge_output) if (it["impact"], it["actionability"]) != (1, 1)])
     path = Path(transcript_path)
     session = path.stem
     hdir = state.harness_dir(path)

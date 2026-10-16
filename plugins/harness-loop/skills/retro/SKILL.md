@@ -61,7 +61,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" list --session "<세션ID>"
 ```
 
-7. 리포트를 출력한 바로 뒤 보고한 항목(`propose`·`regressed`)을 기록하고 턴을 끝낸다. 기록한 항목은 SessionStart 알림에 다시 나오지 않는다.
+7. 리포트를 출력한 바로 뒤 보고한 항목(`propose`·`regressed`)을 기록하고 턴을 끝낸다. 기록한 항목과 같은 sig 는 다른 세션 항목으로도 SessionStart 알림에 다시 나오지 않는다. `regressed` 항목은 예외다.
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" list --session "<세션ID>" --mark-reported
@@ -69,7 +69,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 
 ### 판정 JSON 작성 규칙
 
-- digest 신호 표의 신호를 하나씩 판정한다. 결함이 아니면 항목을 만들지 않는다.
+- digest 신호 표의 신호를 하나씩 판정한다. 결함이 아니거나 대상 파일에 바꿀 것이 없으면 항목을 만들지 않는다. `impact`·`actionability` 가 모두 1 인 항목은 병합에서 버려진다.
 - 신호로 잡히지 않았어도 대화에서 C1~C11 에 해당하는 사례를 찾으면 항목으로 넣는다.
 - `sig` 는 digest 의 "sig 규칙" 절을 따른다. `?` 를 그대로 쓰지 않는다.
 - `C2:?` 신호는 `condition` 을 C2(AI 가 원치 않는 일을 했다)와 C7(기존 메모리·CLAUDE.md 규칙을 따르지 않았거나 잘못된 곳에 저장했다) 중 하나로 고른다. 신호 하나에서 항목은 하나만 만들고, 같은 근거로 C2 항목과 C7 항목을 함께 만들지 않는다.

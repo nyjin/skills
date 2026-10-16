@@ -76,6 +76,16 @@ def test_reported_items_not_repeated(tmp_projects):
     assert [i["sig"] for _, i in report.pending(5)] == ["C1:a"]
 
 
+def test_sig_reported_once_across_sessions(tmp_projects):
+    t1 = transcript(tmp_projects, "s1")
+    t2 = transcript(tmp_projects, "s2")
+    put_items(t1, item("C1:lsd", reported_at="2026-10-16T09:00:00+09:00"))
+    put_items(t2, item("C1:lsd", score=3.0), item("C1:other"))
+    assert [(h, i["sig"]) for h, i in report.pending(5)] == [(hdir_of(t2), "C1:other")]
+    put_items(t2, item("C1:lsd", status="regressed", score=3.0), item("C1:other"))
+    assert [(h, i["sig"]) for h, i in report.pending(5)] == [(hdir_of(t2), "C1:lsd"), (hdir_of(t2), "C1:other")]
+
+
 def test_regression_after_approval(tmp_projects):
     old = transcript(tmp_projects, "old", start=T0)
     put_items(old, item("C1:a", status="approved", proposal="원래 제안"))

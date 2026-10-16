@@ -144,9 +144,24 @@ def test_merge_keeps_first_of_c2_c7_same_topic(tmp_projects):
 def test_merge_recomputes_status_unless_kept(tmp_projects):
     t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
     judge.merge(t, {"items": [out_item()]}, "explicit")   # watch 2.2
-    items = judge.merge(t, {"items": [out_item(impact=1, actionability=1)]}, "sweep")   # 0.4+0.4+0.2=1.0
+    items = judge.merge(t, {"items": [out_item(impact=1, actionability=2)]}, "sweep")   # 0.4+0.4+0.4=1.2
     assert items["C1:app-not-installed"]["status"] == "discarded"
     assert (state.harness_dir(t) / "runs" / "002-sweep.json").exists()
+
+
+def test_merge_drops_nothing_to_fix_items(tmp_projects):
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    out = {"items": [out_item("C1:lsd", impact=1, actionability=1, proposal="고칠 것 없음"), out_item("C1:low", impact=1, actionability=2), out_item("C7:x", impact=1, actionability=1), out_item("C2:x")]}
+    items = judge.merge(t, out, "explicit")
+    assert sorted(items) == ["C1:low", "C2:x"]
+    run = json.loads((state.harness_dir(t) / "runs" / "001-explicit.json").read_text())
+    assert run["output"] == out
+
+
+def test_digest_says_items_only_when_something_to_change(tmp_projects):
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    assert judge.ITEM_RULE in judge.digest(t, [])
+    assert "고칠 것" in judge.ITEM_RULE
 
 
 def test_merge_records_signals_upto(tmp_projects):
@@ -196,7 +211,7 @@ def test_rescore_after_threshold_change(tmp_projects):
     for sid in ("s1", "s2", "s3"):
         other_session(tmp_projects, sid, signals=["C1:app-not-installed"])
     t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
-    judge.merge(t, {"items": [out_item(), out_item("C1:other", impact=1, actionability=1)]}, "explicit")
+    judge.merge(t, {"items": [out_item(), out_item("C1:other", impact=1, actionability=2)]}, "explicit")
     hdir = state.harness_dir(t)
     assert state.load_items(hdir)["C1:app-not-installed"]["status"] == "propose"   # 3.0
     assert judge.rescore() == 0
@@ -205,7 +220,7 @@ def test_rescore_after_threshold_change(tmp_projects):
     assert judge.rescore() == 1
     items = state.load_items(hdir)
     assert items["C1:app-not-installed"]["status"] == "watch"
-    assert items["C1:other"]["status"] == "discarded"   # 0.4+0.4+0.2 = 1.0 그대로
+    assert items["C1:other"]["status"] == "discarded"   # 0.4+0.4+0.4 = 1.2 그대로
 
 
 def test_rescore_keeps_approved(tmp_projects):

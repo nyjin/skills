@@ -62,7 +62,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 ├── cursor               # 마지막으로 처리한 jsonl 줄 번호
 ├── signals.jsonl        # collect 결과, 호출마다 덧붙인다
 ├── runs/NNN-<explicit|session-end|sweep>.json
-└── action-items.json    # sig 를 키로 합친 현재 상태 (보고·리뷰는 이 파일만 읽는다). 항목마다 reported_at 으로 보고 여부를 표시한다
+└── action-items.json    # sig 를 키로 합친 현재 상태 (보고·리뷰는 이 파일만 읽는다). 항목마다 reported_at 으로 보고 여부를 표시한다(보고는 sig 단위로 한 번)
 ```
 
 - 세션 ID는 `CLAUDE_CODE_SESSION_ID`(명시 호출), 훅 입력의 `session_id`·`transcript_path`(SessionEnd)로 얻는다. 기록 경로는 `HARNESS_PROJECTS_ROOT`(없으면 `~/.claude/projects`)에서 찾고, `HARNESS_PROJECTS_ROOT`가 있는데 거기서 못 찾으면 `~/.claude/projects`에서 한 번 더 찾는다.
@@ -87,7 +87,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 ```
 
 - judge는 명시 호출과 SessionEnd(그리고 그 보완인 SessionStart sweep)에서만 돈다. 하루 1회 배치는 없다.
-- 명시 호출 리포트를 보여 준 뒤 그 세션의 `propose`·`regressed` 항목을 보고한 것으로 표시한다(`report.py list --session <id> --mark-reported`). SessionStart 알림은 이 항목을 다시 알리지 않는다.
+- 명시 호출 리포트를 보여 준 뒤 그 세션의 `propose`·`regressed` 항목을 보고한 것으로 표시한다(`report.py list --session <id> --mark-reported`). SessionStart 알림은 이 항목을 다시 알리지 않는다. 보고는 sig 단위로 한 번이다. 어느 세션에서든 `reported_at` 이 있는 sig 는 다른 세션의 새 항목으로도 다시 알리지 않는다. 단 `regressed` 항목은 알린다.
 - 명시 호출 judge는 현재 세션 모델이 대화 전체를 보고 판정한다. 백그라운드 judge(`claude -p`)는 `judge.py`가 조립한 다이제스트(신호, 해당 턴 발화와 AI 응답 꼬리)만 본다. C2·C5·C7처럼 맥락이 필요한 판정은 명시 호출 쪽이 더 정확하다. 백그라운드 judge 는 `--setting-sources project --strict-mcp-config` 로, 플러그인 데이터 디렉터리(`.claude/` 가 없다)를 cwd 로 실행한다. 사용자 설정의 훅·MCP 와 세션 cwd 프로젝트의 자동 메모리가 judge 에 섞이지 않는다.
 - `HARNESS_RETRO=1`이면 두 훅 모두 아무것도 하지 않는다. judge 세션이 자기 자신을 분석하지 않게 한다.
 - 서브에이전트 세션(훅 입력에 `agent_id`가 있음)에서는 두 훅 모두 아무것도 하지 않는다. `CLAUDE_CODE_CHILD_SESSION`은 가드로 쓰지 않는다. Claude Code가 보통의 최상위 세션 훅·Bash에서도 1로 설정하므로(실측) 이것으로 거르면 모든 세션이 빠진다. 워커 세션(`HERDR_PW_WORKER` 가 설정된 세션)에서는 수집은 하되 SessionStart 보고는 하지 않는다.
@@ -96,6 +96,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 - 세션마다 `harness/lock`으로 judge 동시 실행을 막는다. SessionEnd judge와 SessionStart sweep이 같은 세션을 잡으면 나중 쪽이 건너뛴다. 보고 쪽 쓰기(재발 표시, 보고 표시, 결정 기록)도 같은 락을 잡는다. 재발 표시와 보고 표시는 락이 잡혀 있으면 그 세션을 건너뛰고 `hook-errors.log`에 한 줄 남긴다. 건너뛴 재발 표시는 다음 SessionStart에서 다시 시도하고, 보고 표시를 건너뛴 항목은 다음에 다시 보고된다. 결정 기록(`decide`)은 잠시 재시도하고, 그래도 못 잡으면 아무것도 쓰지 않고 오류로 끝난다.
 - 백그라운드 judge 실행 수는 `max_background_judges_per_day`(config 값)를 넘지 않는다. 넘으면 남은 세션은 다음 날 sweep으로 미룬다. judge는 `claude -p`를 부르기 전에 `judge-runs.jsonl`에 예약 줄을 쓰고 끝나면 결과 줄을 쓴다. 하루 실행 수는 두 줄을 (세션, 시작 시각)으로 묶어 한 번만 센다. 그래서 아직 끝나지 않은 judge도 하루 실행 수에 들어간다. SessionStart는 남은 횟수만큼만 sweep judge를 띄운다.
 - 외부 플러그인 캐시 대상의 재발로 `watch`가 된 항목(`regressed_after`가 있음)은 이후 병합·재채점에서도 `watch`로 둔다. 승인·거절·반영·재발(`regressed`) 상태도 병합·재채점이 바꾸지 않는다.
+- judge 는 대상 파일에 바꿀 것이 있을 때만 항목을 낸다. 병합은 judge 가 영향·해결 가능성을 모두 1 로 준 항목을 버린다(고칠 것이 없는 항목의 결정적 하한).
 - 훅은 항상 `exit 0`으로 끝나고, 오류는 `${CLAUDE_PLUGIN_DATA}/hook-errors.log`에 쌓아 SessionStart 알림에 건수를 붙인다.
 
 ## 5. 감지 조건
