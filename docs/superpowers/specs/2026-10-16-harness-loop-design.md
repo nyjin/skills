@@ -67,7 +67,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 
 - 세션 ID는 `CLAUDE_CODE_SESSION_ID`(명시 호출), 훅 입력의 `session_id`·`transcript_path`(SessionEnd)로 얻는다. 기록 경로는 `HARNESS_PROJECTS_ROOT`(없으면 `~/.claude/projects`)에서 찾고, `HARNESS_PROJECTS_ROOT`가 있는데 거기서 못 찾으면 `~/.claude/projects`에서 한 번 더 찾는다.
 - 관찰 목록은 따로 두지 않는다. `status: watch`인 항목이 살아 있는 세션 디렉터리에 남아 있는 동안이 관찰 기간이다.
-- 재발성은 `~/.claude/projects/*/*/harness/action-items.json`을 훑어 같은 sig가 나온 서로 다른 세션 수로 센다.
+- 재발성은 `projects_root()/*/*/harness/`(기본 `~/.claude/projects`, `HARNESS_PROJECTS_ROOT`가 있으면 그 루트)의 `signals.jsonl`·`action-items.json`을 훑어 같은 sig가 나온 서로 다른 세션 수로 센다.
 
 ## 4. 흐름
 
@@ -92,7 +92,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 - `HARNESS_RETRO=1`이면 두 훅 모두 아무것도 하지 않는다. judge 세션이 자기 자신을 분석하지 않게 한다.
 - 서브에이전트 세션(훅 입력에 `agent_id`가 있음)에서는 두 훅 모두 아무것도 하지 않는다. `CLAUDE_CODE_CHILD_SESSION`은 가드로 쓰지 않는다. Claude Code가 보통의 최상위 세션 훅·Bash에서도 1로 설정하므로(실측) 이것으로 거르면 모든 세션이 빠진다. 워커 세션(`HERDR_PW_WORKER` 가 설정된 세션)에서는 수집은 하되 SessionStart 보고는 하지 않는다.
 - SessionStart 훅 matcher는 `startup|resume`이다. compact·clear 때는 다시 보고하지 않는다.
-- sweep은 플러그인 설치 이후에 수정된 기록만 대상으로 한다. 최근 10분 안에 바뀐 기록(아직 열려 있을 세션)과 훅을 부른 세션 자신은 뺀다. 설치 전 기록은 `/harness-loop:retro backfill`로 명시적으로만 처리하고, 대상 목록은 `report.py backfill-list`가 최신순으로 낸다(`skip` 세션 제외).
+- sweep은 플러그인 설치 이후에 수정된 기록만 대상으로 한다. 최근 10분 안에 바뀐 기록(아직 열려 있을 세션)과 훅을 부른 세션 자신은 뺀다. 설치 전 기록은 `/harness-loop:retro backfill`로 명시적으로만 처리하고, 대상 목록은 `report.py backfill-list`가 최신순으로 낸다(`skip` 세션 제외). 기록마다 `judge.py background --mode sweep`을 돌리고, 종료 코드로 결과를 나눈다: 0 판정했거나 할 일 없음, 1 판정 실패(로그 남김), 2 하루 상한, 3 세션 락이 잡혀 있음. backfill은 2에서 멈추고, 1과 3은 세고 다음 기록으로 간다.
 - 세션마다 `harness/lock`으로 judge 동시 실행을 막는다. SessionEnd judge와 SessionStart sweep이 같은 세션을 잡으면 나중 쪽이 건너뛴다. 보고 쪽 쓰기(재발 표시, 보고 표시, 결정 기록)도 같은 락을 잡는다. 재발 표시와 보고 표시는 락이 잡혀 있으면 그 세션을 건너뛰고 `hook-errors.log`에 한 줄 남긴다. 건너뛴 재발 표시는 다음 SessionStart에서 다시 시도하고, 보고 표시를 건너뛴 항목은 다음에 다시 보고된다. 결정 기록(`decide`)은 잠시 재시도하고, 그래도 못 잡으면 아무것도 쓰지 않고 오류로 끝난다.
 - 백그라운드 judge 실행 수는 `max_background_judges_per_day`(config 값)를 넘지 않는다. 넘으면 남은 세션은 다음 날 sweep으로 미룬다. judge는 `claude -p`를 부르기 전에 `judge-runs.jsonl`에 예약 줄을 쓰고 끝나면 결과 줄을 쓴다. 하루 실행 수는 두 줄을 (세션, 시작 시각)으로 묶어 한 번만 센다. 그래서 아직 끝나지 않은 judge도 하루 실행 수에 들어간다. SessionStart는 남은 횟수만큼만 sweep judge를 띄운다.
 - 외부 플러그인 캐시 대상의 재발로 `watch`가 된 항목(`regressed_after`가 있음)은 이후 병합·재채점에서도 `watch`로 둔다. 승인·거절·반영·재발(`regressed`) 상태도 병합·재채점이 바꾸지 않는다.

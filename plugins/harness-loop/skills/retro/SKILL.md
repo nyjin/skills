@@ -17,7 +17,7 @@ argument-hint: "[review | backfill [--days N]]"
 - 임시 파일은 작업용 임시 디렉터리(scratchpad)에 쓴다. 아래에서는 `<tmp>` 로 적는다.
 - 사용자 결정은 자유 입력으로만 받는다. 선택지 질문 도구는 쓰지 않는다.
 - 리포트를 출력하면 그 턴을 끝내고 사용자 입력을 기다린다. 현재 세션 회고는 보고 기록(7단계)까지 마친 뒤 다른 출력 없이 턴을 끝낸다.
-- 스크립트가 0 이 아닌 코드로 끝나면 stderr 를 그대로 보여 주고 그 모드를 멈춘다. 단, `judge.py merge` 가 검증 오류로 끝나면 JSON 을 고쳐 다시 실행한다.
+- 스크립트가 0 이 아닌 코드로 끝나면 stderr 를 그대로 보여 주고 그 모드를 멈춘다. 단, `judge.py merge` 가 검증 오류로 끝나면 JSON 을 고쳐 다시 실행하고, backfill 의 `judge.py background` 종료 코드는 그 절의 규칙을 따른다.
 
 ## 모드
 
@@ -107,8 +107,16 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" background "<transcript>" --mode sweep
 ```
 
-4. 종료 코드 1 이면 `${CLAUDE_PLUGIN_DATA}/hook-errors.log` 끝줄을 본다. 이번 기록의 새 줄이 있으면 실패로 세고 다음 기록으로 간다. 새 줄이 없으면 하루 상한(`max_background_judges_per_day`)에 걸린 것으로 보고 멈춘다.
-5. 처리 수(성공·실패·남은 기록)를 보고한다. 새로 생긴 검토 대기 항목은 `review` 로 본다.
+4. 종료 코드별로 처리한다.
+
+| 종료 코드 | 뜻 | 처리 |
+|---|---|---|
+| 0 | 판정했거나 할 일이 없다 | 성공으로 세고 다음 기록으로 간다 |
+| 1 | 판정 실패(`${CLAUDE_PLUGIN_DATA}/hook-errors.log` 에 사유가 남는다) | 실패로 세고 다음 기록으로 간다 |
+| 2 | 하루 상한(`max_background_judges_per_day`)에 걸렸다 | 멈추고 5단계로 간다 |
+| 3 | 그 세션의 락이 잡혀 있다(판정 중) | 건너뜀으로 세고 다음 기록으로 간다 |
+
+5. 처리 수(성공·실패·건너뜀·남은 기록)를 보고한다. 새로 생긴 검토 대기 항목은 `review` 로 본다.
 
 ## 결정
 

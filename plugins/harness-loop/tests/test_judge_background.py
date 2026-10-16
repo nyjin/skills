@@ -193,13 +193,13 @@ def test_spawn_background_popen_args(tmp_projects, monkeypatch):
 
 def test_cli_background_exit_codes(tmp_projects, monkeypatch):
     t = copy_fixture(tmp_projects, "basic.jsonl")
-    monkeypatch.setattr(judge, "background", lambda tr, mode, claude_bin="claude": tr == t and mode == "sweep")
+    monkeypatch.setattr(judge, "background_status", lambda tr, mode, claude_bin="claude": 0 if tr == t and mode == "sweep" else 3)
     with pytest.raises(SystemExit) as e:
         judge.main(["background", str(t), "--mode", "sweep"])
     assert e.value.code == 0
     with pytest.raises(SystemExit) as e:
         judge.main(["background", str(t), "--mode", "explicit"])
-    assert e.value.code == 1
+    assert e.value.code == 3
 
 
 def test_judge_timeout_is_below_lock_stale_window():
@@ -275,3 +275,27 @@ def test_unfinished_reservation_counts_toward_cap(tmp_projects, fake_claude_ok):
     t = copy_fixture(tmp_projects, "basic.jsonl")
     assert judge.background(t, "session-end", claude_bin=fake_claude_ok) is False
     assert calls(fake_claude_ok) == []
+
+
+REAL_BACKGROUND_STATUS = judge.background_status
+
+
+def cli_exit(t, claude_bin, monkeypatch):
+    monkeypatch.setattr(judge, "background_status", lambda path, mode: REAL_BACKGROUND_STATUS(path, mode, claude_bin=claude_bin))
+    with pytest.raises(SystemExit) as e:
+        judge.main(["background", str(t), "--mode", "sweep"])
+    return e.value.code
+
+
+def test_background_cli_exit_codes(tmp_projects, fake_claude_ok, fake_claude_fail, monkeypatch):
+    t = copy_fixture(tmp_projects, "basic.jsonl")
+    assert state.acquire_lock(state.harness_dir(t))
+    assert cli_exit(t, fake_claude_ok, monkeypatch) == 3
+    assert not (state.data_dir() / "hook-errors.log").exists()
+    state.release_lock(state.harness_dir(t))
+    assert cli_exit(t, fake_claude_fail, monkeypatch) == 1
+    assert cli_exit(t, fake_claude_ok, monkeypatch) == 0
+    (state.data_dir() / "scoring.yaml").write_text("max_background_judges_per_day: 1\n")
+    t2 = copy_fixture(tmp_projects, "partial.jsonl")
+    assert cli_exit(t2, fake_claude_ok, monkeypatch) == 2
+    assert len(calls(fake_claude_ok)) == 1

@@ -24,6 +24,7 @@ MODES = ("explicit", "session-end", "sweep")
 KEPT = {"approved", "rejected", "applied", "regressed"}
 LIVE = {"propose", "watch", "approved", "applied", "regressed"}
 JUDGE_TIMEOUT = 540
+BG_OK, BG_FAILED, BG_CAP, BG_LOCKED = 0, 1, 2, 3
 C2_C7_RULE = "`C2:?` 후보마다 항목의 `condition` 을 C2(AI 가 원치 않는 일을 했다)와 C7(메모리·CLAUDE.md 에 있는 기존 규칙을 따르지 않았거나 잘못된 곳에 저장했다) 중 하나로 골라, 후보 하나에서 항목은 최대 하나만 내고 같은 근거로 C2 항목과 C7 항목을 함께 내지 않는다."
 SIG_RULE = "`?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다."
 
@@ -377,19 +378,24 @@ def _judge_once(path: Path, hdir: Path, mode: str, claude_bin: str) -> bool:
     return True
 
 
-def background(transcript_path: Path, mode: str, claude_bin: str = "claude") -> bool:
-    """락을 잡고 새 신호를 모아 claude -p 로 판정해 병합한다. 할 일이 없으면 True, 막히거나 실패하면 False."""
+def background_status(transcript_path: Path, mode: str, claude_bin: str = "claude") -> int:
+    """락을 잡고 새 신호를 모아 claude -p 로 판정해 병합한다. BG_OK(판정했거나 할 일 없음), BG_FAILED(실패, 로그 남김), BG_CAP(하루 상한), BG_LOCKED(락이 잡혀 있음)."""
     path = Path(transcript_path)
     hdir = state.harness_dir(path)
     if not state.acquire_lock(hdir):
-        return False
+        return BG_LOCKED
     try:
-        return _judge_once(path, hdir, mode, claude_bin)
+        return BG_OK if _judge_once(path, hdir, mode, claude_bin) else BG_CAP
     except Exception as e:
         _log_error(path, e)
-        return False
+        return BG_FAILED
     finally:
         state.release_lock(hdir)
+
+
+def background(transcript_path: Path, mode: str, claude_bin: str = "claude") -> bool:
+    """background_status 가 BG_OK 면 True."""
+    return background_status(transcript_path, mode, claude_bin) == BG_OK
 
 
 def spawn_background(transcript_path: Path, mode: str) -> None:
@@ -421,7 +427,7 @@ def main(argv=None) -> None:
     elif args.cmd == "merge":
         print(json.dumps(merge(args.transcript, json.load(sys.stdin), args.mode), ensure_ascii=False, indent=2))
     elif args.cmd == "background":
-        sys.exit(0 if background(args.transcript, args.mode) else 1)
+        sys.exit(background_status(args.transcript, args.mode))
     else:
         print(rescore())
 
