@@ -148,8 +148,8 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
             add("C6:?", turn, turn.user, _skill_of(turn))
         if prev and REVERT.search(turn.user) and any(_risky(c) for c in prev.calls):
             add("C6:?", turn, turn.user, _skill_of(prev))
-        # C8
-        if not any(c.name == "Skill" for c in turn.calls):
+        # C8 — 슬래시 명령 턴은 그 명령 자체가 호출이다
+        if not turn.slash and not any(c.name == "Skill" for c in turn.calls):
             for m in SKILL_MENTION.finditer(turn.user):
                 slash, word = m.groups()
                 if slash and ":" not in slash and turn.user[:m.start(1)].strip() != "/":
@@ -170,7 +170,7 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
         # C11
         if turn.api_error:
             add("C11:api-error", turn, turn.user, _skill_of(turn))
-        if prev and not prev.calls and not prev.ai_tail and not prev.queued and not turn.queued:
+        if prev and not prev.calls and not prev.ai_tail and not prev.queued and not prev.slash and not turn.queued:
             add("C11:resend", turn, turn.user)
         prev = turn
     for s, n in cmd_count.items():

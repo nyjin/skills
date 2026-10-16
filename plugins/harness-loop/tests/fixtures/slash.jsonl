@@ -1,0 +1,11 @@
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": "README 의 설치 절을 고쳐줘"}}
+{"type": "assistant", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "text", "text": "설치 절을 고쳤습니다."}]}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "origin": {"kind": "human"}, "message": {"role": "user", "content": "<command-message>retro</command-message>\n<command-name>/harness-loop:retro</command-name>\n<command-args>review</command-args>"}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "isMeta": true, "message": {"role": "user", "content": [{"type": "text", "text": "Base directory for this skill: /tmp/plugins/harness-loop/skills/retro\n\n# harness-loop 회고 (retro)\n\n호출 인자: review"}]}}
+{"type": "assistant", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "s1", "name": "Bash", "input": {"command": "uv run --script /tmp/plugins/harness-loop/scripts/report.py list"}}]}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "s1", "content": "[]"}]}}
+{"type": "assistant", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "text", "text": "검토 대기 항목 없음"}]}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": "<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args></command-args>"}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": "<local-command-stdout>Set model to sample</local-command-stdout>"}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": "<system-reminder>주입된 알림</system-reminder>"}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": "고마워"}}

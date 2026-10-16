@@ -102,7 +102,8 @@ def test_worker_collects_only_c1_c3_c10():
 
 def test_c2_c7_correction_rejection_and_noise():
     s = collect.signals(turns("compacted.jsonl"), "normal")
-    assert [(x["sig"], x["turn"]) for x in by_cond(s, "C2")] == [("C2:?", 1), ("C2:?", 2)]
+    assert [(x["sig"], x["turn"]) for x in by_cond(s, "C2")] == [("C2:?", 2), ("C2:?", 3)]   # 턴 1 은 `/clear`
+    assert by_cond(s, "C11") == [x for x in by_cond(s, "C11") if x["sig"] == "C11:api-error"]   # `/clear` 뒤 발화는 재전송이 아니다
     assert by_cond(s, "C7") == []   # C2·C7 은 C2:? 후보 하나로 모으고 judge 가 condition 을 고른다
     assert all(x["needs_judge"] for x in by_cond(s, "C2"))
     assert by_cond(collect.signals([T(1, "해줘"), T(2, "좋아 다음 거 해줘")], "normal"), "C2") == []
@@ -344,3 +345,15 @@ def test_collect_cli_waits_for_lock_release(tmp_projects, capsys, monkeypatch):
     monkeypatch.setattr(state.time, "sleep", lambda s: state.release_lock(hdir))
     collect.main([str(t)])
     assert (hdir / "signals.jsonl").exists() and not (hdir / "lock").exists()
+
+
+def test_slash_turn_is_not_c8_and_local_command_is_not_resend():
+    ts = turns("slash.jsonl")
+    s = collect.signals(ts, "normal")
+    assert by_cond(s, "C8") == []
+    assert by_cond(s, "C11") == []
+
+
+def test_c8_still_fires_for_typed_slash_without_skill_call():
+    assert "C8:skill:eli5" in sigs_of([T(1, "/eli5 이거 설명해줘")])
+    assert sigs_of([T(1, "/eli5 이거 설명해줘", slash=True)]) == []

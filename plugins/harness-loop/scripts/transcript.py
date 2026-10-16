@@ -44,6 +44,7 @@ class Turn:
     ai_tail: str = ""
     api_error: bool = False
     queued: bool = False
+    slash: bool = False
 
 
 def _text(content):
@@ -66,6 +67,22 @@ def _human_text(content):
     if stripped.startswith("<") and not stripped.startswith(PASTED):
         return None
     return text
+
+
+COMMAND_NAME = re.compile(r"<command-name>\s*(/[^<\s]+)\s*</command-name>")
+COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
+
+
+def _slash_text(content):
+    """사람이 친 슬래시 명령 호출(`<command-name>/x</command-name>` 와 선택적 `<command-args>`)을 `/x args` 로. 아니면 None."""
+    if not isinstance(content, (str, list)):
+        return None
+    text = _text(content).lstrip()
+    m = COMMAND_NAME.search(text) if text.startswith("<command-") else None
+    if not m:
+        return None
+    args = COMMAND_ARGS.search(text)
+    return f"{m.group(1)} {args.group(1).strip()}".strip() if args else m.group(1)
 
 
 def _queued_text(att):
@@ -140,7 +157,8 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                             cid = b.get("tool_use_id")
                             tool = tools.get(cid, "")
                             turn.errors.append(ToolError(cid, tool, _error_line(body, tool)))
-                text = _human_text(content)
+                slash = _slash_text(content) if (d.get("origin") or {}).get("kind", "human") == "human" else None
+                text = slash if slash is not None else _human_text(content)
                 if text is None or text.startswith(CONTINUED):
                     continue
                 if text.startswith(INTERRUPT):
@@ -148,7 +166,7 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                         turn.interrupted = True
                     continue
                 skill = None
-                turns.append(Turn(len(turns) + 1, d.get("cwd"), lineno, text))
+                turns.append(Turn(len(turns) + 1, d.get("cwd"), lineno, text, slash=slash is not None))
             elif d.get("type") == "attachment":
                 text = _queued_text(d.get("attachment"))
                 if text is not None and not text.startswith((CONTINUED, INTERRUPT)):

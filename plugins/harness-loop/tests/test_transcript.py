@@ -59,8 +59,8 @@ def test_turn_fields_line_cwd_tail_and_skill_span_closes():
 
 def test_rejection_interrupt_sidechain_and_api_error():
     turns, _ = transcript.parse(FIX / "compacted.jsonl")
-    assert [t.user for t in turns] == ["README 고쳐줘", "다시 해봐"]
-    first, second = turns
+    assert [(t.user, t.slash) for t in turns] == [("/clear", True), ("README 고쳐줘", False), ("다시 해봐", False)]
+    first, second = turns[1:]
     assert first.rejected == ["e1"] and first.errors == []
     assert first.interrupted is True and second.interrupted is False
     assert [c.name for c in first.calls] == ["Edit"]
@@ -188,3 +188,24 @@ def test_parse_bash_doc_then_error_topic(tmp_path):
     p.write_text("".join(json.dumps(l, ensure_ascii=False) + "\n" for l in lines))
     turns, _ = transcript.parse(p)
     assert [(e.tool, e.text) for e in turns[0].errors] == [("Bash", "grep: x: No such file or directory"), ("Read", "본문 첫 줄입니다")]
+
+
+def test_slash_command_starts_human_turn():
+    turns, _ = transcript.parse(FIX / "slash.jsonl")
+    assert [(t.index, t.line, t.user, t.slash) for t in turns] == [
+        (1, 1, "README 의 설치 절을 고쳐줘", False),
+        (2, 3, "/harness-loop:retro review", True),
+        (3, 8, "/model", True),
+        (4, 11, "고마워", False),
+    ]
+    assert [c.name for c in turns[1].calls] == ["Bash"] and turns[1].ai_tail == "검토 대기 항목 없음"
+    assert turns[0].ai_tail == "설치 절을 고쳤습니다."
+
+
+def test_slash_command_from_peer_is_not_human_turn(tmp_path):
+    import json
+
+    row = {"type": "user", "origin": {"kind": "peer"}, "message": {"role": "user", "content": "<command-name>/x</command-name>"}}
+    p = tmp_path / "s.jsonl"
+    p.write_text(json.dumps(row) + "\n")
+    assert transcript.parse(p)[0] == []

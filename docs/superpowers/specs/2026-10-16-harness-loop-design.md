@@ -103,7 +103,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 
 `collect.py`가 결정적으로 신호를 뽑고, LLM 판정이 필요한 조건은 후보만 표시해 judge에 넘긴다.
 
-턴은 사람 발화 하나에서 시작한다. AI 가 일하는 도중 사용자가 친 발화(`type: attachment`, `attachment.type: queued_command`, `commandMode: prompt`, `origin.kind` 가 없거나 `human`)도 새 턴을 연다. 이 턴과 그 바로 다음 턴에는 `C11:resend` 를 내지 않는다(AI 가 일하는 중에 들어온 발화라 재전송이 아니다). 오류가 난 호출이 턴의 마지막 호출이고 다음 턴이 이런 대기 입력 턴이면, 그 턴의 첫 호출을 C1 의 다음 호출로 본다. 작업 알림(`task-notification`)과 다른 에이전트 메시지(`origin.kind: peer`)는 사람 발화가 아니다.
+턴은 사람 발화 하나에서 시작한다. AI 가 일하는 도중 사용자가 친 발화(`type: attachment`, `attachment.type: queued_command`, `commandMode: prompt`, `origin.kind` 가 없거나 `human`)도 새 턴을 연다. 이 턴과 그 바로 다음 턴에는 `C11:resend` 를 내지 않는다(AI 가 일하는 중에 들어온 발화라 재전송이 아니다). 오류가 난 호출이 턴의 마지막 호출이고 다음 턴이 이런 대기 입력 턴이면, 그 턴의 첫 호출을 C1 의 다음 호출로 본다. 작업 알림(`task-notification`)과 다른 에이전트 메시지(`origin.kind: peer`)는 사람 발화가 아니다. 사람이 친 슬래시 명령(`<command-name>/x</command-name>` 와 선택적 `<command-args>` 로 기록된 user 메시지)도 새 턴을 열고 그 턴의 발화는 `/x 인자` 다. 다른 `<…>` 주입은 사람 발화가 아니다. 슬래시 명령 턴에는 C8 스킬 미발동을 내지 않고(명령 자체가 호출이다), 그 바로 다음 턴에는 `C11:resend` 를 내지 않는다(`/model`·`/clear` 같은 내장 명령은 AI 응답이 없다).
 
 | # | 조건 | collect가 잡는 신호 | judge가 판정할 것 |
 |---|---|---|---|
