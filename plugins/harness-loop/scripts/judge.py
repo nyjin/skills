@@ -343,11 +343,18 @@ def _judge_output(stdout: str) -> dict:
         raise ValueError("structured_output 이 없고 result 도 JSON 이 아니다")
 
 
+def _judge_tmp_parent() -> str:
+    """judge cwd 를 만들 상위 디렉터리. tempfile.gettempdir() 가 HOME 아래로 풀리면 /tmp."""
+    tmp = Path(tempfile.gettempdir()).resolve()
+    home = Path.home().resolve()
+    return "/tmp" if tmp == home or home in tmp.parents else str(tmp)
+
+
 def _invoke(path: Path, hdir: Path, mode: str, claude_bin: str) -> None:
     text = digest(path, pending_signals(hdir))
     cmd = [claude_bin, "-p", "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence", "--tools", "", "--output-format", "json", "--json-schema", SCHEMA.read_text(encoding="utf-8")]
     os.utime(hdir / "lock")
-    cwd = tempfile.mkdtemp(prefix="harness-judge-")
+    cwd = tempfile.mkdtemp(prefix="harness-judge-", dir=_judge_tmp_parent())
     try:
         proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=JUDGE_TIMEOUT, cwd=cwd, env={**os.environ, "HARNESS_RETRO": "1"})
     except subprocess.TimeoutExpired:

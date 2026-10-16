@@ -103,6 +103,32 @@ def test_background_judge_runs_isolated_from_user_settings(tmp_projects, tmp_pat
     assert not cwd.exists()
 
 
+def test_judge_cwd_falls_back_to_tmp_when_tempdir_under_home(tmp_projects, tmp_path, monkeypatch):
+    import tempfile
+
+    under_home = Path(os.environ["HOME"]) / "tmp"
+    under_home.mkdir(parents=True)
+    monkeypatch.setenv("TMPDIR", str(under_home))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    assert Path(judge._judge_tmp_parent()).resolve() == Path("/tmp").resolve()
+    exe = make_fake(tmp_path, "fake-claude-cwd", f'pwd -P > "{tmp_path}/cwd.txt"\n' + reply(result="", structured_output={"items": [ITEM]}))
+    t = copy_fixture(tmp_projects, "basic.jsonl")
+    assert judge.background(t, "session-end", claude_bin=exe) is True
+    cwd = Path((tmp_path / "cwd.txt").read_text().strip())
+    assert cwd.name.startswith("harness-judge-") and cwd.parent == Path("/tmp").resolve()
+    assert not cwd.exists()
+
+
+def test_judge_cwd_uses_tempdir_outside_home(tmp_projects, tmp_path, monkeypatch):
+    import tempfile
+
+    outside = tmp_path / "t"
+    outside.mkdir()
+    monkeypatch.setenv("TMPDIR", str(outside))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    assert Path(judge._judge_tmp_parent()).resolve() == outside.resolve()
+
+
 def test_background_judge_parses_result_when_no_structured_output(tmp_projects, tmp_path):
     exe = make_fake(tmp_path, "fake-claude-result", reply(result=json.dumps({"items": [ITEM]})))
     t = copy_fixture(tmp_projects, "basic.jsonl")
