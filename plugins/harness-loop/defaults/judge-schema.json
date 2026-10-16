@@ -8,7 +8,7 @@
         "type": "object",
         "required": ["sig", "condition", "impact", "actionability", "evidence", "target", "proposal", "duplicate_of_rule", "rule_unenforced", "skills"],
         "properties": {
-          "sig": {"type": "string", "minLength": 1},
+          "sig": {"type": "string", "pattern": "^C(1[01]|[1-9]):(?!\\?$).+"},
           "condition": {"type": "string", "enum": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11"]},
           "impact": {"type": "integer", "minimum": 1, "maximum": 3},
           "actionability": {"type": "integer", "minimum": 1, "maximum": 3},

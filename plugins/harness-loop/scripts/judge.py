@@ -6,6 +6,7 @@
 """judge 입력(digest)을 만들고, judge 출력을 채점해 action-items.json 에 병합한다."""
 import argparse
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ import state
 import transcript
 
 SCHEMA = Path(__file__).resolve().parents[1] / "defaults" / "judge-schema.json"
+SIG = re.compile(r"^C(1[01]|[1-9]):(?!\?$).+")
 CONDITIONS = {f"C{i}" for i in range(1, 12)}
 MODES = ("explicit", "session-end", "sweep")
 KEPT = {"approved", "rejected", "applied", "regressed"}
@@ -103,12 +105,11 @@ def digest(transcript_path: Path, new_signals: list[dict]) -> str:
 
     live = set()
     for hdir in state.all_harness_dirs():
-        if hdir.parent.name == session:
-            continue
+        own = ", 이 세션" if hdir.parent.name == session else ""
         for sig, item in state.load_items(hdir).items():
             if item.get("status") in LIVE:
-                live.add((sig, item.get("status")))
-    parts.append("## 다른 세션의 살아 있는 sig\n\n" + ("\n".join(f"- {sig} ({status})" for sig, status in sorted(live)) or "- 없음"))
+                live.add((sig, f"{item.get('status')}{own}"))
+    parts.append("## 살아 있는 sig\n\n" + ("\n".join(f"- {sig} ({note})" for sig, note in sorted(live)) or "- 없음"))
 
     decisions = state.load_decisions()
     parts.append("## 결정된 sig\n\n" + ("\n".join(f"- {sig}: {d['decision']}" for sig, d in sorted(decisions.items())) or "- 없음"))
@@ -124,9 +125,13 @@ def recurrence(sig: str, this_session: str) -> int:
         sid = hdir.parent.name
         if sid in sessions:
             continue
-        if sig in state.load_items(hdir) or (not sig.endswith("?") and any(s.get("sig") == sig for s in _read_signals(hdir))):
+        if sig in state.load_items(hdir) or (not _placeholder(sig) and any(s.get("sig") == sig for s in _read_signals(hdir))):
             sessions.add(sid)
     return len(sessions)
+
+
+def _placeholder(sig: str) -> bool:
+    return sig.split(":", 1)[-1] == "?"
 
 
 def _recurrence_score(sessions: int) -> int:
@@ -162,7 +167,7 @@ def _validate(output) -> list[dict]:
     for n, it in enumerate(output["items"]):
         where = f"items[{n}]"
         need(isinstance(it, dict), f"{where} 가 객체가 아니다")
-        need(isinstance(it.get("sig"), str) and it["sig"] and not it["sig"].endswith("?"), f"{where}.sig 가 비었거나 `?` 다")
+        need(isinstance(it.get("sig"), str) and SIG.match(it["sig"]), f"{where}.sig 가 `C<n>:<토픽>` 이 아니거나 `?` 자리표시다")
         need(it.get("condition") in CONDITIONS, f"{where}.condition 이 C1~C11 이 아니다")
         for key in ("impact", "actionability"):
             v = it.get(key)
@@ -236,7 +241,7 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
         merged["evidence"] = evidence
         skills = dict(old.get("skills", {}))
         for name, n in it["skills"].items():
-            skills[name] = skills.get(name, 0) + n
+            skills[name] = max(skills.get(name, 0), n)
         merged["skills"] = skills
         if old.get("status") in KEPT:
             merged["status"] = old["status"]

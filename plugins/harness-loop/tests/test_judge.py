@@ -115,7 +115,7 @@ def test_merge_twice_same_sig_appends_evidence_keeps_approved(tmp_projects):
     assert it["status"] == "approved"
     assert it["reported_at"] == "2026-10-16T00:00:00+09:00"
     assert [e["turn"] for e in it["evidence"]] == [1, 2]
-    assert it["skills"] == {"ticket-creator": 3, "jira": 1}
+    assert it["skills"] == {"ticket-creator": 2, "jira": 1}   # 건수별 max(1, 2)
     assert it["proposal"] == "새 제안"
     assert it["scores"] == {"recurrence": 1, "impact": 2, "actionability": 3}
     assert it["score"] == pytest.approx(1.8)   # 0.4+0.8+0.6
@@ -161,6 +161,15 @@ def test_recurrence_counts_distinct_sessions(tmp_projects):
     assert judge.recurrence("C1:a", "new") == 4
     other_session(tmp_projects, "s5", items={"C1:a": {"sig": "C1:a", "status": "watch"}})
     assert judge.recurrence("C1:a", "s1") == 4
+
+
+def test_sig_ending_with_question_mark_is_not_placeholder(tmp_projects):
+    sig = "C1:File has not been read yet. Read it first?"
+    other_session(tmp_projects, "s1", signals=[sig])
+    assert judge.recurrence(sig, "me") == 2
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    it = judge.merge(t, {"items": [out_item(sig)]}, "explicit")[sig]
+    assert it["sessions"] == 2 and it["scores"]["recurrence"] == 2
 
 
 def test_recurrence_question_sig_ignores_signals(tmp_projects):
@@ -219,7 +228,7 @@ def test_digest_contains_rubric_signals_existing_sigs(tmp_projects):
     assert "에픽 밑으로 옮기겠습니다." in md
     assert "- C2:skipped-epic (watch)" in md
     assert "C9:long-table" not in md
-    assert "C5:own" not in md
+    assert "- C5:own (propose, 이 세션)" in md
     assert "- C4:bare-yes: rejected" in md
     assert "`?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다." in md
     assert "`sess-a`" in md
@@ -247,6 +256,8 @@ def test_merge_rejects_schema_violation(tmp_projects):
         {"items": [out_item(condition="C12")]},
         {"items": [out_item(target={})]},
         {"items": [out_item(sig="C2:?")]},
+        {"items": [out_item(sig="X1:topic")]},
+        {"items": [out_item(sig="C12:topic")]},
         {"items": [{k: v for k, v in out_item().items() if k != "proposal"}]},
         {"items": [out_item(skills={"x": "1"})]},
         {},
@@ -263,3 +274,4 @@ def test_schema_file_matches_condition_set():
     item = schema["properties"]["items"]["items"]
     assert item["properties"]["condition"]["enum"] == [f"C{i}" for i in range(1, 12)]
     assert item["properties"]["evidence"]["minItems"] == 1
+    assert item["properties"]["sig"]["pattern"] == judge.SIG.pattern
