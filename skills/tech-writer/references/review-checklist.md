@@ -11,7 +11,7 @@ O-1 기계 검사를 돌린다 · O-2 사실을 재료와 대조한다 · O-3 �
 1. 문서 구조를 검사한다.
 
    ```bash
-   uv run <SKILL.md에 적힌 스킬 디렉터리>/scripts/lint_doc.py <문서.md>
+   uv run <스킬 디렉터리(SKILL.md 맨 위 ${CLAUDE_SKILL_DIR} 값)>/scripts/lint_doc.py <문서.md>
    ```
 
    `error`는 반드시 고친다. `warn`은 고치거나, 고치지 않는 이유를 보고에 적는다(예: 참조 문서라 H4가 필요함).

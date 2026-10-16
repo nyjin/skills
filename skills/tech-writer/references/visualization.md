@@ -96,7 +96,7 @@ flowchart LR
 2. 실행한다.
 
    ```bash
-   bash <SKILL.md에 적힌 스킬 디렉터리>/scripts/render-mermaid.sh <assets_dir>/<이름>.mmd <assets_dir>/<이름>.svg
+   bash <스킬 디렉터리(SKILL.md 맨 위 ${CLAUDE_SKILL_DIR} 값)>/scripts/render-mermaid.sh <assets_dir>/<이름>.mmd <assets_dir>/<이름>.svg
    ```
 
 3. 종료 코드가 1이면 stderr의 오류 줄을 보고 문법을 고친 뒤 다시 실행한다.
