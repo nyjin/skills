@@ -49,11 +49,13 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" digest "<transcript>" > "<tmp>/harness-digest.md"
 ```
 
-4. digest 와 이 대화 전체를 근거로 `${CLAUDE_PLUGIN_ROOT}/defaults/judge-schema.json` 형식의 JSON 을 `<tmp>/harness-judge.json` 에 쓴다. 작성 규칙은 "판정 JSON 작성 규칙" 절을 따른다.
-5. 판정을 병합한다. 항목이 없어도 `{"items": []}` 로 실행한다.
+4. digest 와 이 대화 전체를 근거로 `${CLAUDE_PLUGIN_ROOT}/defaults/judge-schema.json` 형식의 판정 JSON 을 만든다. 파일로 쓰지 않는다. 작성 규칙은 "판정 JSON 작성 규칙" 절을 따른다.
+5. 판정 JSON 을 아래 명령의 `<판정 JSON>` 자리에 그대로 넣어 heredoc 으로 넘겨 병합한다. 항목이 없어도 `{"items": []}` 로 실행한다.
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" merge "<transcript>" --mode explicit < "<tmp>/harness-judge.json"
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" merge "<transcript>" --mode explicit <<'JSON'
+<판정 JSON>
+JSON
 ```
 
 6. 이 세션의 항목을 읽어 "리포트 형식" 절에 맞춰 출력한다.

@@ -53,3 +53,15 @@ def test_config_values_referenced_by_name_only():
         assert not re.search(rf"{key}`?\s*[:=(]?\s*\d", body), key
     for value in ("2.2", "1.6", "0.3", "0.4", "0.2"):
         assert value not in body, value
+
+
+def test_merge_reads_judge_json_from_heredoc():
+    _, _, body = _parts()
+    assert "harness-judge.json" not in body
+    assert re.search(r'judge\.py" merge "<transcript>" --mode explicit <<\'JSON\'\n.*\nJSON\n', body, re.S)
+
+
+def test_lock_exit_code_rule_for_collect_and_merge():
+    _, _, body = _parts()
+    line = next(l for l in body.splitlines() if "종료 코드 3" in l and "collect.py" in l)
+    assert "judge.py merge" in line and "백그라운드" in line and "다시" in line
