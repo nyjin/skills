@@ -36,6 +36,29 @@
 | [mermaid-cli](https://github.com/mermaid-js/mermaid-cli) | 다이어그램 이미지 렌더링 | `npx`로 자동 실행 |
 | [uv](https://docs.astral.sh/uv/) | 스크립트 실행(config 병합, 문서 검사) | 필수 |
 
+## harness-loop
+
+같은 marketplace의 두 번째 플러그인입니다. Claude Code 세션에서 하네스 결함 신호(도구 재시도, 사용자 교정, 불필요한 확인 등)를 모아 점수를 매기고, 반복되는 문제를 스킬·규칙·스크립트 개선안(action item)으로 제안합니다. tech-writing과 따로 켜고 끕니다.
+
+### 설치
+
+```
+/plugin marketplace add ~/src/skills
+/plugin install harness-loop@tech-writing
+```
+
+### 사용
+
+설치하면 세션이 끝날 때 신호를 모아 백그라운드에서 판정하고, 다음 세션을 시작할 때 검토 대기 항목을 알려 줍니다. 직접 부를 때는 아래 명령을 씁니다.
+
+| 명령 | 하는 일 |
+|---|---|
+| `/harness-loop:retro` | 현재 세션을 회고해 action item 리포트를 만든다 |
+| `/harness-loop:retro review` | 다른 세션에서 쌓인 검토 대기 항목을 보여 준다 |
+| `/harness-loop:retro backfill [--days N]` | 설치 전 기록을 판정한다(하루 판정 상한 적용) |
+
+리포트를 받은 뒤에는 "1 승인, 2 거절", "2번 영향 3으로"처럼 자유롭게 답하면 결정을 기록하고, 승인한 항목은 대상 파일의 소유 환경(저장소, 로컬 파일, 플러그인 캐시)에 맞게 반영합니다. 채점 기준(`scoring.yaml`, `rubric.md`)과 결정 기록은 플러그인 데이터 디렉터리에 있습니다.
+
 ## 개발
 
 ```bash
