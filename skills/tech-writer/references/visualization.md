@@ -115,6 +115,8 @@ flowchart LR
    python3 scripts/export_png.py <assets_dir>/<문서명>-<번호>.html <assets_dir>/<문서명>-<번호>.png   # PNG가 필요할 때만
    ```
 
+   기본은 SVG다(추가 설치 없이 동작). PNG 내보내기는 Python `playwright` 모듈이 있어야 하므로, 설치돼 있지 않으면 SVG를 쓰고 보고에 적는다.
+
    diagram-design은 사용자가 요청할 때만 내보내기를 한다. 기술 문서에 그림을 넣는 것이 이 요청의 일부이므로, 내보낸다는 사실을 사용자에게 한 줄로 알리고 진행한다.
 6. 문서에는 내보낸 이미지를 문서 위치 기준 상대 경로로 넣고, 그림 앞뒤 문장(M-3)을 쓴다.
 7. diagram-design이 설치돼 있지 않거나 내보내기가 실패하면 mermaid로 개요도와 세부도를 나눠 그리고, 보고에 적는다.
