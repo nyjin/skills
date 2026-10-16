@@ -21,7 +21,7 @@
 - 훅은 어떤 경우에도 종료 코드 0 이고, 오류는 `hook-errors.log` 에 한 줄씩 남긴다.
 - `HARNESS_RETRO=1`, 훅 입력에 `agent_id` 가 있음 → 그 세션에 `skip` 을 쓰고 아무것도 하지 않는다. `CLAUDE_CODE_CHILD_SESSION` 은 가드가 아니다(보통의 최상위 세션 훅·Bash 에서도 1 로 설정된다는 실측 결과).
 - `HERDR_PW_WORKER` 가 설정된 세션(herdr 워커)은 수집·판정은 하되 SessionStart 보고를 출력하지 않는다.
-- 백그라운드 judge: `HARNESS_RETRO=1 claude -p --setting-sources project --strict-mcp-config --no-session-persistence --tools "" --output-format json --json-schema <스키마>`(cwd 는 HOME 밖에 새로 만든 빈 임시 디렉터리 `tempfile.mkdtemp(prefix="harness-judge-")`, 끝나면 지운다), `subprocess.Popen(..., start_new_session=True, stdin/stdout/stderr=DEVNULL)`.
+- 백그라운드 judge: `HARNESS_RETRO=1 claude -p --setting-sources project --strict-mcp-config --no-session-persistence --tools "" --output-format json --json-schema <스키마>`(cwd 는 HOME 밖에 새로 만든 빈 임시 디렉터리 `tempfile.mkdtemp(prefix="harness-judge-")`. `TMPDIR` 가 HOME 아래면 `/tmp` 아래에 만든다. 끝나면 지운다), `subprocess.Popen(..., start_new_session=True, stdin/stdout/stderr=DEVNULL)`.
 - 스킬 문서는 규칙·표·명령만 쓴다. 이력·결정 과정·근거 서술은 넣지 않고, config 값은 속성명으로만 참조한다. 마크다운 산문은 한 단락을 한 줄로 쓴다.
 - 커밋 메시지는 이 저장소 형식(`feat: …`, `docs: …`, 한국어)이고 끝에 `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` 를 붙인다.
 

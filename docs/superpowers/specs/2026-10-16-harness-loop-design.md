@@ -181,7 +181,7 @@ max_background_judges_per_day: 10
 | SessionEnd 시점 `transcript_path` 기록 지연 | 훅 시점과 12초 뒤 줄 수가 같음 | 대기 없이 바로 collect 한다 |
 | `--resume` 시 session_id | 유지됨. 같은 jsonl 에 이어 쌓임 (재개한 이 세션으로 확인) | cursor 로 이어 처리하면 된다 |
 | `cleanupPeriodDays` 정리 범위 | 기록이 지워진 세션의 디렉터리가 하나도 남아 있지 않음 (09-15 이전 기록 정리 뒤 확인) | `harness/` 도 기록과 함께 지워진다. 별도 정리 불필요 |
-| `${CLAUDE_PLUGIN_DATA}` 경로 | 기존 플러그인 기준 `~/.claude/plugins/data/<플러그인>-<marketplace>/` | 설치 후 한 번 더 확인한다 |
+| `${CLAUDE_PLUGIN_DATA}` 경로 | 설치 후 실측 `~/.claude/plugins/data/harness-loop-tech-writing/` (`<플러그인>-<marketplace>`). 플러그인은 이 작업 worktree 를 `directory` 원본으로 등록한 marketplace(`tech-writing`)에서 설치해 worktree 를 그대로 읽는다 | `scoring.yaml`·`rubric.md` 는 처음 한 번만 기본값에서 복사하므로, 기본값을 바꿔도 이미 있는 데이터 디렉터리의 사본은 바뀌지 않는다 |
 
 ## 9. 검증
 
