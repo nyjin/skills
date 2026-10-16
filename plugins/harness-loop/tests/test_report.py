@@ -422,3 +422,28 @@ def test_regressions_and_report_find_transcript_outside_projects_root(tmp_projec
     assert [c["sig"] for c in report.regressions()] == ["C1:a"]
     assert state.load_items(h)["C1:a"]["status"] == "regressed"
     assert "(2026-10-15 proj)" in report.session_start_text([(h, item("C1:a"))], 0)
+
+
+def test_backfill_list_cli_preinstall_newest_first(tmp_projects, capsys):
+    now = datetime.now().astimezone()
+    set_installed(now - timedelta(hours=1))
+    a = transcript(tmp_projects, "a", project="my proj", mtime=now - timedelta(days=3))
+    b = transcript(tmp_projects, "b", project="my proj", mtime=now - timedelta(days=1))
+    c = transcript(tmp_projects, "c", project="other", mtime=now - timedelta(days=10))
+    transcript(tmp_projects, "after", project="my proj", mtime=now)
+    skipped = transcript(tmp_projects, "skipped", project="other", mtime=now - timedelta(days=2))
+    (hdir_of(skipped) / "skip").touch()
+
+    report.main(["backfill-list"])
+    assert capsys.readouterr().out.splitlines() == [str(b), str(a), str(c)]
+    report.main(["backfill-list", "--days", "5"])
+    assert capsys.readouterr().out.splitlines() == [str(b), str(a)]
+    for t in (a, b, c):
+        assert not (tmp_projects / t.parent.name / t.stem).exists()
+
+
+def test_backfill_list_cli_empty(tmp_projects, capsys):
+    set_installed(T0)
+    transcript(tmp_projects, "late", mtime=T0 + timedelta(days=1))
+    report.main(["backfill-list"])
+    assert capsys.readouterr().out == ""

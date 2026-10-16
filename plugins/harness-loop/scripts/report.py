@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml>=6"]
 # ///
-"""SessionStart 보고, sweep 대상 선별, 재발 감지, 결정 기록과 action item 조회."""
+"""SessionStart 보고, sweep·backfill 대상 선별, 재발 감지, 결정 기록과 action item 조회."""
 import argparse
 import json
 import os
@@ -62,6 +62,19 @@ def sweep(now_iso: str, exclude_session: str | None = None) -> list[Path]:
         if state.read_cursor(hdir) < _line_count(t):
             out.append(t)
     return out
+
+
+def backfill(now_iso: str, days: int | None = None) -> list[Path]:
+    """설치 전에 바뀐 세션 기록, 최신순. days 가 있으면 최근 days 일 안의 것만. skip 표시 세션은 뺀다."""
+    installed = _aware((state.data_dir() / "installed_at").read_text().strip()).timestamp()
+    since = _aware(now_iso).timestamp() - days * 86400 if days is not None else None
+    found = []
+    for t in state.projects_root().glob("*/*.jsonl"):
+        mtime = t.stat().st_mtime
+        if mtime > installed or (since is not None and mtime < since) or (state.harness_path(t) / "skip").exists():
+            continue
+        found.append((mtime, t))
+    return [t for _, t in sorted(found, key=lambda p: p[0], reverse=True)]
 
 
 def _session_start(t: Path) -> datetime:
@@ -313,6 +326,8 @@ def main(argv=None) -> None:
     parser = argparse.ArgumentParser(prog="report.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("where")
+    p = sub.add_parser("backfill-list")
+    p.add_argument("--days", type=int)
     p = sub.add_parser("list")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--session")
@@ -333,6 +348,10 @@ def main(argv=None) -> None:
             sys.exit(2)
         print(t)
         sys.exit(0)
+    if args.cmd == "backfill-list":
+        for t in backfill(_now().isoformat(), args.days):
+            print(t)
+        return
     try:
         if args.cmd == "list":
             scope = f"session:{args.session}" if args.session else "all" if args.all else "pending"

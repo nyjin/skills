@@ -87,20 +87,21 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 
 ## 지난 기록 처리 (backfill)
 
-1. 설치(`installed_at`) 전에 수정된 기록을 최신순으로 나열한다. `--days N` 이 있으면 `-mtime -N` 을 붙이고, 없으면 기간 제한 없이 나열한다.
+1. 설치(`installed_at`) 전에 수정된 기록을 최신순으로 한 줄에 하나씩 파일에 쓴다. `skip` 표시가 있는 세션은 빠진다. `--days N` 이 있으면 명령 끝에 `--days N` 을 붙이고, 없으면 기간 제한 없이 나열한다.
 
 ```bash
-find ~/.claude/projects -mindepth 2 -maxdepth 2 -name '*.jsonl' ! -newer "${CLAUDE_PLUGIN_DATA}/installed_at" -print0 | xargs -0 ls -t
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" backfill-list > "<tmp>/harness-backfill.txt"
 ```
 
-2. 나열한 기록마다 하나씩 차례로 실행한다. Bash 타임아웃은 600000 ms 로 준다.
+2. 파일이 비어 있으면 처리 수 0 을 보고하고 멈춘다.
+3. 파일을 Read 로 읽어 위에서부터 한 줄씩 차례로 처리한다. 한 줄이 `<transcript>` 하나이고, 경로에 공백이 있어도 줄 전체를 따옴표 안에 그대로 넣는다. 기록마다 Bash 를 한 번씩 실행하고 Bash 타임아웃은 600000 ms 로 준다.
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" background "<transcript>" --mode sweep
 ```
 
-3. 종료 코드 1 이면 `${CLAUDE_PLUGIN_DATA}/hook-errors.log` 끝줄을 본다. 이번 기록의 새 줄이 있으면 실패로 세고 다음 기록으로 간다. 새 줄이 없으면 하루 상한(`max_background_judges_per_day`)에 걸린 것으로 보고 멈춘다.
-4. 처리 수(성공·실패·남은 기록)를 보고한다. 새로 생긴 검토 대기 항목은 `review` 로 본다.
+4. 종료 코드 1 이면 `${CLAUDE_PLUGIN_DATA}/hook-errors.log` 끝줄을 본다. 이번 기록의 새 줄이 있으면 실패로 세고 다음 기록으로 간다. 새 줄이 없으면 하루 상한(`max_background_judges_per_day`)에 걸린 것으로 보고 멈춘다.
+5. 처리 수(성공·실패·남은 기록)를 보고한다. 새로 생긴 검토 대기 항목은 `review` 로 본다.
 
 ## 결정
 
