@@ -1,6 +1,6 @@
 # Tech Writing
 
-독자에 맞춰 한국어 기술 문서를 구성·작성·개선하는 Claude Code 플러그인입니다. 독자 config로 문서 수준을 정하고, 문서 유형에 맞는 구조로 쓰고, mermaid·archify로 시각화한 뒤, korean-proofreader 교정과 독자 되말하기 검증까지 한 흐름으로 처리합니다.
+독자에 맞춰 한국어 기술 문서를 구성·작성·개선하는 Claude Code 플러그인입니다. 독자 config로 문서 수준을 정하고, 문서 유형에 맞는 구조로 쓰고, mermaid·diagram-design으로 시각화한 뒤, korean-proofreader 교정과 독자 되말하기 검증까지 한 흐름으로 처리합니다.
 
 ## 설치
 
@@ -32,7 +32,7 @@
 |---|---|---|
 | [humanizer-ko](https://github.com/nyjin/humanizer-ko) `korean-proofreader` | 문단·문장 교정 | 기술 문서 문장 규칙만 적용 |
 | `eli5` 스킬 | 비개발 독자용 개념 설명 | 내장 수준별 전략으로 직접 설명 |
-| `archify` 스킬 | 복잡한 아키텍처 다이어그램(HTML) | mermaid만 사용 |
+| `diagram-design` 스킬 | 복잡한 다이어그램(HTML → SVG/PNG 내보내기) | mermaid만 사용 |
 | [mermaid-cli](https://github.com/mermaid-js/mermaid-cli) | 다이어그램 이미지 렌더링 | `npx`로 자동 실행 |
 | [uv](https://docs.astral.sh/uv/) | 스크립트 실행(config 병합, 문서 검사) | 필수 |
 

@@ -10,6 +10,6 @@ style:
   glossary: {}             # 다른 표기 → 통일 표기. 모든 표기 규칙보다 우선한다
 output:
   format: markdown         # markdown | confluence | html
-  diagrams: auto           # auto | mermaid | archify | none
+  diagrams: auto           # auto | mermaid | diagram-design | none
   assets_dir: docs/assets
   confluence_mermaid_macro: false

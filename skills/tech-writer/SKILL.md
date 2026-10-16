@@ -17,7 +17,7 @@ description: 한국어 기술 문서를 독자에 맞춰 구성·작성·개선�
 |---|---|---|
 | `uv` | config 병합(`scripts/load_config.py`), 문서 검사(`scripts/lint_doc.py`). PyYAML은 uv가 자동 설치 | 사용자에게 설치를 안내하고, config는 직접 읽어 합친다 |
 | Node.js(`npx`) 또는 `mmdc` | mermaid 렌더링(`scripts/render-mermaid.sh`). `mmdc`가 없으면 첫 실행에 npx가 패키지를 내려받느라 1~2분 걸린다 | 다이어그램을 코드 블록으로 두고 보고에 렌더링 미확인을 적는다 |
-| korean-proofreader, eli5, archify 스킬 | 문장 교정, 개념 설명, 복잡한 다이어그램 | "연동 스킬" 절의 대체 방법 |
+| korean-proofreader, eli5, diagram-design 스킬 | 문장 교정, 개념 설명, 복잡한 다이어그램 | "연동 스킬" 절의 대체 방법 |
 | Atlassian MCP(Model Context Protocol) 서버의 `createConfluencePage`·`updateConfluencePage` 도구(환경에 따라 `mcp__<서버 이름>__createConfluencePage` 형태로 노출) | Confluence 게시(사용자가 요청할 때만) | Markdown 파일로 넘긴다 |
 
 ## 모드 판별
@@ -85,7 +85,7 @@ uv가 없으면 사용자에게 설치를 안내하고, 그동안은 config 파�
 읽을 파일: `references/visualization.md`
 
 - 구조·흐름·관계·상태를 글로만 설명한 곳을 찾아 다이어그램으로 바꾼다. 비교·속성은 표로 쓴다.
-- 도구는 config `output.format`과 복잡도로 고른다(mermaid / mermaid + archify).
+- 도구는 config `output.format`과 복잡도로 고른다(mermaid / diagram-design).
 - mermaid는 `scripts/render-mermaid.sh`로 렌더링해 문법을 확인한다.
 - 출력이 confluence나 html이면 다이어그램을 이미지(SVG)로 만들어 `output.assets_dir`에 두고 본문에서 참조한다. 이 형식들은 mermaid 코드 블록을 그림으로 보여 주지 않기 때문이다. 예외: config `confluence_mermaid_macro: true`면 Confluence에는 mermaid 코드를 매크로용으로 넣는다(렌더링 확인은 그대로 한다).
 - 런북·설명·설계 문서에 분기 셋 이상의 판단 흐름이나 컴포넌트 관계가 있는데 다이어그램이 0개면, 빼먹은 것이 아닌지 다시 본다.
@@ -116,7 +116,7 @@ Skill 도구로 korean-proofreader를 부르면 교정 지침이 로드될 뿐 �
 ### 9. 출력과 보고
 
 - 저장 위치: 사용자가 정한 곳. 없으면 Markdown과 Confluence 원고는 저장소의 `docs/`(없으면 만든다), HTML은 현재 디렉터리에 둔다. Confluence는 게시하지 않고 원고만 만든 뒤 게시 여부를 묻는다.
-- 다이어그램 이미지와 archify HTML은 config `output.assets_dir`(저장소 루트 기준)에 두고, 문서에서는 **문서 파일 위치 기준 상대 경로**로 링크한다. 예) 문서가 `docs/runbook.md`이고 assets_dir가 `docs/assets`면 `assets/runbook-1.svg`.
+- 다이어그램 이미지와 diagram-design HTML은 config `output.assets_dir`(저장소 루트 기준)에 두고, 문서에서는 **문서 파일 위치 기준 상대 경로**로 링크한다. 예) 문서가 `docs/runbook.md`이고 assets_dir가 `docs/assets`면 `assets/runbook-1.svg`.
 - 문서를 넘긴 뒤 아래 형식으로 보고한다. 보고는 문서 본문에 넣지 않는다.
 
 ```text
@@ -135,7 +135,7 @@ Skill 도구로 korean-proofreader를 부르면 교정 지침이 로드될 뿐 �
 | 스킬 | 언제 | 없으면 |
 |---|---|---|
 | eli5 | 비개발·초급 독자에게 낯선 핵심 개념이 3개 이상일 때, 개념 설명 단락 | audience.md C-4 전략으로 직접 쓴다 |
-| archify | 다이어그램이 복잡할 때(노드 12개 초과, 경계·브랜드 아이콘), 또는 HTML 출력 | mermaid로 개요도와 세부도를 나눈다 |
+| diagram-design | 다이어그램이 복잡할 때(노드 12개 초과, 경계, 변경 전후 비교, 의사결정자용 완성도), 또는 config `diagrams: diagram-design`. SVG/PNG로 내보내 문서에 넣는다 | mermaid로 개요도와 세부도를 나눈다 |
 | korean-proofreader | 7단계, 항상 | style.md 규칙만 적용하고 보고에 "문장 교정 생략" |
 
 연동 스킬의 결과는 그대로 붙이지 않는다. 문서의 어조(config `tone`), 용어집, 구조에 맞춰 다시 쓴다.

@@ -140,4 +140,4 @@ batch:
 
 - 하나의 `.html` 파일에 스타일과 다이어그램(SVG)을 모두 넣는다.
 - 경고는 `<aside class="warning">`, 접기는 `<details>`로 쓴다.
-- 복잡한 아키텍처는 archify가 만든 HTML을 같은 폴더에 두고 링크한다(visualization.md).
+- 복잡한 아키텍처는 diagram-design이 만든 SVG를 인라인으로 넣거나 HTML을 같은 폴더에 두고 링크한다(visualization.md).

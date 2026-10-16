@@ -4,7 +4,7 @@
 
 ## 목차
 
-M-1 구조, 흐름, 관계, 상태는 그림으로 보인다 · M-2 비교와 속성은 그림이 아니라 표로 보인다 · M-3 그림 앞뒤에 안내 문장과 핵심 문장을 둔다 · M-4 그림 하나에는 주된 경로 하나 · M-5 스크린숏은 환경과 크기를 맞춘다 · 내용 → 다이어그램 종류 · 출력 형식 × 복잡도 → 도구 · mermaid 작성 규칙 · 렌더링 절차 · archify 호출 절차
+M-1 구조, 흐름, 관계, 상태는 그림으로 보인다 · M-2 비교와 속성은 그림이 아니라 표로 보인다 · M-3 그림 앞뒤에 안내 문장과 핵심 문장을 둔다 · M-4 그림 하나에는 주된 경로 하나 · M-5 스크린숏은 환경과 크기를 맞춘다 · 내용 → 다이어그램 종류 · 출력 형식 × 복잡도 → 도구 · mermaid 작성 규칙 · 렌더링 절차 · diagram-design 호출 절차
 
 ## M-1 구조, 흐름, 관계, 상태는 그림으로 보인다
 
@@ -33,9 +33,9 @@ M-1 구조, 흐름, 관계, 상태는 그림으로 보인다 · M-2 비교와 �
 
 ## M-4 그림 하나에는 주된 경로 하나
 
-다이어그램 하나에 주요 노드는 12개 이하로 둔다. 주된 흐름 하나가 한눈에 보이게 하고, 곁가지는 짧게 둔다. 라벨은 짧은 명사구로 쓴다. 12개를 넘으면 개요도 하나와 세부도 여러 개로 나누거나, archify로 그린다.
+다이어그램 하나에 주요 노드는 12개 이하로 둔다. 주된 흐름 하나가 한눈에 보이게 하고, 곁가지는 짧게 둔다. 라벨은 짧은 명사구로 쓴다. 12개를 넘으면 개요도 하나와 세부도 여러 개로 나누거나, diagram-design으로 그린다.
 
-왜: 모든 것을 한 그림에 넣으면 아무것도 보이지 않는다. (출처에 없는 운영 기준. archify의 주요 노드 상한과 맞춤)
+왜: 모든 것을 한 그림에 넣으면 아무것도 보이지 않는다. (출처에 없는 운영 기준. diagram-design도 노드가 9개를 넘으면 그림 둘로 나누기를 권한다)
 
 ## M-5 스크린숏은 환경과 크기를 맞춘다
 
@@ -47,30 +47,29 @@ M-1 구조, 흐름, 관계, 상태는 그림으로 보인다 · M-2 비교와 �
 
 ## 내용 → 다이어그램 종류
 
-| 보여 줄 내용 | mermaid | archify type |
+| 보여 줄 내용 | mermaid | diagram-design 유형 |
 |---|---|---|
-| 컴포넌트, 경계, 배포 구조 | `flowchart LR` + `subgraph` | `architecture` |
-| 시간 순서의 호출·메시지 | `sequenceDiagram` | `sequence` |
-| 처리 단계, 분기, 승인 흐름 | `flowchart TD` | `workflow` |
-| 데이터 파이프라인, 계보 | `flowchart LR` | `dataflow` |
-| 상태 전이, 재시도 | `stateDiagram-v2` | `lifecycle` |
-| 데이터 모델 | `erDiagram`, `classDiagram` | — |
-| 장애 타임라인 | 표가 기본. 필요하면 `timeline` | — |
+| 컴포넌트, 경계, 배포 구조 | `flowchart LR` + `subgraph` | Architecture, Deployment |
+| 시간 순서의 호출·메시지 | `sequenceDiagram` | Sequence |
+| 처리 단계, 분기, 승인 흐름 | `flowchart TD` | Flowchart, Swimlane |
+| 데이터 파이프라인, 계보 | `flowchart LR` | Data flow |
+| 상태 전이, 재시도 | `stateDiagram-v2` | State machine (Lifecycle phase map) |
+| 데이터 모델 | `erDiagram`, `classDiagram` | ER(Entity-Relationship)/data model, UML(Unified Modeling Language) class |
+| 장애 타임라인, 일정 | 표가 기본. 필요하면 `timeline` | Timeline, Gantt |
+| 바뀌기 전과 후의 구조 | 그림 두 개 | Architecture delta |
 | 비교, 속성 | 표 (M-2) | — |
 
 ## 출력 형식 × 복잡도 → 도구
 
-복잡의 기준: 주요 노드가 12개를 넘거나, 시스템 경계·보안 영역·브랜드 아이콘이 필요한 경우.
+복잡의 기준: 주요 노드가 12개를 넘거나, 시스템 경계·보안 영역·변경 전후 비교가 필요하거나, 의사결정자에게 보여 줄 완성도 높은 그림이 필요한 경우.
 
 | config `output.format` | 단순 | 복잡 |
 |---|---|---|
-| markdown | mermaid 코드 블록 | mermaid 개요도 + archify HTML을 `assets_dir`에 두고 링크 |
-| confluence | `render-mermaid.sh`로 SVG/PNG를 만들어 첨부 (매크로가 있으면 코드) | mermaid 개요도 이미지 + archify HTML 첨부 또는 링크 |
-| html | `render-mermaid.sh`로 만든 SVG를 인라인으로 삽입 | archify HTML을 넣거나 링크 |
+| markdown | mermaid 코드 블록 | diagram-design으로 그리고 SVG로 내보내 `assets_dir`에 둔 뒤 이미지로 넣는다. 원본 HTML도 같은 폴더에 둔다 |
+| confluence | `render-mermaid.sh`로 SVG/PNG를 만들어 첨부 (매크로가 있으면 코드) | diagram-design으로 그리고 SVG(필요하면 PNG)로 내보내 첨부 |
+| html | `render-mermaid.sh`로 만든 SVG를 인라인으로 삽입 | diagram-design이 만든 SVG를 인라인으로 넣거나 HTML을 링크 |
 
-config `output.diagrams`가 `mermaid`면 archify를 쓰지 않고, `archify`면 복잡하지 않아도 archify를 우선하며, `none`이면 다이어그램 대신 표와 목록으로 쓴다.
-
-archify는 이미지를 CLI로 내보내지 않는다. Markdown·Confluence 본문에 넣을 정적 이미지는 언제나 mermaid로 만든다.
+config `output.diagrams`가 `mermaid`면 diagram-design을 쓰지 않고, `diagram-design`이면 복잡하지 않아도 diagram-design을 우선하며, `none`이면 다이어그램 대신 표와 목록으로 쓴다.
 
 ## mermaid 작성 규칙
 
@@ -103,10 +102,19 @@ flowchart LR
 4. 두 번 고쳐도 실패하면 Markdown에서는 코드 블록을 그대로 두고, Confluence·HTML에서는 다이어그램 자리에 코드 블록을 넣은 뒤 결과 보고에 실패를 적는다. 다이어그램을 조용히 빼지 않는다.
 5. Markdown 출력에서도 렌더링을 한 번 실행해 문법 오류가 없는지 확인한다(이미지는 커밋하지 않아도 된다).
 
-## archify 호출 절차
+## diagram-design 호출 절차
 
-1. archify 스킬을 부르고, 위 표에서 type을 고른다.
-2. 다이어그램이 문서의 사실과 맞아야 하므로 노드·관계는 재료(코드, 설정, 사용자 설명)에서 확인한 것만 넣는다.
-3. 산출 HTML은 `<assets_dir>/<문서명>-architecture.html`에 둔다.
-4. 문서 본문에는 mermaid 개요도를 넣고, 바로 아래에 "자세한 구조: archify 다이어그램 링크"를 둔다.
-5. archify가 설치돼 있지 않으면 mermaid로 개요도와 세부도를 나눠 그린다.
+1. diagram-design 스킬을 부르고, 위 표에서 유형을 고른다. mermaid 초안이 있으면 그 코드 블록을 넘긴다. diagram-design은 mermaid를 입력으로 받아 다시 그린다.
+2. 처음 쓰는 프로젝트에서 diagram-design이 스타일 가이드(색, 글꼴)를 정할지 물으면 사용자에게 그대로 전한다. 사용자에게 물을 수 없는 상황이면 기본 스타일을 유지하고, 결과 보고에 적는다.
+3. 다이어그램이 문서의 사실과 맞아야 하므로 노드·관계는 재료(코드, 설정, 사용자 설명)에서 확인한 것만 넣는다. 라벨의 번호와 용어는 본문과 같게 쓴다.
+4. 결과 HTML은 `<assets_dir>/<문서명>-<번호>.html`에 둔다.
+5. 문서에 넣을 이미지를 내보낸다. diagram-design 스킬 디렉터리에서 실행한다.
+
+   ```bash
+   python3 scripts/export_svg.py <assets_dir>/<문서명>-<번호>.html <assets_dir>/<문서명>-<번호>.svg
+   python3 scripts/export_png.py <assets_dir>/<문서명>-<번호>.html <assets_dir>/<문서명>-<번호>.png   # PNG가 필요할 때만
+   ```
+
+   diagram-design은 사용자가 요청할 때만 내보내기를 한다. 기술 문서에 그림을 넣는 것이 이 요청의 일부이므로, 내보낸다는 사실을 사용자에게 한 줄로 알리고 진행한다.
+6. 문서에는 내보낸 이미지를 문서 위치 기준 상대 경로로 넣고, 그림 앞뒤 문장(M-3)을 쓴다.
+7. diagram-design이 설치돼 있지 않거나 내보내기가 실패하면 mermaid로 개요도와 세부도를 나눠 그리고, 보고에 적는다.

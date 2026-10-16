@@ -19,7 +19,7 @@ ENUMS = {
     ("style", "tone"): {"합니다체", "해요체", "개조식"},
     ("style", "loanword_policy"): {"usage", "standard"},
     ("output", "format"): {"markdown", "confluence", "html"},
-    ("output", "diagrams"): {"auto", "mermaid", "archify", "none"},
+    ("output", "diagrams"): {"auto", "mermaid", "diagram-design", "none"},
 }
 LEVELS = {"beginner", "intermediate", "expert", "non-technical"}
 

@@ -110,3 +110,16 @@ def test_validation_error_points_to_file_that_set_the_value(tmp_path):
     code, out = run(tmp_path, user=bad_user, project="style: {tone: 해요체}\n")
     assert code == 2
     assert out["errors"][0]["file"].endswith("user.yaml")
+
+
+def test_diagrams_accepts_diagram_design_not_archify(tmp_path):
+    code, _ = run(tmp_path, user=USER + "output: {diagrams: diagram-design}\n")
+    assert code == 0
+    code, out = run(tmp_path, user=USER + "output: {diagrams: archify}\n")
+    assert code == 2 and "output.diagrams" in out["errors"][0]["message"]
+
+
+def test_skill_mentions_diagram_design_not_archify():
+    skill = ROOT / "skills/tech-writer"
+    hits = [str(p.relative_to(skill)) for p in skill.rglob("*") if p.is_file() and "archify" in p.read_text(errors="ignore")]
+    assert not hits, hits
