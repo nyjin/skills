@@ -6,11 +6,14 @@
 """judge 입력(digest)을 만들고, judge 출력을 채점해 action-items.json 에 병합한다."""
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
+import collect
 import state
 import transcript
 
@@ -20,6 +23,7 @@ CONDITIONS = {f"C{i}" for i in range(1, 12)}
 MODES = ("explicit", "session-end", "sweep")
 KEPT = {"approved", "rejected", "applied", "regressed"}
 LIVE = {"propose", "watch", "approved", "applied", "regressed"}
+JUDGE_TIMEOUT = 600
 SIG_RULE = "`?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다."
 
 
@@ -275,6 +279,88 @@ def rescore() -> int:
     return changed
 
 
+def _runs_today() -> int:
+    path = state.data_dir() / "judge-runs.jsonl"
+    if not path.exists():
+        return 0
+    today = datetime.now().astimezone().date().isoformat()
+    n = 0
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        try:
+            n += json.loads(raw).get("date") == today
+        except (ValueError, AttributeError):
+            continue
+    return n
+
+
+def _judge_output(stdout: str) -> dict:
+    try:
+        reply = json.loads(stdout)
+    except ValueError:
+        raise ValueError(f"stdout 이 JSON 이 아니다: {stdout[:200]!r}")
+    if not isinstance(reply, dict):
+        raise ValueError("응답이 객체가 아니다")
+    if reply.get("is_error"):
+        raise ValueError(f"claude 오류 응답: {str(reply.get('result'))[:200]}")
+    if isinstance(reply.get("structured_output"), dict):
+        return reply["structured_output"]
+    try:
+        return json.loads(reply.get("result") or "")
+    except (TypeError, ValueError):
+        raise ValueError("structured_output 이 없고 result 도 JSON 이 아니다")
+
+
+def _invoke(path: Path, mode: str, claude_bin: str) -> None:
+    text = digest(path, pending_signals(state.harness_dir(path)))
+    cmd = [claude_bin, "-p", "--no-session-persistence", "--tools", "", "--output-format", "json", "--json-schema", SCHEMA.read_text(encoding="utf-8")]
+    try:
+        proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=JUDGE_TIMEOUT, env={**os.environ, "HARNESS_RETRO": "1"})
+    except subprocess.TimeoutExpired:
+        raise ValueError(f"timeout {JUDGE_TIMEOUT}s")
+    if proc.returncode != 0:
+        raise ValueError(f"exit {proc.returncode}: {' '.join(proc.stderr.split())[:200]}")
+    merge(path, _judge_output(proc.stdout), mode)
+
+
+def background(transcript_path: Path, mode: str, claude_bin: str = "claude") -> bool:
+    """락을 잡고 새 신호를 모아 claude -p 로 판정해 병합한다. 할 일이 없으면 True, 막히거나 실패하면 False."""
+    path = Path(transcript_path)
+    hdir = state.harness_dir(path)
+    if not state.acquire_lock(hdir):
+        return False
+    try:
+        data = state.data_dir()
+        if _runs_today() >= state.load_config()["max_background_judges_per_day"]:
+            return False
+        collect.run(path)
+        if (hdir / "skip").exists() or not pending_signals(hdir):
+            return True
+        now = datetime.now().astimezone()
+        line = {"at": now.isoformat(), "date": now.date().isoformat(), "session": path.stem, "transcript": str(path), "mode": mode, "ok": True}
+        try:
+            _invoke(path, mode, claude_bin)
+        except Exception as e:
+            line.update(ok=False, error=str(e))
+            with open(data / "hook-errors.log", "a", encoding="utf-8") as f:
+                f.write(f"{now.isoformat()} judge background {path}: {' '.join(str(e).split())}\n")
+        with open(data / "judge-runs.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(line, ensure_ascii=False) + "\n")
+        return line["ok"]
+    finally:
+        state.release_lock(hdir)
+
+
+def spawn_background(transcript_path: Path, mode: str) -> None:
+    subprocess.Popen(
+        ["uv", "run", "--script", str(Path(__file__).resolve()), "background", str(transcript_path), "--mode", mode],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env={**os.environ, "HARNESS_RETRO": "1"},
+    )
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(prog="judge.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -284,11 +370,16 @@ def main(argv=None) -> None:
     p.add_argument("transcript", type=Path)
     p.add_argument("--mode", choices=MODES, required=True)
     sub.add_parser("rescore")
+    p = sub.add_parser("background")
+    p.add_argument("transcript", type=Path)
+    p.add_argument("--mode", choices=MODES, required=True)
     args = parser.parse_args(argv)
     if args.cmd == "digest":
         print(digest(args.transcript, pending_signals(state.harness_dir(args.transcript))), end="")
     elif args.cmd == "merge":
         print(json.dumps(merge(args.transcript, json.load(sys.stdin), args.mode), ensure_ascii=False, indent=2))
+    elif args.cmd == "background":
+        sys.exit(0 if background(args.transcript, args.mode) else 1)
     else:
         print(rescore())
 
