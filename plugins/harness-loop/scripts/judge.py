@@ -227,8 +227,10 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
     hdir = state.harness_dir(path)
     cfg = state.load_config()
     items = state.load_items(hdir)
+    overrides = state.load_score_overrides()
     for it in new_items:
         sig = it["sig"]
+        it = {**it, **overrides.get(sig, {})}
         sessions = recurrence(sig, session)
         total, status = score({**it, "sessions": sessions}, cfg)
         fresh = {
@@ -270,20 +272,22 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
 
 def rescore() -> int:
     cfg = state.load_config()
+    overrides = state.load_score_overrides()
     changed = 0
     for hdir in state.all_harness_dirs():
         items = state.load_items(hdir)
         dirty = False
-        for it in items.values():
-            scores = it.get("scores") or {}
+        for sig, it in items.items():
+            stored = it.get("scores") or {}
+            scores = {**stored, **overrides.get(sig, {})}
             try:
                 total, status = score({**it, "impact": scores["impact"], "actionability": scores["actionability"]}, cfg)
             except (KeyError, TypeError):
                 continue
             if it.get("status") in KEPT:
                 status = it["status"]
-            if total != it.get("score") or status != it.get("status"):
-                it["score"], it["status"] = total, status
+            if total != it.get("score") or status != it.get("status") or scores != stored:
+                it["score"], it["status"], it["scores"] = total, status, scores
                 changed += 1
                 dirty = True
         if dirty:

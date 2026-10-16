@@ -256,3 +256,155 @@ def test_sweep_skips_recently_modified_and_excluded_session(tmp_projects):
     got = report.sweep(now.isoformat(), exclude_session="mine")
     assert got == [idle]
     assert open_now not in got and mine not in got
+
+
+def judge_out(sig, session, impact=3, actionability=3):
+    return {"items": [{"sig": sig, "condition": sig.split(":")[0], "impact": impact, "actionability": actionability, "evidence": [{"session": session, "turn": 1, "quote": "q"}], "target": {"path": "/r/skills/x/SKILL.md"}, "proposal": "p", "duplicate_of_rule": None, "rule_unenforced": False, "skills": {}}]}
+
+
+def test_edit_score_records_values_and_overrides_latest_per_field(tmp_projects):
+    t = transcript(tmp_projects, "s1")
+    put_items(t, item("C1:a"))
+    report.decide("C1:a", "edit-score", impact=1, actionability=2)
+    report.decide("C1:a", "edit-score", impact=2)
+    rows = [json.loads(r) for r in (state.data_dir() / "decisions.jsonl").read_text().splitlines()]
+    assert rows[0]["impact"] == 1 and rows[0]["actionability"] == 2
+    assert rows[1]["impact"] == 2 and "actionability" not in rows[1]
+    assert state.load_score_overrides() == {"C1:a": {"impact": 2, "actionability": 2}}
+    assert "C1:a" not in state.load_decisions()
+
+
+def test_user_scores_win_over_later_judge_merge_and_rescore(tmp_projects):
+    t1 = transcript(tmp_projects, "s1")
+    put_items(t1, item("C1:a"))
+    report.decide("C1:a", "edit-score", impact=1, actionability=2)
+    judge.merge(t1, judge_out("C1:a", "s1"), "explicit")
+    t2 = transcript(tmp_projects, "s2")
+    judge.merge(t2, judge_out("C1:a", "s2"), "explicit")
+    for t in (t1, t2):
+        it = state.load_items(hdir_of(t))["C1:a"]
+        assert (it["scores"]["impact"], it["scores"]["actionability"]) == (1, 2)
+        assert it["score"] == pytest.approx(0.4 * it["scores"]["recurrence"] + 0.4 * 1 + 0.2 * 2)
+    t3 = transcript(tmp_projects, "s3")
+    put_items(t3, item("C1:a", score=2.6))
+    assert judge.rescore() >= 1
+    it = state.load_items(hdir_of(t3))["C1:a"]
+    assert (it["scores"]["impact"], it["scores"]["actionability"]) == (1, 2)
+    assert it["score"] == pytest.approx(0.4 * 1 + 0.4 * 1 + 0.2 * 2) and it["status"] == "discarded"
+
+
+def recurring(root, sid, sig="C1:a"):
+    t = transcript(root, sid, start=datetime.now().astimezone() + timedelta(hours=1))
+    (hdir_of(t) / "signals.jsonl").write_text(json.dumps({"sig": sig, "line": 3}) + "\n")
+    return t
+
+
+@pytest.mark.parametrize("target", [{"path": "/c/SKILL.md", "owner": "plugin_cache"}, {"path": "/c/SKILL.md", "owner": "plugin_cache:/c"}, {"path": "/c/SKILL.md", "kind": "plugin_cache"}])
+def test_plugin_cache_regression_reported_once_per_sig(tmp_projects, target):
+    old = transcript(tmp_projects, "old", start=T0)
+    put_items(old, item("C1:a", status="approved", target=target))
+    state.append_decision("C1:a", "approved")
+    first = recurring(tmp_projects, "new1")
+    report.regressions()
+    assert state.load_items(hdir_of(first))["C1:a"]["status"] == "regressed"
+    second = recurring(tmp_projects, "new2")
+    report.regressions()
+    assert state.load_items(hdir_of(first))["C1:a"]["status"] == "regressed"
+    assert state.load_items(hdir_of(second))["C1:a"]["status"] == "watch"
+    assert report.regressions() == []
+    assert state.load_items(hdir_of(second))["C1:a"]["status"] == "watch"
+    assert [i["sig"] for h, i in report.pending(5) if h == hdir_of(second)] == []
+
+
+def test_plugin_cache_two_new_sessions_in_one_pass_regress_once(tmp_projects):
+    old = transcript(tmp_projects, "old", start=T0)
+    put_items(old, item("C1:a", status="approved", target={"path": "/c/SKILL.md", "owner": "plugin_cache"}))
+    state.append_decision("C1:a", "approved")
+    a, b = recurring(tmp_projects, "new1"), recurring(tmp_projects, "new2")
+    report.regressions()
+    statuses = sorted(state.load_items(hdir_of(t))["C1:a"]["status"] for t in (a, b))
+    assert statuses == ["regressed", "watch"]
+
+
+def test_non_plugin_cache_second_recurrence_still_regressed(tmp_projects):
+    old = transcript(tmp_projects, "old", start=T0)
+    put_items(old, item("C1:a", status="approved"))
+    state.append_decision("C1:a", "approved")
+    first = recurring(tmp_projects, "new1")
+    report.regressions()
+    second = recurring(tmp_projects, "new2")
+    report.regressions()
+    assert state.load_items(hdir_of(first))["C1:a"]["status"] == "regressed"
+    assert state.load_items(hdir_of(second))["C1:a"]["status"] == "regressed"
+
+
+def test_list_mark_reported_cli(tmp_projects, capsys):
+    t1 = transcript(tmp_projects, "s1")
+    t2 = transcript(tmp_projects, "s2")
+    put_items(t1, item("C1:a"), item("C1:r", status="regressed"), item("C1:w", status="watch"))
+    put_items(t2, item("C1:b"))
+    report.main(["list", "--session", "s1"])
+    assert {i["sig"] for i in json.loads(capsys.readouterr().out)} == {"C1:a", "C1:r", "C1:w"}
+    assert not any(i.get("reported_at") for i in state.load_items(hdir_of(t1)).values())
+    report.main(["list", "--session", "s1", "--mark-reported"])
+    assert {i["sig"] for i in json.loads(capsys.readouterr().out)} == {"C1:a", "C1:r", "C1:w"}
+    got = state.load_items(hdir_of(t1))
+    assert got["C1:a"]["reported_at"] and got["C1:r"]["reported_at"] and "reported_at" not in got["C1:w"]
+    assert [(h, i["sig"]) for h, i in report.pending(5)] == [(hdir_of(t2), "C1:b")]
+
+
+def error_lines():
+    log = state.data_dir() / "hook-errors.log"
+    return log.read_text().splitlines() if log.exists() else []
+
+
+def test_regressions_skip_locked_session_and_retry_later(tmp_projects):
+    old = transcript(tmp_projects, "old", start=T0)
+    put_items(old, item("C1:a", status="approved"))
+    state.append_decision("C1:a", "approved")
+    new = recurring(tmp_projects, "new")
+    assert state.acquire_lock(hdir_of(new))
+    assert report.regressions() == []
+    assert "C1:a" not in state.load_items(hdir_of(new))
+    assert len(error_lines()) == 1 and "new" in error_lines()[0]
+    state.release_lock(hdir_of(new))
+    assert [c["sig"] for c in report.regressions()] == ["C1:a"]
+    assert not (hdir_of(new) / "lock").exists()
+
+
+def test_mark_reported_skips_locked_session(tmp_projects):
+    t1, t2 = transcript(tmp_projects, "s1"), transcript(tmp_projects, "s2")
+    put_items(t1, item("C1:a"))
+    put_items(t2, item("C1:b"))
+    assert state.acquire_lock(hdir_of(t1))
+    report.mark_reported(report.pending(5))
+    assert "reported_at" not in state.load_items(hdir_of(t1))["C1:a"]
+    assert state.load_items(hdir_of(t2))["C1:b"]["reported_at"]
+    assert len(error_lines()) == 1 and "s1" in error_lines()[0]
+    assert (hdir_of(t1) / "lock").exists() and not (hdir_of(t2) / "lock").exists()
+
+
+def test_decide_gives_up_on_locked_session_without_writing(tmp_projects, monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(report.time, "sleep", sleeps.append)
+    t1, t2 = transcript(tmp_projects, "s1"), transcript(tmp_projects, "s2")
+    put_items(t1, item("C1:a"))
+    put_items(t2, item("C1:a"))
+    assert state.acquire_lock(hdir_of(t2))
+    with pytest.raises(ValueError, match="s2"):
+        report.decide("C1:a", "approved")
+    assert sum(sleeps) <= 5 and sleeps
+    assert not (state.data_dir() / "decisions.jsonl").exists()
+    assert {state.load_items(hdir_of(t))["C1:a"]["status"] for t in (t1, t2)} == {"propose"}
+    assert not (hdir_of(t1) / "lock").exists() and (hdir_of(t2) / "lock").exists()
+
+
+def test_decide_waits_for_lock_release(tmp_projects, monkeypatch):
+    t = transcript(tmp_projects, "s1")
+    put_items(t, item("C1:a"))
+    assert state.acquire_lock(hdir_of(t))
+    monkeypatch.setattr(report.time, "sleep", lambda s: state.release_lock(hdir_of(t)))
+    report.decide("C1:a", "approved")
+    assert state.load_items(hdir_of(t))["C1:a"]["status"] == "approved"
+    assert state.load_decisions()["C1:a"]["decision"] == "approved"
+    assert not (hdir_of(t) / "lock").exists()

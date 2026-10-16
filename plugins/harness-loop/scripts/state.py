@@ -60,15 +60,23 @@ def projects_root() -> Path:
     return Path(env) if env else Path.home() / ".claude/projects"
 
 
-def harness_dir(transcript: Path) -> Path:
+def harness_path(transcript: Path) -> Path:
+    """세션 기록의 harness 디렉터리 경로. 만들지 않는다."""
     transcript = Path(transcript)
-    d = transcript.parent / transcript.stem / "harness"
+    return projects_root() / transcript.parent.name / transcript.stem / "harness"
+
+
+def harness_dir(transcript: Path) -> Path:
+    d = harness_path(transcript)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def find_transcript(session_id: str) -> Path | None:
-    return next(iter(projects_root().glob(f"*/{session_id}.jsonl")), None)
+    found = next(iter(projects_root().glob(f"*/{session_id}.jsonl")), None)
+    if found is None and os.environ.get("HARNESS_PROJECTS_ROOT"):
+        found = next(iter((Path.home() / ".claude/projects").glob(f"*/{session_id}.jsonl")), None)
+    return found
 
 
 def all_harness_dirs() -> list[Path]:
@@ -122,7 +130,7 @@ def save_items(hdir, items) -> None:
     _atomic_write(Path(hdir) / "action-items.json", json.dumps(items, ensure_ascii=False, indent=2))
 
 
-def append_decision(sig, decision, target=None, note=None) -> None:
+def append_decision(sig, decision, target=None, note=None, impact=None, actionability=None) -> None:
     record = {
         "sig": sig,
         "decision": decision,
@@ -130,22 +138,44 @@ def append_decision(sig, decision, target=None, note=None) -> None:
         "target": target,
         "note": note,
     }
+    for key, value in (("impact", impact), ("actionability", actionability)):
+        if value is not None:
+            record[key] = value
     with open(data_dir() / "decisions.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def load_decisions() -> dict[str, dict]:
+def _decision_records() -> list[dict]:
     path = data_dir() / "decisions.jsonl"
-    result = {}
     if not path.exists():
-        return result
+        return []
+    out = []
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
             r = json.loads(line)
         except ValueError:
             continue
-        if not isinstance(r, dict) or not all(r.get(k) for k in ("sig", "decision", "at")):
+        if isinstance(r, dict) and all(r.get(k) for k in ("sig", "decision", "at")):
+            out.append(r)
+    return out
+
+
+def load_score_overrides() -> dict[str, dict]:
+    """edit-score 기록에서 sig 별로 필드마다 마지막에 준 impact·actionability."""
+    result = {}
+    for r in _decision_records():
+        if r["decision"] != "edit-score":
             continue
+        for key in ("impact", "actionability"):
+            v = r.get(key)
+            if isinstance(v, int) and not isinstance(v, bool):
+                result.setdefault(r["sig"], {})[key] = v
+    return result
+
+
+def load_decisions() -> dict[str, dict]:
+    result = {}
+    for r in _decision_records():
         if r.get("decision") == "edit-score":
             continue
         result[r["sig"]] = {"decision": r["decision"], "at": r["at"], "target": r.get("target")}

@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +18,8 @@ import state
 REPORTABLE = {"propose", "regressed"}
 DECISIONS = ("approved", "rejected", "applied", "edit-score")
 OPEN_SESSION_SEC = 600
+DECIDE_LOCK_TRIES = 10
+DECIDE_LOCK_SLEEP = 0.5
 
 
 def _now() -> datetime:
@@ -46,7 +49,7 @@ def sweep(now_iso: str, exclude_session: str | None = None) -> list[Path]:
         mtime = t.stat().st_mtime
         if not installed < mtime <= now - OPEN_SESSION_SEC or t.stem == exclude_session:
             continue
-        hdir = t.parent / t.stem / "harness"
+        hdir = state.harness_path(t)
         if (hdir / "skip").exists():
             continue
         if judge.pending_signals(hdir):
@@ -79,40 +82,75 @@ def _has_sig(hdir: Path, sig: str) -> bool:
     return sig in state.load_items(hdir) or any(s.get("sig") == sig for s in judge._read_signals(hdir))
 
 
+def _plugin_cache(item: dict) -> bool:
+    target = item.get("target") or {}
+    return str(target.get("owner") or "").startswith("plugin_cache") or target.get("kind") == "plugin_cache"
+
+
 def regressions() -> list[dict]:
+    """승인·반영 뒤 시작한 세션에서 sig 가 다시 나오면 regressed 로 만든다. plugin_cache 대상은 sig 당 한 번만 regressed 이고 그 뒤 재발은 watch 다."""
     decided = {sig: _aware(d["at"]) for sig, d in state.load_decisions().items() if d["decision"] in ("approved", "applied")}
     if not decided:
         return []
     hdirs = state.all_harness_dirs()
     sources = {}
+    regressed = set()
     for hdir in hdirs:
         for sig, it in state.load_items(hdir).items():
             if sig in decided and it.get("status") in ("approved", "applied"):
                 sources.setdefault(sig, it)
+            if it.get("status") == "regressed":
+                regressed.add(sig)
     created = []
     for hdir in hdirs:
         t = _transcript_of(hdir)
         if not t.exists():
             continue
         started = _session_start(t)
-        items = state.load_items(hdir)
-        dirty = False
-        for sig, at in decided.items():
-            if started <= at or items.get(sig, {}).get("status") == "regressed" or not _has_sig(hdir, sig):
-                continue
-            src = sources.get(sig, {})
-            new = dict(items.get(sig, {}))
-            new.update({k: src[k] for k in ("condition", "proposal", "target", "scores", "sessions") if k in src})
-            new.setdefault("condition", sig.split(":", 1)[0])
-            new.setdefault("score", src.get("score", 0))
-            new.update(sig=sig, status="regressed", regressed_after=at.isoformat())
-            new.pop("reported_at", None)
-            items[sig] = new
-            created.append(new)
-            dirty = True
-        if dirty:
-            state.save_items(hdir, items)
+        if not _regress(hdir, state.load_items(hdir), decided, started, sources, regressed):
+            continue
+        if not state.acquire_lock(hdir):
+            _log_locked("regressions", hdir)
+            continue
+        try:
+            items = state.load_items(hdir)
+            changes = _regress(hdir, items, decided, started, sources, regressed)
+            if changes:
+                state.save_items(hdir, items)
+        finally:
+            state.release_lock(hdir)
+        for new in changes:
+            if new["status"] == "regressed":
+                created.append(new)
+                regressed.add(new["sig"])
     return created
+
+
+def _regress(hdir: Path, items: dict, decided: dict, started: datetime, sources: dict, regressed: set) -> list[dict]:
+    """items 를 제자리에서 고치고 새로 쓴 항목들을 돌려준다."""
+    changes = []
+    for sig, at in decided.items():
+        src = sources.get(sig, {})
+        once = _plugin_cache(src) and sig in regressed
+        if started <= at or items.get(sig, {}).get("status") in ({"regressed", "watch"} if once else {"regressed"}) or not _has_sig(hdir, sig):
+            continue
+        new = dict(items.get(sig, {}))
+        new.update({k: src[k] for k in ("condition", "proposal", "target", "scores", "sessions") if k in src})
+        new.setdefault("condition", sig.split(":", 1)[0])
+        new.setdefault("score", src.get("score", 0))
+        new.update(sig=sig, status="watch" if once else "regressed", regressed_after=at.isoformat())
+        new.pop("reported_at", None)
+        items[sig] = new
+        changes.append(new)
+    return changes
+
+
+def _log_locked(what: str, hdir: Path) -> None:
+    try:
+        with open(_errors_log(), "a", encoding="utf-8") as f:
+            f.write(f"{_now().isoformat()} report {what}: 세션 {hdir.parent.name} 이 잠겨 있어 건너뜀 ({hdir})\n")
+    except OSError:
+        pass
 
 
 def pending(limit: int) -> list[tuple[Path, dict]]:
@@ -174,11 +212,35 @@ def mark_reported(pairs) -> None:
     for hdir, it in pairs:
         by_dir.setdefault(Path(hdir), set()).add(it["sig"])
     for hdir, sigs in by_dir.items():
-        items = state.load_items(hdir)
-        for sig in sigs:
-            if sig in items:
-                items[sig]["reported_at"] = at
-        state.save_items(hdir, items)
+        if not state.acquire_lock(hdir):
+            _log_locked("mark_reported", hdir)
+            continue
+        try:
+            items = state.load_items(hdir)
+            for sig in sigs:
+                if sig in items:
+                    items[sig]["reported_at"] = at
+            state.save_items(hdir, items)
+        finally:
+            state.release_lock(hdir)
+
+
+def _lock_all(hdirs: list[Path]) -> None:
+    """hdirs 의 락을 모두 잡는다. DECIDE_LOCK_TRIES 번 안에 못 잡으면 잡은 것을 풀고 ValueError."""
+    held, waiting = [], list(hdirs)
+    for attempt in range(DECIDE_LOCK_TRIES):
+        for hdir in list(waiting):
+            if state.acquire_lock(hdir):
+                held.append(hdir)
+                waiting.remove(hdir)
+        if not waiting:
+            return
+        if attempt < DECIDE_LOCK_TRIES - 1:
+            time.sleep(DECIDE_LOCK_SLEEP)
+    for hdir in held:
+        state.release_lock(hdir)
+    names = ", ".join(h.parent.name for h in waiting)
+    raise ValueError(f"세션 {names} 이 잠겨 있어(판정 중일 수 있다) 결정을 기록하지 않았다. 잠시 뒤 다시 실행한다.")
 
 
 def decide(sig: str, decision: str, session: str | None = None, impact: int | None = None, actionability: int | None = None) -> dict:
@@ -187,17 +249,28 @@ def decide(sig: str, decision: str, session: str | None = None, impact: int | No
     hdirs = [h for h in state.all_harness_dirs() if (session is None or h.parent.name == session) and sig in state.load_items(h)]
     if not hdirs:
         raise ValueError(f"sig 가 없다: {sig}" + (f" (세션 {session})" if session else ""))
-    first = state.load_items(hdirs[0])[sig]
-    if decision == "edit-score":
+    _lock_all(hdirs)
+    try:
+        return _decide_locked(sig, decision, hdirs, impact, actionability)
+    finally:
         for hdir in hdirs:
-            scores = state.load_items(hdir)[sig].get("scores") or {}
+            state.release_lock(hdir)
+
+
+def _decide_locked(sig: str, decision: str, hdirs: list[Path], impact: int | None, actionability: int | None) -> dict:
+    loaded = {hdir: state.load_items(hdir) for hdir in hdirs}
+    for hdir, items in loaded.items():
+        if sig not in items:
+            raise ValueError(f"sig 가 없다: {sig} (세션 {hdir.parent.name})")
+    if decision == "edit-score":
+        for hdir, items in loaded.items():
+            scores = items[sig].get("scores") or {}
             if (impact is None and not isinstance(scores.get("impact"), int)) or (actionability is None and not isinstance(scores.get("actionability"), int)):
                 raise ValueError(f"점수가 없는 항목이라 impact·actionability 를 모두 줘야 한다: {sig} (세션 {hdir.parent.name})")
-    state.append_decision(sig, decision, target=(first.get("target") or {}).get("path"))
+    first = loaded[hdirs[0]][sig]
     cfg = state.load_config()
     updated = []
-    for hdir in hdirs:
-        items = state.load_items(hdir)
+    for hdir, items in loaded.items():
         it = items[sig]
         if decision == "edit-score":
             scores = dict(it.get("scores") or {})
@@ -212,8 +285,10 @@ def decide(sig: str, decision: str, session: str | None = None, impact: int | No
                 it["status"] = status
         else:
             it["status"] = decision
-        state.save_items(hdir, items)
         updated.append({"session": hdir.parent.name, **it})
+    for hdir, items in loaded.items():
+        state.save_items(hdir, items)
+    state.append_decision(sig, decision, target=(first.get("target") or {}).get("path"), impact=impact, actionability=actionability)
     return {"sig": sig, "decision": decision, "items": updated}
 
 
@@ -241,6 +316,7 @@ def main(argv=None) -> None:
     g = p.add_mutually_exclusive_group()
     g.add_argument("--session")
     g.add_argument("--all", action="store_true")
+    p.add_argument("--mark-reported", action="store_true")
     p = sub.add_parser("decide")
     p.add_argument("sig")
     p.add_argument("decision", choices=DECISIONS)
@@ -260,6 +336,8 @@ def main(argv=None) -> None:
         if args.cmd == "list":
             scope = f"session:{args.session}" if args.session else "all" if args.all else "pending"
             result = list_items(scope)
+            if args.mark_reported:
+                mark_reported([(state.projects_root() / i["project"] / i["session"] / "harness", i) for i in result if i.get("status") in REPORTABLE])
         else:
             result = decide(args.sig, args.decision, args.session, args.impact, args.actionability)
     except ValueError as e:

@@ -61,3 +61,23 @@ def test_load_decisions_skips_malformed_lines(tmp_projects):
     with open(state.data_dir() / "decisions.jsonl", "a") as f:
         f.write('[1, 2]\n"text"\n{"sig": "C1:y"}\n{"decision": "approved", "at": "2026-10-01T00:00:00+09:00"}\n')
     assert list(state.load_decisions()) == ["C1:x"]
+
+
+def test_harness_dir_lives_under_projects_root(tmp_projects, tmp_path):
+    t = tmp_path / "elsewhere" / "-src-app" / "sess9.jsonl"
+    t.parent.mkdir(parents=True)
+    t.write_text("")
+    h = state.harness_dir(t)
+    assert h == tmp_projects / "-src-app" / "sess9" / "harness" and h.is_dir()
+    assert not (t.parent / "sess9").exists()
+
+
+def test_find_transcript_falls_back_to_default_projects(tmp_projects, tmp_path):
+    default = tmp_path / "home" / ".claude" / "projects" / "-src-app" / "sess9.jsonl"
+    default.parent.mkdir(parents=True)
+    default.write_text("")
+    assert state.find_transcript("sess9") == default
+    mine = tmp_projects / "-src-app" / "sess9.jsonl"
+    mine.parent.mkdir()
+    mine.write_text("")
+    assert state.find_transcript("sess9") == mine
