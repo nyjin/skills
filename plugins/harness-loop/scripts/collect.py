@@ -19,7 +19,7 @@ PERMISSION_NOISE = ("requires approval", "multiple operations", "was blocked. Fo
 EXIT_CODE = re.compile(r"Exit code \d+")
 CORRECTION = re.compile(r"^아니|그게 아니|말고|왜 .{0,20}(했|하지|하냐)|다시 (해|하|작성)|취지|벗어나|대충|빈약|지나치|너무 (길|많|복잡)")
 QUESTION = re.compile(r"(할까요|갈까요|될까요|드릴까요|볼까요|좋을까요|괜찮을까요|어떨까요)\??\s*$")
-BARE_YES = re.compile(r"^(네|넵|예|어|응|ㅇㅇ|ㅇㅋ|좋아요?|진행|ok|yes|그래)", re.I)
+BARE_YES = re.compile(r"^(네|넵|예|어|응|ㅇㅇ|ㅇㅋ|좋아요?|진행|ok|yes|그래)(?![가-힣A-Za-z])", re.I)
 NO_ASK = re.compile(r"묻지 말|물어보지 말|질문 없이|쭉 가")
 RETRACT = re.compile(r"정정|바로잡|틀렸습니다|과장했|가정이었|판단이 일렀")
 REVERT = re.compile(r"되돌|원복|revert|하지 말|바꾸지 말", re.I)
@@ -33,7 +33,7 @@ PY_IMPORT = re.compile(r"(?:^|[;\n])\s*(?:import\s+([\w., ]+)|from\s+([\w.]+)\s+
 PY_STD = {"sys", "os", "re", "json", "collections"}
 EDITS = {"Edit", "Write", "MultiEdit"}
 JUDGED = {"C2", "C5", "C6", "C7", "C9"}
-WORKER_SKIP = {"C2", "C4", "C9"}
+WORKER_ONLY = {"C1", "C3", "C10"}
 
 
 def normalize_error(text: str) -> str:
@@ -93,7 +93,7 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
 
     def add(sig, turn, quote, skill=None):
         cond = sig.split(":")[0]
-        if kind == "worker" and cond in WORKER_SKIP or (sig, turn.index) in seen:
+        if kind == "worker" and cond not in WORKER_ONLY or (sig, turn.index) in seen:
             return
         seen.add((sig, turn.index))
         out.append({"sig": sig, "condition": cond, "turn": turn.index, "line": turn.line, "skill": skill, "quote": (quote or "")[:200], "needs_judge": cond in JUDGED})
@@ -147,7 +147,7 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
         # C8
         if not any(c.name == "Skill" for c in turn.calls):
             for slash, word in SKILL_MENTION.findall(turn.user):
-                add(f"C8:skill:{slash or word}", turn, turn.user)
+                add(f"C8:skill:{slash or word}", turn, turn.user, slash or word)
         searches = sum(1 for c in turn.calls if SEARCH_CMD.search(_cmd(c)))
         if searches >= 5 and not any("codegraph" in c.name or "codegraph" in _cmd(c) for c in turn.calls) and _codegraph_repo(turn.cwd):
             add("C8:codegraph-unused", turn, turn.user, _skill_of(turn))

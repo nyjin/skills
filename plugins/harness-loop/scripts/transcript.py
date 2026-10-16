@@ -71,6 +71,14 @@ def _first_line(text):
     return next((l.strip() for l in text.splitlines() if l.strip()), "")[:200]
 
 
+def _error_line(text):
+    """오류 첫 줄. 첫 줄이 `Exit code N` 이고 뒤에 내용이 더 있으면 그다음 줄을 쓴다."""
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if len(lines) > 1 and re.fullmatch(r"Exit code \d+", lines[0]):
+        return lines[1][:200]
+    return _first_line(text)
+
+
 def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
     """파일 전체를 읽어 턴을 만들고, start_line 이후 줄이 하나라도 있는 턴만 돌려준다. 마지막으로 완전히 읽은 줄 번호를 함께 돌려준다."""
     turns: list[Turn] = []
@@ -101,7 +109,7 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                             turn.rejected.append(b.get("tool_use_id"))
                         elif b.get("is_error"):
                             cid = b.get("tool_use_id")
-                            turn.errors.append(ToolError(cid, tools.get(cid, ""), _first_line(body)))
+                            turn.errors.append(ToolError(cid, tools.get(cid, ""), _error_line(body)))
                 text = _human_text(content)
                 if text is None or text.startswith(CONTINUED):
                     continue

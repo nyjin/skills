@@ -10,6 +10,7 @@ from transcript import Call, ToolError, Turn
 
 FIX = Path(__file__).parent / "fixtures"
 FIXTURE_403_TEXT = "Error: the app is not installed for this site"
+FIXTURE_BASH_TEXT = "error: unknown flag --json"
 FIXTURE_FIGMA_TEXT = "MCP error -32602: Invalid arguments for tool get_design_context: nodeId must match pattern 123:456"
 
 
@@ -50,8 +51,8 @@ def test_c1_retry_topic_normalized():
 
 
 def test_permission_and_exit_code_errors_are_noise():
-    # signals.jsonl 픽스처에는 권한 오류 1건, "Exit code 1" 단독 오류 1건, Figma 검증 오류 1건이 있다
-    assert [x["sig"] for x in by_cond(collect.signals(turns("signals.jsonl"), "normal"), "C1")] == ["C1:" + collect.normalize_error(FIXTURE_FIGMA_TEXT)]
+    # signals.jsonl 픽스처에는 권한 오류 1건, "Exit code 1" 단독 오류 1건, 메시지가 붙은 Bash 오류 1건, Figma 검증 오류 1건이 있다
+    assert [x["sig"] for x in by_cond(collect.signals(turns("signals.jsonl"), "normal"), "C1")] == ["C1:" + collect.normalize_error(FIXTURE_BASH_TEXT), "C1:" + collect.normalize_error(FIXTURE_FIGMA_TEXT)]
 
 
 def test_c1_error_without_following_call_is_not_signal():
@@ -75,6 +76,12 @@ def test_c4_long_answer_is_not_bare_yes():
     assert "C4:bare-yes" not in sigs_of(ts)
 
 
+def test_c4_question_word_prefix_is_not_bare_yes():
+    for reply in ("어디까지 했어?", "예시 하나 더", "네이버로 바꿔"):
+        assert "C4:bare-yes" not in sigs_of([T(1, "해줘", ai_tail="생성할까요?"), T(2, reply)])
+    assert "C4:bare-yes" in sigs_of([T(1, "해줘", ai_tail="생성할까요?"), T(2, "네 진행해")])
+
+
 def test_c4_asked_after_no_ask():
     assert "C4:asked-after-no-ask" in sigs_of([T(1, "묻지 말고 끝까지 해", ai_tail="다음 단계로 갈까요?")])
     assert "C4:asked-after-no-ask" not in sigs_of([T(1, "끝까지 해", ai_tail="다음 단계로 갈까요?")])
@@ -83,6 +90,14 @@ def test_c4_asked_after_no_ask():
 def test_worker_has_no_c2_c4_c9():
     sig = collect.signals(turns("signals.jsonl"), "worker")
     assert not {x["condition"] for x in sig} & {"C2", "C4", "C9"}
+
+
+def test_worker_collects_only_c1_c3_c10():
+    edit = Call("e", "Edit", {"file_path": "/tmp/a"}, None)
+    ts = [T(1, "ticket-creator 스킬로 고쳐줘", [edit], ai_tail="앞서 말한 원인은 가정이었습니다."), T(2, "아니 되돌려줘"), T(3, "끝났어?")]
+    assert {x["condition"] for x in collect.signals(ts, "normal")} >= {"C2", "C5", "C6", "C7", "C8", "C10", "C11"}
+    assert {x["condition"] for x in collect.signals(ts, "worker")} == {"C10"}
+    assert {x["condition"] for x in collect.signals(turns("compacted.jsonl"), "worker")} == set()
 
 
 def test_c2_c7_correction_rejection_and_noise():
@@ -132,7 +147,8 @@ def test_c6_rejected_edit_and_revert_request():
 
 
 def test_c8_named_skill_not_invoked():
-    assert "C8:skill:ticket-creator" in sigs_of([T(1, "ticket-creator 스킬로 만들어줘")])
+    s = by_cond(collect.signals([T(1, "ticket-creator 스킬로 만들어줘")], "normal"), "C8")
+    assert [(x["sig"], x["skill"]) for x in s] == [("C8:skill:ticket-creator", "ticket-creator")]
     assert "C8:skill:eli5" in sigs_of([T(1, "/eli5 이거 설명해줘")])
     skill = Call("s", "Skill", {"skill": "eli5"}, "eli5")
     assert sigs_of([T(1, "/eli5 이거 설명해줘", [skill])]) == []

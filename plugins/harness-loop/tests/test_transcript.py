@@ -80,3 +80,8 @@ def test_resume_mid_turn_reemits_whole_turn():
 def test_resume_after_turn_keeps_session_index():
     turns, _ = transcript.parse(FIX / "basic.jsonl", start_line=11)   # 1번 턴은 11번 줄까지
     assert [(t.index, t.user[:2]) for t in turns] == [(2, "아니")]
+
+
+def test_bash_error_text_skips_exit_code_line():
+    turns, _ = transcript.parse(FIX / "signals.jsonl")
+    assert [e.text for e in turns[0].errors if e.tool == "Bash"] == ["This command requires approval", "Exit code 1", "error: unknown flag --json"]
