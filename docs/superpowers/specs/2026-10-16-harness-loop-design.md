@@ -102,6 +102,8 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 
 `collect.py`가 결정적으로 신호를 뽑고, LLM 판정이 필요한 조건은 후보만 표시해 judge에 넘긴다.
 
+턴은 사람 발화 하나에서 시작한다. AI 가 일하는 도중 사용자가 친 발화(`type: attachment`, `attachment.type: queued_command`, `commandMode: prompt`, `origin.kind` 가 없거나 `human`)도 새 턴을 연다. 작업 알림(`task-notification`)과 다른 에이전트 메시지(`origin.kind: peer`)는 사람 발화가 아니다.
+
 | # | 조건 | collect가 잡는 신호 | judge가 판정할 것 |
 |---|---|---|---|
 | C1 | 도구 결과를 보고 고쳐 다시 부름 | `is_error` 뒤 같은 도구 재호출(재시도), 다른 도구 호출(우회). 오류의 주제 줄(잡음 규칙 참고)을 정규화해 토픽으로 쓴다 | 원인이 인자·인증·CLI 플래그·하네스 제약 중 무엇인지 |

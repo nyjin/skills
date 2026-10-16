@@ -128,3 +128,15 @@ def test_error_line_traceback_takes_last_exception_line():
     chained = "Exit code 1\nTraceback (most recent call last):\nValueError: first\n\nDuring handling...\nTraceback (most recent call last):\n  File \"y.py\"\nmod.CustomException: last"
     assert transcript._error_line(chained) == "mod.CustomException: last"
     assert transcript._error_line("Traceback (most recent call last):\n  File \"x.py\", line 3") == "Traceback (most recent call last):"
+
+
+def test_queued_command_prompt_starts_new_human_turn():
+    turns, _ = transcript.parse(FIX / "queued.jsonl")
+    assert [(t.index, t.line, t.cwd, t.user) for t in turns] == [
+        (1, 1, "/tmp/proj", "README 의 설치 절을 고쳐줘"),
+        (2, 4, "/tmp/proj", "아니, 그게 아니라 사용법 절이야"),
+        (3, 9, "/tmp/proj/sub", "예시도 하나 넣어줘"),
+    ]
+    assert [c.name for c in turns[0].calls] == ["Bash"]
+    assert [c.name for c in turns[1].calls] == ["Edit"]
+    assert turns[2].ai_tail == "사용법 절을 고치고 예시를 넣었습니다."

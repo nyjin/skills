@@ -258,3 +258,8 @@ def test_c8_slash_mention_only_plugin_form_or_utterance_start():
     assert "C8:skill:harness-loop:retro" in sigs_of([T(1, "아까 /harness-loop:retro 를 했는데")])
     assert "C8:skill:eli5" in sigs_of([T(1, "  /eli5 설명해줘")])
     assert [x["sig"] for x in by_cond(collect.signals([T(1, "/tmpfoo 말고 ls /tmp 해줘")], "normal"), "C8")] == ["C8:skill:tmpfoo"]
+
+
+def test_queued_correction_is_c2_candidate():
+    s = by_cond(collect.signals(turns("queued.jsonl"), "normal"), "C2")
+    assert [(x["sig"], x["turn"], x["line"]) for x in s] == [("C2:?", 2, 4)]

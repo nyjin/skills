@@ -67,6 +67,15 @@ def _human_text(content):
     return text
 
 
+def _queued_text(att):
+    """AI 가 일하는 동안 사람이 친 발화(`queued_command` attachment)의 텍스트. 아니면 None."""
+    if not isinstance(att, dict) or att.get("type") != "queued_command" or att.get("commandMode") != "prompt":
+        return None
+    if (att.get("origin") or {}).get("kind", "human") != "human":
+        return None
+    return _human_text(att.get("prompt"))
+
+
 def _first_line(text):
     return next((l.strip() for l in text.splitlines() if l.strip()), "")[:200]
 
@@ -133,6 +142,11 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                     continue
                 skill = None
                 turns.append(Turn(len(turns) + 1, d.get("cwd"), lineno, text))
+            elif d.get("type") == "attachment":
+                text = _queued_text(d.get("attachment"))
+                if text is not None and not text.startswith((CONTINUED, INTERRUPT)):
+                    skill = None
+                    turns.append(Turn(len(turns) + 1, d.get("cwd"), lineno, text))
             elif d.get("type") == "assistant" and turn and isinstance(content, list):
                 for b in content:
                     if b.get("type") == "tool_use":
