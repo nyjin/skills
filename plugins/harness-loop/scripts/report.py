@@ -177,6 +177,8 @@ def pending(limit: int) -> list[tuple[Path, dict]]:
             if it.get("status") in REPORTABLE and not it.get("reported_at") and (it.get("status") == "regressed" or sig not in reported):
                 out.append((hdir, it))
     out.sort(key=lambda p: p[1].get("score") or 0, reverse=True)
+    seen = set()
+    out = [p for p in out if not (p[1].get("sig") in seen or seen.add(p[1].get("sig")))]
     return out[:limit]
 
 

@@ -86,6 +86,15 @@ def test_sig_reported_once_across_sessions(tmp_projects):
     assert [(h, i["sig"]) for h, i in report.pending(5)] == [(hdir_of(t2), "C1:lsd"), (hdir_of(t2), "C1:other")]
 
 
+def test_unreported_sig_in_two_sessions_listed_once_with_highest_score(tmp_projects):
+    t1 = transcript(tmp_projects, "s1")
+    t2 = transcript(tmp_projects, "s2")
+    put_items(t1, item("C1:lsd", score=2.5), item("C1:other", score=2.4))
+    put_items(t2, item("C1:lsd", score=2.8))
+    got = report.pending(5)
+    assert [(h, i["sig"], i["score"]) for h, i in got] == [(hdir_of(t2), "C1:lsd", 2.8), (hdir_of(t1), "C1:other", 2.4)]
+
+
 def test_regression_after_approval(tmp_projects):
     old = transcript(tmp_projects, "old", start=T0)
     put_items(old, item("C1:a", status="approved", proposal="원래 제안"))

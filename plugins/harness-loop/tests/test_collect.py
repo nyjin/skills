@@ -263,3 +263,23 @@ def test_c8_slash_mention_only_plugin_form_or_utterance_start():
 def test_queued_correction_is_c2_candidate():
     s = by_cond(collect.signals(turns("queued.jsonl"), "normal"), "C2")
     assert [(x["sig"], x["turn"], x["line"]) for x in s] == [("C2:?", 2, 4)]
+
+
+def test_c11_resend_not_fired_around_queued_prompts():
+    assert "C11:resend" not in sigs_of([T(1, "해줘", queued=True), T(2, "그리고 이것도", queued=True)])
+    assert "C11:resend" not in sigs_of([T(1, "해줘"), T(2, "그리고 이것도", queued=True)])
+
+
+def test_two_consecutive_queued_prompts_parse_and_no_resend(tmp_path):
+    rows = [
+        {"type": "user", "cwd": "/tmp/proj", "message": {"role": "user", "content": "빌드해줘"}},
+        {"type": "assistant", "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "b1", "name": "Bash", "input": {"command": "make"}}]}},
+        {"type": "attachment", "cwd": "/tmp/proj", "attachment": {"type": "queued_command", "commandMode": "prompt", "origin": {"kind": "human"}, "prompt": "테스트도 돌려줘"}},
+        {"type": "attachment", "cwd": "/tmp/proj", "attachment": {"type": "queued_command", "commandMode": "prompt", "origin": {"kind": "human"}, "prompt": "린트도"}},
+        {"type": "assistant", "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "text", "text": "모두 끝냈습니다."}]}},
+    ]
+    p = tmp_path / "q2.jsonl"
+    p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    ts = transcript.parse(p)[0]
+    assert [(t.user, t.queued) for t in ts] == [("빌드해줘", False), ("테스트도 돌려줘", True), ("린트도", True)]
+    assert "C11:resend" not in sigs_of(ts)

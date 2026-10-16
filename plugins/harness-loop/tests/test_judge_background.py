@@ -96,8 +96,11 @@ def test_background_judge_runs_isolated_from_user_settings(tmp_projects, tmp_pat
     [call] = calls(exe)
     argv = call.split(" --json-schema ")[0].split(" ")
     assert argv == ["1", "-p", "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence", "--tools", "", "--output-format", "json"]
-    assert (tmp_path / "cwd.txt").read_text().strip() == str(state.data_dir().resolve())
-    assert not (state.data_dir() / ".claude").exists()
+    cwd = Path((tmp_path / "cwd.txt").read_text().strip())
+    assert cwd.name.startswith("harness-judge-")
+    home = Path(os.environ["HOME"]).resolve()
+    assert home not in cwd.parents and cwd != home
+    assert not cwd.exists()
 
 
 def test_background_judge_parses_result_when_no_structured_output(tmp_projects, tmp_path):

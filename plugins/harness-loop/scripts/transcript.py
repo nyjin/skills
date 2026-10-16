@@ -43,6 +43,7 @@ class Turn:
     interrupted: bool = False
     ai_tail: str = ""
     api_error: bool = False
+    queued: bool = False
 
 
 def _text(content):
@@ -81,7 +82,7 @@ def _first_line(text):
 
 
 SKIP_LINE = re.compile(r"Exit code \d+$|#!|#{1,6}\s|total \d+$")
-LS_LINE = re.compile(r"[dlcbps\-]([rwxsStT\-]{9})[@+.]?\s")
+LS_LINE = re.compile(r"[dlcbps.\-]([rwxsStT\-]{9})[@+.]?\s")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 TRACEBACK = "Traceback (most recent call last):"
 EXCEPTION_LINE = re.compile(r"[\w.]*(Error|Exception|Exit|Interrupt)\b.*")
@@ -146,7 +147,7 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                 text = _queued_text(d.get("attachment"))
                 if text is not None and not text.startswith((CONTINUED, INTERRUPT)):
                     skill = None
-                    turns.append(Turn(len(turns) + 1, d.get("cwd"), lineno, text))
+                    turns.append(Turn(len(turns) + 1, d.get("cwd"), lineno, text, queued=True))
             elif d.get("type") == "assistant" and turn and isinstance(content, list):
                 for b in content:
                     if b.get("type") == "tool_use":

@@ -8,8 +8,10 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -340,10 +342,13 @@ def _invoke(path: Path, hdir: Path, mode: str, claude_bin: str) -> None:
     text = digest(path, pending_signals(hdir))
     cmd = [claude_bin, "-p", "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence", "--tools", "", "--output-format", "json", "--json-schema", SCHEMA.read_text(encoding="utf-8")]
     os.utime(hdir / "lock")
+    cwd = tempfile.mkdtemp(prefix="harness-judge-")
     try:
-        proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=JUDGE_TIMEOUT, cwd=state.data_dir(), env={**os.environ, "HARNESS_RETRO": "1"})
+        proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=JUDGE_TIMEOUT, cwd=cwd, env={**os.environ, "HARNESS_RETRO": "1"})
     except subprocess.TimeoutExpired:
         raise ValueError(f"timeout {JUDGE_TIMEOUT}s")
+    finally:
+        shutil.rmtree(cwd, ignore_errors=True)
     if proc.returncode != 0:
         raise ValueError(f"exit {proc.returncode}: {' '.join(proc.stderr.split())[:200]}")
     merge(path, _judge_output(proc.stdout), mode)

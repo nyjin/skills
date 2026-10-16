@@ -87,8 +87,8 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 ```
 
 - judge는 명시 호출과 SessionEnd(그리고 그 보완인 SessionStart sweep)에서만 돈다. 하루 1회 배치는 없다.
-- 명시 호출 리포트를 보여 준 뒤 그 세션의 `propose`·`regressed` 항목을 보고한 것으로 표시한다(`report.py list --session <id> --mark-reported`). SessionStart 알림은 이 항목을 다시 알리지 않는다. 보고는 sig 단위로 한 번이다. 어느 세션에서든 `reported_at` 이 있는 sig 는 다른 세션의 새 항목으로도 다시 알리지 않는다. 단 `regressed` 항목은 알린다.
-- 명시 호출 judge는 현재 세션 모델이 대화 전체를 보고 판정한다. 백그라운드 judge(`claude -p`)는 `judge.py`가 조립한 다이제스트(신호, 해당 턴 발화와 AI 응답 꼬리)만 본다. C2·C5·C7처럼 맥락이 필요한 판정은 명시 호출 쪽이 더 정확하다. 백그라운드 judge 는 `--setting-sources project --strict-mcp-config` 로, 플러그인 데이터 디렉터리(`.claude/` 가 없다)를 cwd 로 실행한다. 사용자 설정의 훅·MCP 와 세션 cwd 프로젝트의 자동 메모리가 judge 에 섞이지 않는다.
+- 명시 호출 리포트를 보여 준 뒤 그 세션의 `propose`·`regressed` 항목을 보고한 것으로 표시한다(`report.py list --session <id> --mark-reported`). SessionStart 알림은 이 항목을 다시 알리지 않는다. 보고는 sig 단위로 한 번이다. 같은 sig 가 여러 세션에서 보고 대기면 점수가 가장 높은 항목 하나만 알린다. 어느 세션에서든 `reported_at` 이 있는 sig 는 다른 세션의 새 항목으로도 다시 알리지 않는다. 단 `regressed` 항목은 알린다.
+- 명시 호출 judge는 현재 세션 모델이 대화 전체를 보고 판정한다. 백그라운드 judge(`claude -p`)는 `judge.py`가 조립한 다이제스트(신호, 해당 턴 발화와 AI 응답 꼬리)만 본다. C2·C5·C7처럼 맥락이 필요한 판정은 명시 호출 쪽이 더 정확하다. 백그라운드 judge 는 `--setting-sources project --strict-mcp-config` 로, HOME 밖에 새로 만든 빈 임시 디렉터리를 cwd 로 실행하고 끝나면 그 디렉터리를 지운다. 사용자 설정의 훅·MCP, 세션 cwd 프로젝트의 자동 메모리, 상위 디렉터리의 CLAUDE.md(HOME 아래 cwd 면 `~/.claude/CLAUDE.md` 가 상위 프로젝트 메모리로 읽힌다)가 judge 에 섞이지 않는다.
 - `HARNESS_RETRO=1`이면 두 훅 모두 아무것도 하지 않는다. judge 세션이 자기 자신을 분석하지 않게 한다.
 - 서브에이전트 세션(훅 입력에 `agent_id`가 있음)에서는 두 훅 모두 아무것도 하지 않는다. `CLAUDE_CODE_CHILD_SESSION`은 가드로 쓰지 않는다. Claude Code가 보통의 최상위 세션 훅·Bash에서도 1로 설정하므로(실측) 이것으로 거르면 모든 세션이 빠진다. 워커 세션(`HERDR_PW_WORKER` 가 설정된 세션)에서는 수집은 하되 SessionStart 보고는 하지 않는다.
 - SessionStart 훅 matcher는 `startup|resume`이다. compact·clear 때는 다시 보고하지 않는다.
@@ -103,7 +103,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 
 `collect.py`가 결정적으로 신호를 뽑고, LLM 판정이 필요한 조건은 후보만 표시해 judge에 넘긴다.
 
-턴은 사람 발화 하나에서 시작한다. AI 가 일하는 도중 사용자가 친 발화(`type: attachment`, `attachment.type: queued_command`, `commandMode: prompt`, `origin.kind` 가 없거나 `human`)도 새 턴을 연다. 작업 알림(`task-notification`)과 다른 에이전트 메시지(`origin.kind: peer`)는 사람 발화가 아니다.
+턴은 사람 발화 하나에서 시작한다. AI 가 일하는 도중 사용자가 친 발화(`type: attachment`, `attachment.type: queued_command`, `commandMode: prompt`, `origin.kind` 가 없거나 `human`)도 새 턴을 연다. 이 턴과 그 바로 다음 턴에는 `C11:resend` 를 내지 않는다(AI 가 일하는 중에 들어온 발화라 재전송이 아니다). 작업 알림(`task-notification`)과 다른 에이전트 메시지(`origin.kind: peer`)는 사람 발화가 아니다.
 
 | # | 조건 | collect가 잡는 신호 | judge가 판정할 것 |
 |---|---|---|---|
@@ -122,7 +122,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 잡음 규칙:
 
 - 권한 프롬프트 오류(`requires approval`, `multiple operations` 등)는 신호가 아니다.
-- C1 토픽은 오류 본문에서 건너뛸 줄을 뺀 첫 줄이다. 건너뛰는 줄은 `Exit code N`, 셔뱅(`#!`), 마크다운 제목(`# `~`###### `), `ls -l` 출력의 `total N` 줄과 권한 표기로 시작하는 줄(`drwxr-xr-x  2 …`, 링크 수가 없는 lsd·eza 형식 포함. 권한 9자에 r·w·x 가 하나도 없으면 건너뛰지 않는다), 글자·숫자가 없는 줄(구분선·괄호만 있는 줄)이다. 본문에 `Traceback (most recent call last):` 줄이 있으면 마지막 예외 줄(`…Error`·`…Exception` 등)을 토픽으로 쓴다. 모든 줄을 건너뛰면 토픽이 없으므로 C1 신호를 만들지 않는다(`Exit code N` 단독 오류가 여기에 해당한다).
+- C1 토픽은 오류 본문에서 건너뛸 줄을 뺀 첫 줄이다. 건너뛰는 줄은 `Exit code N`, 셔뱅(`#!`), 마크다운 제목(`# `~`###### `), `ls -l` 출력의 `total N` 줄과 권한 표기로 시작하는 줄(`drwxr-xr-x  2 …`, 링크 수가 없는 lsd·eza 형식과 그 일반 파일 표기 `.rw-r--r--` 포함. 권한 9자에 r·w·x 가 하나도 없으면 건너뛰지 않는다), 글자·숫자가 없는 줄(구분선·괄호만 있는 줄)이다. 본문에 `Traceback (most recent call last):` 줄이 있으면 마지막 예외 줄(`…Error`·`…Exception` 등)을 토픽으로 쓴다. 모든 줄을 건너뛰면 토픽이 없으므로 C1 신호를 만들지 않는다(`Exit code N` 단독 오류가 여기에 해당한다).
 - 스킬 eval 세션(훅 차단 메시지로 식별)은 수집하지 않는다.
 - 워커 세션(dispatcher 가 보낸 브리프로 시작)은 C1·C3·C10 만 수집한다.
 - 다른 스킬 파일 수정은 그 스킬을 작업 대상으로 한 것이라 스킬 결함 신호가 아니다. 실행 중인 그 스킬 자신의 파일을 고친 경우만 C1 후보다.

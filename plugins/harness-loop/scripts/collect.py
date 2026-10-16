@@ -169,7 +169,7 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
         # C11
         if turn.api_error:
             add("C11:api-error", turn, turn.user, _skill_of(turn))
-        if prev and not prev.calls and not prev.ai_tail:
+        if prev and not prev.calls and not prev.ai_tail and not prev.queued and not turn.queued:
             add("C11:resend", turn, turn.user)
         prev = turn
     for s, n in cmd_count.items():

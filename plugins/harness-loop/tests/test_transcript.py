@@ -115,6 +115,8 @@ def test_error_line_skips_ls_listing_without_link_count():
     assert transcript._error_line("-rw-r--r--@ u staff 10 B a\nboom") == "boom"
     assert transcript._error_line("---------- ERROR: x ----------\nmore") == "---------- ERROR: x ----------"
     assert transcript._error_line("---------- x\nmore") == "---------- x"
+    assert transcript._error_line(".rw-r--r-- yeonjin.roh wheel 10 B Fri Oct 16 12:00:00 2026 a\nboom") == "boom"
+    assert transcript._error_line(".---------- x\nmore") == ".---------- x"
 
 
 def test_error_line_traceback_takes_last_exception_line():
