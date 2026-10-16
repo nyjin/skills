@@ -279,18 +279,26 @@ def rescore() -> int:
     return changed
 
 
-def _runs_today() -> int:
+def runs_today() -> int:
+    """오늘 시작한 백그라운드 판정 수. 예약 줄과 결과 줄은 (session, at) 이 같아 한 번만 센다."""
     path = state.data_dir() / "judge-runs.jsonl"
     if not path.exists():
         return 0
     today = datetime.now().astimezone().date().isoformat()
-    n = 0
-    for raw in path.read_text(encoding="utf-8").splitlines():
+    runs = set()
+    for n, raw in enumerate(path.read_text(encoding="utf-8").splitlines()):
         try:
-            n += json.loads(raw).get("date") == today
-        except (ValueError, AttributeError):
+            r = json.loads(raw)
+        except ValueError:
             continue
-    return n
+        if isinstance(r, dict) and r.get("date") == today:
+            runs.add((r.get("session"), r.get("at") or n))
+    return len(runs)
+
+
+def _append_run(line: dict) -> None:
+    with open(state.data_dir() / "judge-runs.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
 
 def _judge_output(stdout: str) -> dict:
@@ -332,21 +340,22 @@ def _log_error(path: Path, error: Exception) -> None:
 
 
 def _judge_once(path: Path, hdir: Path, mode: str, claude_bin: str) -> bool:
-    if _runs_today() >= state.load_config()["max_background_judges_per_day"]:
+    if runs_today() >= state.load_config()["max_background_judges_per_day"]:
         return False
     collect.run(path)
     if (hdir / "skip").exists() or not pending_signals(hdir):
         return True
     now = datetime.now().astimezone()
-    line = {"at": now.isoformat(), "date": now.date().isoformat(), "session": path.stem, "transcript": str(path), "mode": mode, "ok": True}
+    line = {"at": now.isoformat(), "date": now.date().isoformat(), "session": path.stem, "transcript": str(path), "mode": mode}
+    _append_run({**line, "ok": None, "reserved": True})
+    line["ok"] = True
     error = None
     try:
         _invoke(path, hdir, mode, claude_bin)
     except Exception as e:
         error = e
         line.update(ok=False, error=str(e))
-    with open(state.data_dir() / "judge-runs.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+    _append_run(line)
     if error:
         raise error
     return True

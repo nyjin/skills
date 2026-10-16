@@ -16,6 +16,7 @@ import state
 
 REPORTABLE = {"propose", "regressed"}
 DECISIONS = ("approved", "rejected", "applied", "edit-score")
+OPEN_SESSION_SEC = 600
 
 
 def _now() -> datetime:
@@ -36,13 +37,14 @@ def _line_count(path: Path) -> int:
         return sum(1 for _ in f)
 
 
-def sweep(now_iso: str) -> list[Path]:
+def sweep(now_iso: str, exclude_session: str | None = None) -> list[Path]:
+    """판정이 밀린 세션 기록. 최근 OPEN_SESSION_SEC 안에 바뀐 기록(아직 열린 세션)과 exclude_session 은 뺀다."""
     installed = _aware((state.data_dir() / "installed_at").read_text().strip()).timestamp()
     now = _aware(now_iso).timestamp()
     out = []
     for t in sorted(state.projects_root().glob("*/*.jsonl")):
         mtime = t.stat().st_mtime
-        if not installed < mtime <= now:
+        if not installed < mtime <= now - OPEN_SESSION_SEC or t.stem == exclude_session:
             continue
         hdir = t.parent / t.stem / "harness"
         if (hdir / "skip").exists():

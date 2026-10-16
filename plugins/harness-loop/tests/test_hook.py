@@ -45,7 +45,10 @@ def propose_item(sig, score=2.6):
 
 def unswept_after_install(root, sid):
     (state.data_dir() / "installed_at").write_text((datetime.now().astimezone() - timedelta(days=1)).isoformat())
-    return make_transcript(root, sid)
+    t = make_transcript(root, sid)
+    old = (datetime.now() - timedelta(hours=1)).timestamp()
+    os.utime(t, (old, old))
+    return t
 
 
 def test_hook_guard_harness_retro_writes_skip(tmp_projects, monkeypatch, capsys, spawned):
@@ -136,3 +139,55 @@ def test_hooks_json_shape():
     assert start["hooks"][0] == {"type": "command", "command": 'uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/hook.py" session-start', "timeout": 10}
     end = cfg["hooks"]["SessionEnd"][0]["hooks"][0]
     assert end == {"type": "command", "command": 'uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/hook.py" session-end', "timeout": 10}
+
+
+def test_hook_guard_without_existing_transcript_creates_nothing(tmp_projects, monkeypatch, capsys, spawned):
+    monkeypatch.setenv("HARNESS_RETRO", "1")
+    missing = tmp_projects / "proj" / "gone.jsonl"
+    assert run_hook(monkeypatch, capsys, "session-end", {"session_id": "gone", "transcript_path": str(missing)}) == ""
+    assert not (tmp_projects / "proj").exists()
+
+
+def test_hook_sweep_trimmed_to_remaining_daily_cap(tmp_projects, monkeypatch, capsys, spawned):
+    (state.data_dir() / "scoring.yaml").write_text("max_background_judges_per_day: 2\n")
+    now = datetime.now().astimezone()
+    (state.data_dir() / "judge-runs.jsonl").write_text(json.dumps({"at": now.isoformat(), "date": now.date().isoformat(), "session": "x", "ok": True}) + "\n")
+    for sid in ("a", "b", "c"):
+        unswept_after_install(tmp_projects, sid)
+    run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "startup"})
+    assert len(spawned) == 1
+
+
+def test_hook_sweep_excludes_own_session(tmp_projects, monkeypatch, capsys, spawned):
+    unswept_after_install(tmp_projects, "me")
+    other = unswept_after_install(tmp_projects, "other")
+    run_hook(monkeypatch, capsys, "session-start", {"session_id": "me", "source": "startup"})
+    assert spawned == [(other, "sweep")]
+
+
+@pytest.mark.parametrize("broken", ["regressions", "sweep"])
+def test_hook_report_survives_regressions_or_sweep_failure(tmp_projects, monkeypatch, capsys, spawned, broken):
+    import report
+
+    t = make_transcript(tmp_projects, "s1")
+    state.save_items(state.harness_dir(t), {"C1:a": propose_item("C1:a")})
+
+    def boom(*a, **kw):
+        raise RuntimeError(f"{broken} boom")
+
+    monkeypatch.setattr(report, broken, boom)
+    out = run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "startup"})
+    text = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    assert text.startswith("harness-loop: 검토 대기 action item 1건")
+    assert "- 훅 오류 1건: " in text
+    assert f"{broken} boom" in (state.data_dir() / "hook-errors.log").read_text()
+
+
+def test_hook_report_survives_broken_config_and_decisions(tmp_projects, monkeypatch, capsys, spawned):
+    t = make_transcript(tmp_projects, "s1")
+    state.save_items(state.harness_dir(t), {"C1:a": propose_item("C1:a")})
+    (state.data_dir() / "scoring.yaml").write_text("weights: [\n")
+    (state.data_dir() / "decisions.jsonl").write_text('[1, 2]\n{"sig": "C1:a"}\n')
+    out = run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "startup"})
+    text = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    assert text.startswith("harness-loop: 검토 대기 action item 1건")

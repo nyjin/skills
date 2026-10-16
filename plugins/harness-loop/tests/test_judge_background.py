@@ -62,9 +62,13 @@ def fake_claude_fail(tmp_path):
     return make_fake(tmp_path, "fake-claude-fail", "echo boom >&2\nexit 1")
 
 
-def run_lines():
+def all_run_lines():
     path = state.data_dir() / "judge-runs.jsonl"
     return [json.loads(x) for x in path.read_text().splitlines()] if path.exists() else []
+
+
+def run_lines():
+    return [x for x in all_run_lines() if not x.get("reserved")]
 
 
 def test_background_judge_merges_fake_output(tmp_projects, fake_claude_ok, tmp_path):
@@ -223,13 +227,11 @@ def _raise(*a, **kw):
     raise RuntimeError("kaboom")
 
 
-@pytest.mark.parametrize("breaker", ["collect", "config", "runs-file"])
+@pytest.mark.parametrize("breaker", ["collect", "runs-file"])
 def test_any_failure_after_lock_is_logged(tmp_projects, fake_claude_ok, monkeypatch, breaker):
     t = copy_fixture(tmp_projects, "basic.jsonl")
     if breaker == "collect":
         monkeypatch.setattr(collect, "run", _raise)
-    elif breaker == "config":
-        (state.data_dir() / "scoring.yaml").write_text("weights: [\n")
     else:
         (state.data_dir() / "judge-runs.jsonl").mkdir()
     assert judge.background(t, "session-end", claude_bin=fake_claude_ok) is False
@@ -251,3 +253,25 @@ def test_run_line_write_failure_is_logged_once(tmp_projects, fake_claude_ok, mon
     assert judge.background(t, "session-end", claude_bin=fake_claude_ok) is False
     log = (state.data_dir() / "hook-errors.log").read_text().splitlines()
     assert len(log) == 1 and "disk full" in log[0]
+
+
+def test_reservation_written_before_invoke_and_run_counted_once(tmp_projects, monkeypatch):
+    t = copy_fixture(tmp_projects, "basic.jsonl")
+    seen = []
+    monkeypatch.setattr(judge, "_invoke", lambda *a: seen.append(all_run_lines()))
+    assert judge.background(t, "session-end") is True
+    [[reservation]] = seen
+    assert reservation["reserved"] is True and reservation["ok"] is None and reservation["session"] == "basic"
+    [result] = run_lines()
+    assert result["ok"] is True and result["at"] == reservation["at"]
+    assert judge.runs_today() == 1
+
+
+def test_unfinished_reservation_counts_toward_cap(tmp_projects, fake_claude_ok):
+    (state.data_dir() / "scoring.yaml").write_text("max_background_judges_per_day: 1\n")
+    t0 = copy_fixture(tmp_projects, "partial.jsonl")
+    now = judge.datetime.now().astimezone()
+    (state.data_dir() / "judge-runs.jsonl").write_text(json.dumps({"at": now.isoformat(), "date": now.date().isoformat(), "session": "partial", "transcript": str(t0), "mode": "sweep", "ok": None, "reserved": True}) + "\n")
+    t = copy_fixture(tmp_projects, "basic.jsonl")
+    assert judge.background(t, "session-end", claude_bin=fake_claude_ok) is False
+    assert calls(fake_claude_ok) == []

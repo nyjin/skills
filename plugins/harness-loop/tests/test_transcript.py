@@ -85,3 +85,11 @@ def test_resume_after_turn_keeps_session_index():
 def test_bash_error_text_skips_exit_code_line():
     turns, _ = transcript.parse(FIX / "signals.jsonl")
     assert [e.text for e in turns[0].errors if e.tool == "Bash"] == ["This command requires approval", "Exit code 1", "error: unknown flag --json"]
+
+
+def test_error_line_skips_symbol_only_and_shebang_lines():
+    assert transcript._error_line("---\n{\nreal error: x\n}") == "real error: x"
+    assert transcript._error_line("Exit code 2\n---\nboom") == "boom"
+    assert transcript._error_line("#!/bin/bash\nfoo: not found") == "foo: not found"
+    assert transcript._error_line("---") == "---"
+    assert transcript._error_line("Exit code 1") == "Exit code 1"

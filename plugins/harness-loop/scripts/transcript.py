@@ -71,12 +71,16 @@ def _first_line(text):
     return next((l.strip() for l in text.splitlines() if l.strip()), "")[:200]
 
 
+def _skippable(line):
+    return bool(re.fullmatch(r"Exit code \d+", line)) or line.startswith("#!") or not any(ch.isalnum() for ch in line)
+
+
 def _error_line(text):
-    """오류 첫 줄. 첫 줄이 `Exit code N` 이고 뒤에 내용이 더 있으면 그다음 줄을 쓴다."""
+    """오류 첫 줄. 앞쪽의 `Exit code N`·셔뱅·글자나 숫자가 없는 줄은 뒤에 내용이 더 있으면 건너뛴다."""
     lines = [l.strip() for l in text.splitlines() if l.strip()]
-    if len(lines) > 1 and re.fullmatch(r"Exit code \d+", lines[0]):
-        return lines[1][:200]
-    return _first_line(text)
+    while len(lines) > 1 and _skippable(lines[0]):
+        lines.pop(0)
+    return lines[0][:200] if lines else ""
 
 
 def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:

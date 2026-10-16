@@ -39,7 +39,16 @@ def data_dir() -> Path:
 
 
 def load_config() -> dict:
-    loaded = yaml.safe_load((data_dir() / "scoring.yaml").read_text()) or {}
+    """scoring.yaml 을 읽어 기본값 위에 덮는다. 파싱할 수 없거나 매핑이 아니면 기본값을 쓰고 hook-errors.log 에 한 줄 남긴다."""
+    d = data_dir()
+    try:
+        loaded = yaml.safe_load((d / "scoring.yaml").read_text()) or {}
+        if not isinstance(loaded, dict):
+            raise ValueError(f"매핑이 아니다: {type(loaded).__name__}")
+    except (OSError, yaml.YAMLError, ValueError) as e:
+        with open(d / "hook-errors.log", "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().astimezone().isoformat()} config scoring.yaml 기본값 사용: {type(e).__name__}: {' '.join(str(e).split())[:200]}\n")
+        loaded = {}
     config = dict(DEFAULT_CONFIG)
     config.update(loaded)
     config["weights"] = {**DEFAULT_CONFIG["weights"], **(loaded.get("weights") or {})}
@@ -134,6 +143,8 @@ def load_decisions() -> dict[str, dict]:
         try:
             r = json.loads(line)
         except ValueError:
+            continue
+        if not isinstance(r, dict) or not all(r.get(k) for k in ("sig", "decision", "at")):
             continue
         if r.get("decision") == "edit-score":
             continue

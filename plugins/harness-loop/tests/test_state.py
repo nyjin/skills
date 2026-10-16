@@ -45,3 +45,19 @@ def test_harness_dir_and_discovery(tmp_projects):
     h = state.harness_dir(t)
     assert h == tmp_projects / "proj" / "sess1" / "harness" and h.is_dir()
     assert state.all_harness_dirs() == [h]
+
+
+def test_load_config_falls_back_on_broken_yaml(tmp_projects):
+    d = state.data_dir()
+    for text in ("weights: [\n", "- a\n- b\n"):
+        (d / "scoring.yaml").write_text(text)
+        assert state.load_config() == state.DEFAULT_CONFIG
+    log = (d / "hook-errors.log").read_text().splitlines()
+    assert len(log) == 2 and all("scoring.yaml" in line for line in log)
+
+
+def test_load_decisions_skips_malformed_lines(tmp_projects):
+    state.append_decision("C1:x", "approved")
+    with open(state.data_dir() / "decisions.jsonl", "a") as f:
+        f.write('[1, 2]\n"text"\n{"sig": "C1:y"}\n{"decision": "approved", "at": "2026-10-01T00:00:00+09:00"}\n')
+    assert list(state.load_decisions()) == ["C1:x"]

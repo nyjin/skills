@@ -15,7 +15,7 @@ import state
 import transcript
 from transcript import Turn
 
-PERMISSION_NOISE = ("requires approval", "multiple operations", "was blocked. For security", "Contains simple_expansion", "changes directory before")
+PERMISSION_NOISE = ("requires approval", "multiple operations", "was blocked. For security", "Contains simple_expansion", "changes directory before", "This session is isolated in the worktree")
 EXIT_CODE = re.compile(r"Exit code \d+")
 CORRECTION = re.compile(r"^아니|그게 아니|말고|왜 .{0,20}(했|하지|하냐)|다시 (해|하|작성)|취지|벗어나|대충|빈약|지나치|너무 (길|많|복잡)")
 QUESTION = re.compile(r"(할까요|갈까요|될까요|드릴까요|볼까요|좋을까요|괜찮을까요|어떨까요)\??\s*$")
@@ -28,6 +28,8 @@ SEARCH_CMD = re.compile(r"(?:^|[;&|(]\s*)(?:grep|rg|find)\s")
 STATUS_ASK = re.compile(r"끝났|끝난건가|다 됐|되고 있나")
 TRIVIAL_CMD = re.compile(r"(?:ls|cat|sed|grep|head|tail|echo|wc|find|pwd|rg|git (?:status|diff|log|show))\b")
 CD_PREFIX = re.compile(r"^\s*cd\s+[^&;\n]*(?:&&|;)\s*")
+ENV_PREFIX = re.compile(r"""^\s*[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|[^\s"']*)\s+""")
+HARNESS_SCRIPT = re.compile(r"""^uv run --script\s+["']?\S*/scripts/(?:apply_target|collect|hook|judge|report|state|transcript)\.py\b""")
 INLINE_PY = re.compile(r"^(?:uv run\s+)?python3?\s+(?:-c\b|-\s*<<|<<)")
 PY_IMPORT = re.compile(r"(?:^|[;\n])\s*(?:import\s+([\w., ]+)|from\s+([\w.]+)\s+import)")
 PY_STD = {"sys", "os", "re", "json", "collections"}
@@ -43,10 +45,14 @@ def normalize_error(text: str) -> str:
     return " ".join(text.split())[:80]
 
 
-def command_signature(cmd: str) -> str:
-    while (m := CD_PREFIX.match(cmd)):
+def _strip_prefixes(cmd: str) -> str:
+    while (m := CD_PREFIX.match(cmd) or ENV_PREFIX.match(cmd)):
         cmd = cmd[m.end():]
-    cmd = cmd.strip()
+    return cmd.strip()
+
+
+def command_signature(cmd: str) -> str:
+    cmd = _strip_prefixes(cmd)
     if INLINE_PY.match(cmd):
         mods = set()
         for names, frm in PY_IMPORT.findall(cmd):
@@ -123,7 +129,7 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
         # C3
         for c in turn.calls:
             cmd = _cmd(c)
-            if cmd:
+            if cmd and not HARNESS_SCRIPT.match(_strip_prefixes(cmd)):
                 s = command_signature(cmd)
                 cmd_count[s] += 1
                 first_cmd.setdefault(s, (turn, cmd, c.skill))

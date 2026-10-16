@@ -244,3 +244,15 @@ def test_regressed_item_copies_scores_and_partial_edit_score(tmp_projects):
     assert (state.data_dir() / "decisions.jsonl").read_text().count("\n") == lines
     report.decide("C2:b", "edit-score", session="new", impact=1, actionability=2)
     assert state.load_items(hdir_of(new))["C2:b"]["scores"] == {"impact": 1, "actionability": 2}
+
+
+def test_sweep_skips_recently_modified_and_excluded_session(tmp_projects):
+    set_installed(T0)
+    now = datetime.now().astimezone()
+    open_now = transcript(tmp_projects, "open", mtime=now - timedelta(minutes=report.OPEN_SESSION_SEC // 60 - 5))
+    idle = transcript(tmp_projects, "idle", mtime=now - timedelta(minutes=report.OPEN_SESSION_SEC // 60 + 5))
+    mine = transcript(tmp_projects, "mine", mtime=now - timedelta(hours=1))
+    assert report.OPEN_SESSION_SEC == 600
+    got = report.sweep(now.isoformat(), exclude_session="mine")
+    assert got == [idle]
+    assert open_now not in got and mine not in got

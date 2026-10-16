@@ -29,7 +29,7 @@ def run(event: str, raw: str) -> None:
         raise ValueError("훅 입력이 JSON 객체가 아니다")
     transcript_path = data.get("transcript_path")
     if _guarded(data):
-        if transcript_path:
+        if transcript_path and Path(transcript_path).is_file():
             (state.harness_dir(Path(transcript_path)) / "skip").touch()
         return
     if event == "session-end":
@@ -38,9 +38,16 @@ def run(event: str, raw: str) -> None:
         return
     if data.get("source") not in ("startup", "resume"):
         return
-    report.regressions()
-    for t in report.sweep(datetime.now().astimezone().isoformat()):
-        judge.spawn_background(t, "sweep")
+    try:
+        report.regressions()
+    except Exception as e:
+        _log_error(f"{event} regressions", e)
+    try:
+        room = max(0, state.load_config()["max_background_judges_per_day"] - judge.runs_today())
+        for t in report.sweep(datetime.now().astimezone().isoformat(), exclude_session=data.get("session_id"))[:room]:
+            judge.spawn_background(t, "sweep")
+    except Exception as e:
+        _log_error(f"{event} sweep", e)
     if os.environ.get("HERDR_PW_WORKER"):
         return
     pairs = report.pending(state.load_config()["queue_limit"])

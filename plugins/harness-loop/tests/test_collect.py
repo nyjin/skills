@@ -209,3 +209,24 @@ def test_run_resumes_with_only_new_signals(tmp_projects):
 def test_eval_session_writes_skip(tmp_projects):
     t = copy_fixture(tmp_projects, "eval.jsonl")
     assert collect.run(t) == [] and (state.harness_dir(t) / "skip").exists()
+
+
+def test_command_signature_strips_env_assignments():
+    assert collect.command_signature("FOO=1 acli jira workitem view X") == "acli jira workitem"
+    assert collect.command_signature('cd /x && A="b c" B=2 acli jira workitem view X') == "acli jira workitem"
+
+
+def test_harness_loop_script_calls_are_not_c3():
+    cmd = 'CLAUDE_PLUGIN_DATA="/x" uv run --script "/p/scripts/report.py" where'
+    assert not [s for s in sigs_of([T(1, "해줘", [bash("a", cmd), bash("b", cmd)])]) if s.startswith("C3")]
+    root = 'uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" digest t'
+    inst = "uv run --script /h/.claude/plugins/harness-loop/scripts/report.py list"
+    assert not [s for s in sigs_of([T(1, "해줘", [bash("a", root), bash("b", inst)])]) if s.startswith("C3")]
+    other = "uv run --script tools/build.py"
+    assert "C3:cmd:uv run --script" in sigs_of([T(1, "해줘", [bash("a", other), bash("b", other)])])
+
+
+def test_worktree_isolation_denial_is_c1_noise():
+    text = "This session is isolated in the worktree /w/x. Edit outside is blocked"
+    t = T(1, "해줘", [bash("a", "x"), bash("b", "y")], [ToolError("a", "Bash", text)])
+    assert by_cond(collect.signals([t], "normal"), "C1") == []
