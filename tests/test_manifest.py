@@ -39,3 +39,10 @@ def test_description_mentions_key_triggers():
     desc = text.split("description:", 1)[1].split("\n---", 1)[0]
     for word in ["README", "트러블슈팅", "설계 문서", "포스트모템", "런북", "korean-proofreader"]:
         assert word in desc
+
+
+def test_skill_md_uses_skill_dir_variable_for_scripts():
+    text = (ROOT / "skills/tech-writer/SKILL.md").read_text()
+    assert "<스킬 디렉터리>" not in text
+    assert "${CLAUDE_SKILL_DIR}/scripts/load_config.py" in text
+    assert "${CLAUDE_SKILL_DIR}/scripts/lint_doc.py" in text
