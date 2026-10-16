@@ -141,7 +141,7 @@ sig 는 조건과 토픽으로 만든다. C1·C3·C4·C8·C10·C11 은 collect �
 
 ```yaml
 weights: {recurrence: 0.4, impact: 0.4, actionability: 0.2}
-propose: 2.4
+propose: 2.2
 watch: 1.6
 global_bump: 0.3        # 전역 CLAUDE.md·메모리 대상이면 propose·watch 에 더한다
 queue_limit: 3
@@ -150,7 +150,7 @@ max_background_judges_per_day: 10
 
 - 통과 조건: 같은 규칙이 이미 있으면 점수와 무관하게 폐기하되, 지켜지지 않은 기존 규칙이면 "규칙 강화" 항목으로 바꾼다(C7).
 - 항목마다 근거(세션 ID·턴·인용)가 최소 1개 있어야 한다. 없으면 judge 출력 검증에서 거부한다.
-- 기본값에서 한 세션에서만 나온 sig 는 영향·해결 가능성이 모두 3 이어도 2.2 로 `propose` 에 못 미쳐 `watch` 에 머문다. 다른 세션에서 다시 나와 재발성이 오르면 `propose` 가 되어 보고된다.
+- 기본값에서 한 세션에서만 나온 sig 는 영향·해결 가능성이 모두 3 일 때만 2.2 로 `propose` 가 된다. 그보다 낮으면 `watch` 에 머물고, 다른 세션에서 다시 나와 재발성이 오르면 `propose` 가 되어 보고된다.
 - 사용자가 리뷰 중 점수를 고치면 `decisions.jsonl` 에 고친 `impact`·`actionability` 를 남긴다. 이 값은 sig 를 키로 모든 세션에 적용되고(그래서 `decide … edit-score` 는 `--session` 을 받지 않는다), 이후 병합·재채점에서 judge 점수보다 우선한다.
 
 ## 7. action item
@@ -187,5 +187,5 @@ max_background_judges_per_day: 10
 
 - `tests/fixtures/`: 2026-10-16 분석에서 확인한 사례(Atlassian 403 재시도, `command -v acli` 반복, 질문 뒤 맨 동의, eval 세션, 권한 오류)를 기록 조각으로 두고 collect 출력을 고정한다.
 - 최근 기록 전체로 collect 를 돌려 조건별 신호 수와 상위 sig 를 확인하고, judge 를 돌려 propose·watch·폐기 분포를 본 뒤 기준값을 정한다.
-- 명시 호출 두 번 → SessionEnd → 다음 SessionStart 순서로 한 세션을 끝까지 돌려 합치기·이어 처리·보고를 확인한다. 기본 채점에서 한 세션에서만 나온 sig 는 보고되지 않으므로, 보고는 다른 세션에서도 나온 sig 로 확인한다(`plugins/harness-loop/tests/test_e2e.py`).
+- 명시 호출 두 번 → SessionEnd → 다음 SessionStart 순서로 한 세션을 끝까지 돌려 합치기·이어 처리·보고를 확인한다. 기본 채점에서 한 세션에서만 나온 sig 는 영향·해결 가능성이 모두 3 이 아니면 보고되지 않으므로, 보고는 다른 세션에서도 나온 sig 로 확인한다(`plugins/harness-loop/tests/test_e2e.py`).
 - 스킬 문서는 korean-proofreader 교정과 skill-reviewer 를 거친다.

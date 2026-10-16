@@ -51,5 +51,5 @@ def test_config_values_referenced_by_name_only():
     assert "max_background_judges_per_day" in body
     for key in CONFIG_KEYS:
         assert not re.search(rf"{key}`?\s*[:=(]?\s*\d", body), key
-    for value in ("2.4", "1.6", "0.3", "0.4", "0.2"):
+    for value in ("2.2", "1.6", "0.3", "0.4", "0.2"):
         assert value not in body, value

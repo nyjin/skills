@@ -17,7 +17,7 @@ DEFAULTS = Path(__file__).resolve().parents[1] / "defaults"
 
 DEFAULT_CONFIG = {
     "weights": {"recurrence": 0.4, "impact": 0.4, "actionability": 0.2},
-    "propose": 2.4,
+    "propose": 2.2,
     "watch": 1.6,
     "global_bump": 0.3,
     "queue_limit": 3,

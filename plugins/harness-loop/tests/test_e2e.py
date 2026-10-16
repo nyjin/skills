@@ -1,7 +1,7 @@
 """설계 §9 흐름 end-to-end: 명시 호출 두 번 → SessionEnd → SessionStart 보고 → 거절 → 승인 뒤 재발.
 
-기본 scoring.yaml 에서는 한 세션에만 나온 sig 의 점수 상한이 propose 미만(watch)이다. 그래서 보고될 항목은
-다른 세션에도 같은 sig 가 있게 꾸민다: Y 는 이전 세션 S0 의 신호, X 는 S1 의 항목이 재발 근거다.
+기본 scoring.yaml 에서 한 세션에만 나온 sig 는 영향·해결 가능성이 모두 3 이어야 propose 다. X 는 해결 가능성 2 라
+한 세션에서는 watch 이고, 다른 세션에서 다시 나와야 보고된다: Y 는 이전 세션 S0 의 신호, X 는 S1 의 항목이 재발 근거다.
 sweep 은 최근 OPEN_SESSION_SEC 안에 바뀐 기록을 건너뛰므로 갓 쓴 기록들은 sweep 대상이 아니다(S0 은 설치 전 기록).
 """
 import io
@@ -53,12 +53,12 @@ class Transcript:
         self.bash(at, f"r{code}", f"make release ENV={env}", "배포 완료")
 
 
-def item(sig, session, turn, quote, proposal, target):
+def item(sig, session, turn, quote, proposal, target, actionability=3):
     return {
         "sig": sig,
         "condition": sig.split(":")[0],
         "impact": 3,
-        "actionability": 3,
+        "actionability": actionability,
         "evidence": [{"session": session, "turn": turn, "quote": quote}],
         "target": {"path": target},
         "proposal": proposal,
@@ -73,7 +73,7 @@ def y_item(session, turn):
 
 
 def x_item(session, turn):
-    return item(X, session, turn, "아니 그게 아니라", X_PROPOSAL, "/r/proj/CLAUDE.md")
+    return item(X, session, turn, "아니 그게 아니라", X_PROPOSAL, "/r/proj/CLAUDE.md", actionability=2)
 
 
 @pytest.fixture
@@ -174,7 +174,7 @@ def test_spec9_flow(tmp_projects, monkeypatch, capsys, fake_claude, spawned):
     judge.merge(s1.path, {"items": [y_item("S1", 1), x_item("S1", 2)]}, "explicit")
     items = items_of(s1)
     assert (items[Y]["status"], items[Y]["sessions"], items[Y]["score"]) == ("propose", 2, 2.6)
-    assert (items[X]["status"], items[X]["sessions"], items[X]["score"]) == ("watch", 1, 2.2)
+    assert (items[X]["status"], items[X]["sessions"], items[X]["score"]) == ("watch", 1, 2.0)
     assert judge.pending_signals(hdir(s1)) == []
     assert pending_sigs() == [("S1", Y)]
 

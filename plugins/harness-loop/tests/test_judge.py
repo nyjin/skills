@@ -49,7 +49,8 @@ def test_score_thresholds():
     cfg = state.load_config()
     item = {"sig": "C1:a", "impact": 3, "actionability": 3, "evidence": EV, "target": {"path": "/r/x.md"}}
     assert judge.score({**item, "sessions": 4}, cfg) == (pytest.approx(3.0), "propose")   # 0.4·3+0.4·3+0.2·3 = 1.2+1.2+0.6
-    assert judge.score({**item, "sessions": 1}, cfg) == (pytest.approx(2.2), "watch")     # 0.4·1+1.2+0.6
+    assert judge.score({**item, "sessions": 1}, cfg) == (pytest.approx(2.2), "propose")   # 0.4·1+1.2+0.6
+    assert judge.score({**item, "sessions": 1, "actionability": 2}, cfg) == (pytest.approx(2.0), "watch")   # 0.4+1.2+0.4
     assert judge.score({**item, "sessions": 1, "impact": 1, "actionability": 1}, cfg) == (pytest.approx(1.0), "discarded")  # 0.4+0.4+0.2
 
 
@@ -63,9 +64,9 @@ def test_recurrence_bands():
 
 def test_global_target_bumps_threshold():
     cfg = state.load_config()
-    item = {"sig": "C7:a", "sessions": 4, "impact": 2, "actionability": 3, "evidence": EV}   # 1.2+0.8+0.6=2.6
+    item = {"sig": "C7:a", "sessions": 2, "impact": 3, "actionability": 2, "evidence": EV}   # 0.8+1.2+0.4=2.4
     assert judge.score({**item, "target": {"path": "/r/x.md"}}, cfg)[1] == "propose"
-    assert judge.score({**item, "target": {"path": "~/.claude/CLAUDE.md"}}, cfg)[1] == "watch"   # 기준 2.4+0.3=2.7
+    assert judge.score({**item, "target": {"path": "~/.claude/CLAUDE.md"}}, cfg)[1] == "watch"   # 기준 2.2+0.3=2.5
     assert judge.score({**item, "target": {"path": str(Path.home() / ".claude/CLAUDE.md")}}, cfg)[1] == "watch"
     assert judge.score({**item, "target": {"path": "/h/.claude/projects/p/memory/x.md"}}, cfg)[1] == "watch"
     low = {**item, "sessions": 1, "impact": 2, "actionability": 1}   # 0.4+0.8+0.2=1.4 < 1.6
@@ -93,7 +94,7 @@ def test_merge_twice_same_sig_appends_evidence_keeps_approved(tmp_projects):
     t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
     items = judge.merge(t, {"items": [out_item()]}, "explicit")
     it = items["C1:app-not-installed"]
-    assert it["status"] == "watch"   # 재발 1 → 0.4+1.2+0.6 = 2.2
+    assert it["status"] == "propose"   # 재발 1 → 0.4+1.2+0.6 = 2.2
     assert it["score"] == pytest.approx(2.2)
     assert it["scores"] == {"recurrence": 1, "impact": 3, "actionability": 3}
     assert it["sessions"] == 1
@@ -227,7 +228,7 @@ def test_rescore_after_threshold_change(tmp_projects):
     assert state.load_items(hdir)["C1:app-not-installed"]["status"] == "propose"   # 3.0
     assert judge.rescore() == 0
     cfg = state.data_dir() / "scoring.yaml"
-    cfg.write_text(cfg.read_text().replace("propose: 2.4", "propose: 9"))
+    cfg.write_text(cfg.read_text().replace("propose: 2.2", "propose: 9"))
     assert judge.rescore() == 1
     items = state.load_items(hdir)
     assert items["C1:app-not-installed"]["status"] == "watch"

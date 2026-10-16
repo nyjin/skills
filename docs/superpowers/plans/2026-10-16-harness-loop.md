@@ -15,7 +15,7 @@
 - 플러그인 이름 `harness-loop`, 스킬 이름 `retro`(호출 `/harness-loop:retro`, `review`, `backfill`), 위치 `~/src/skills/plugins/harness-loop/`, marketplace `source` 는 `./plugins/harness-loop`.
 - 세션 상태: `~/.claude/projects/<프로젝트>/<세션ID>/harness/`(`HARNESS_PROJECTS_ROOT` 가 있으면 그 루트 아래 같은 구조) 아래 `cursor`, `signals.jsonl`, `runs/NNN-<explicit|session-end|sweep>.json`, `action-items.json`, `lock/`, `skip`.
 - 공용 상태: `${CLAUDE_PLUGIN_DATA}` 아래 `scoring.yaml`, `rubric.md`, `decisions.jsonl`, 그리고 운영 파일 `installed_at`, `judge-runs.jsonl`, `hook-errors.log`. `CLAUDE_PLUGIN_DATA` 가 없으면 `~/.claude/plugins/data/harness-loop-local/` 를 쓴다.
-- `scoring.yaml` 기본값: `weights: {recurrence: 0.4, impact: 0.4, actionability: 0.2}`, `propose: 2.4`, `watch: 1.6`, `global_bump: 0.3`, `queue_limit: 3`, `max_background_judges_per_day: 10`, `eval_markers: ["트리거 측정 중"]`.
+- `scoring.yaml` 기본값: `weights: {recurrence: 0.4, impact: 0.4, actionability: 0.2}`, `propose: 2.2`, `watch: 1.6`, `global_bump: 0.3`, `queue_limit: 3`, `max_background_judges_per_day: 10`, `eval_markers: ["트리거 측정 중"]`.
 - 재발성 점수: 같은 sig 가 나온 서로 다른 세션 수 1 → 1점, 2~3 → 2점, 4 이상 → 3점.
 - 상태값: `propose|watch|discarded|approved|rejected|applied|regressed`.
 - 훅은 어떤 경우에도 종료 코드 0 이고, 오류는 `hook-errors.log` 에 한 줄씩 남긴다.
@@ -279,7 +279,7 @@ def test_score_thresholds():
     cfg = state.load_config()
     item = {"sig": "C1:a", "impact": 3, "actionability": 3, "evidence": EV, "target": {"path": "/r/x.md"}}
     assert judge.score({**item, "sessions": 4}, cfg) == (pytest.approx(3.0), "propose")   # 1.2+1.2+0.6
-    assert judge.score({**item, "sessions": 1}, cfg) == (pytest.approx(2.2), "watch")     # 0.4+1.2+0.6
+    assert judge.score({**item, "sessions": 1}, cfg) == (pytest.approx(2.2), "propose")   # 0.4+1.2+0.6
     assert judge.score({**item, "sessions": 1, "impact": 1, "actionability": 1}, cfg) == (pytest.approx(1.0), "discarded")
 
 def test_global_target_bumps_threshold():
@@ -297,7 +297,7 @@ def test_digest_contains_rubric_signals_existing_sigs(tmp_projects): ...
 def test_merge_rejects_schema_violation(tmp_projects): ...       # impact 4 → ValueError, 파일 변화 없음
 ```
 
-각 테스트의 기대값은 Global Constraints 기본값으로 손계산해 리터럴로 적는다(예: 재발 1·영향 3·해결 3 → 0.4·1+0.4·3+0.2·3 = 2.2 → `watch`). 첫 테스트의 주석처럼 계산을 미루지 않는다.
+각 테스트의 기대값은 Global Constraints 기본값으로 손계산해 리터럴로 적는다(예: 재발 1·영향 3·해결 3 → 0.4·1+0.4·3+0.2·3 = 2.2 → `propose`). 첫 테스트의 주석처럼 계산을 미루지 않는다.
 
 - [ ] **Step 2: 실패 확인** — `uv run pytest plugins/harness-loop/tests/test_judge.py -q`
 - [ ] **Step 3: 구현** — `judge.py`, `judge-schema.json`. 스키마 검증은 표준 라이브러리로 필요한 필드·범위만 확인한다.
