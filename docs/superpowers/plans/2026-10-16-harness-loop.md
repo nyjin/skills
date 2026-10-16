@@ -13,13 +13,13 @@
 ## Global Constraints
 
 - 플러그인 이름 `harness-loop`, 스킬 이름 `retro`(호출 `/harness-loop:retro`, `review`, `backfill`), 위치 `~/src/skills/plugins/harness-loop/`, marketplace `source` 는 `./plugins/harness-loop`.
-- 세션 상태: `~/.claude/projects/<프로젝트>/<세션ID>/harness/` 아래 `cursor`, `signals.jsonl`, `runs/NNN-<explicit|session-end|sweep>.json`, `action-items.json`, `lock/`, `skip`.
+- 세션 상태: `~/.claude/projects/<프로젝트>/<세션ID>/harness/`(`HARNESS_PROJECTS_ROOT` 가 있으면 그 루트 아래 같은 구조) 아래 `cursor`, `signals.jsonl`, `runs/NNN-<explicit|session-end|sweep>.json`, `action-items.json`, `lock/`, `skip`.
 - 공용 상태: `${CLAUDE_PLUGIN_DATA}` 아래 `scoring.yaml`, `rubric.md`, `decisions.jsonl`, 그리고 운영 파일 `installed_at`, `judge-runs.jsonl`, `hook-errors.log`. `CLAUDE_PLUGIN_DATA` 가 없으면 `~/.claude/plugins/data/harness-loop-local/` 를 쓴다.
 - `scoring.yaml` 기본값: `weights: {recurrence: 0.4, impact: 0.4, actionability: 0.2}`, `propose: 2.4`, `watch: 1.6`, `global_bump: 0.3`, `queue_limit: 3`, `max_background_judges_per_day: 10`, `eval_markers: ["트리거 측정 중"]`.
 - 재발성 점수: 같은 sig 가 나온 서로 다른 세션 수 1 → 1점, 2~3 → 2점, 4 이상 → 3점.
 - 상태값: `propose|watch|discarded|approved|rejected|applied|regressed`.
 - 훅은 어떤 경우에도 종료 코드 0 이고, 오류는 `hook-errors.log` 에 한 줄씩 남긴다.
-- `HARNESS_RETRO=1`, 훅 입력에 `agent_id` 가 있음, `CLAUDE_CODE_CHILD_SESSION` 이 설정됨 → 그 세션에 `skip` 을 쓰고 아무것도 하지 않는다.
+- `HARNESS_RETRO=1`, 훅 입력에 `agent_id` 가 있음 → 그 세션에 `skip` 을 쓰고 아무것도 하지 않는다. `CLAUDE_CODE_CHILD_SESSION` 은 가드가 아니다(보통의 최상위 세션 훅·Bash 에서도 1 로 설정된다는 실측 결과).
 - `HERDR_PW_WORKER` 가 설정된 세션(herdr 워커)은 수집·판정은 하되 SessionStart 보고를 출력하지 않는다.
 - 백그라운드 judge: `HARNESS_RETRO=1 claude -p --no-session-persistence --tools "" --output-format json --json-schema <스키마>`, `subprocess.Popen(..., start_new_session=True, stdin/stdout/stderr=DEVNULL)`.
 - 스킬 문서는 규칙·표·명령만 쓴다. 이력·결정 과정·근거 서술은 넣지 않고, config 값은 속성명으로만 참조한다. 마크다운 산문은 한 단락을 한 줄로 쓴다.
@@ -68,13 +68,15 @@
 - Produces (`state.py`):
   - `data_dir() -> Path` — `CLAUDE_PLUGIN_DATA` 또는 폴백. 처음 부르면 `defaults/` 의 `scoring.yaml`·`rubric.md` 를 복사하고 `installed_at`(ISO 시각)을 쓴다.
   - `load_config() -> dict` — `scoring.yaml` 을 읽고 빠진 키는 기본값으로 채운다.
-  - `harness_dir(transcript: Path) -> Path` — `transcript.parent / transcript.stem / "harness"`(만들어 둔다).
-  - `find_transcript(session_id: str) -> Path | None` — `~/.claude/projects/*/<id>.jsonl`.
+  - `harness_path(transcript: Path) -> Path` — `projects_root() / transcript.parent.name / transcript.stem / "harness"`. 만들지 않는다. `projects_root()` 는 `HARNESS_PROJECTS_ROOT` 또는 `~/.claude/projects` 다.
+  - `harness_dir(transcript: Path) -> Path` — `harness_path` 를 만들어 두고 돌려준다.
+  - `find_transcript(session_id: str) -> Path | None` — `projects_root()/*/<id>.jsonl`. 없고 `HARNESS_PROJECTS_ROOT` 가 설정돼 있으면 `~/.claude/projects/*/<id>.jsonl` 도 찾는다.
   - `read_cursor(hdir) -> int`, `write_cursor(hdir, line: int) -> None`.
   - `acquire_lock(hdir, stale_sec=600) -> bool`, `release_lock(hdir) -> None` — `lock/` 디렉터리 생성의 원자성을 쓴다.
   - `load_items(hdir) -> dict[str, dict]`(sig → item), `save_items(hdir, items) -> None` — 임시 파일에 쓰고 `os.replace`.
-  - `append_decision(sig, decision, target=None, note=None) -> None`, `load_decisions() -> dict[str, dict]`(sig → 마지막 결정, `{"decision", "at", "target"}`).
-  - `all_harness_dirs() -> list[Path]` — `~/.claude/projects/*/*/harness`. 테스트에서는 `HARNESS_PROJECTS_ROOT` 로 루트를 바꾼다.
+  - `append_decision(sig, decision, target=None, note=None, impact=None, actionability=None) -> None`(`impact`·`actionability` 는 주어졌을 때만 기록), `load_decisions() -> dict[str, dict]`(sig → edit-score 를 뺀 마지막 결정, `{"decision", "at", "target"}`).
+  - `load_score_overrides() -> dict[str, dict]` — edit-score 기록에서 sig 별로 필드마다 마지막 `impact`·`actionability`.
+  - `all_harness_dirs() -> list[Path]` — `projects_root()/*/*/harness`. 테스트에서는 `HARNESS_PROJECTS_ROOT` 로 루트를 바꾼다.
 
 - [ ] **Step 1: 테스트 작성** — `tests/conftest.py` 는 저장소 `tests/conftest.py` 와 같은 `load_script(name)` 를 `plugins/harness-loop/scripts` 기준으로 두고, `tmp_projects` 픽스처가 `HARNESS_PROJECTS_ROOT`·`CLAUDE_PLUGIN_DATA` 를 `tmp_path` 아래로 바꾼다.
 
@@ -120,7 +122,7 @@ def test_decisions_last_wins(tmp_projects):
 - Produces (`transcript.py`):
   - `@dataclass Turn`: `index: int`(1부터), `cwd: str | None`(그 사람 발화 줄의 `cwd` 필드), `line: int`(사람 발화 줄 번호), `user: str`, `calls: list[Call]`, `errors: list[ToolError]`, `rejected: list[str]`, `interrupted: bool`, `ai_tail: str`(마지막 AI 텍스트 끝 500자), `api_error: bool`.
   - `@dataclass Call`: `id, name, input: dict, skill: str | None`(그 시점 실행 중인 스킬).
-  - `@dataclass ToolError`: `call_id, tool, text`(첫 줄 200자).
+  - `@dataclass ToolError`: `call_id, tool, text`(주제 줄 200자). 주제 줄은 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 의 `total N` 줄과 권한 표기 줄·글자나 숫자가 없는 줄을 건너뛴 첫 줄이고, `Traceback (most recent call last):` 줄이 있으면 마지막 예외 줄(`EXCEPTION_LINE`, 건너뛸 줄 제외)이다. 모두 건너뛰면 `""`.
   - `parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]` — `start_line` 이후만 읽고, 마지막으로 완전히 읽은 줄 번호를 돌려준다.
   - `session_kind(turns: list[Turn], cfg: dict) -> str` — `"eval"`(오류 문구에 `eval_markers` 포함), `"worker"`(첫 발화가 `[ibs-`·`executor`·`Read the brief`·`export HERDR_PW_WORKER`·`## 격리` 로 시작), 그 밖은 `"normal"`.
 
@@ -189,20 +191,20 @@ def test_pasted_content_is_user_turn():
 
 | 조건 | 규칙 | sig | needs_judge |
 |---|---|---|---|
-| C1 | 오류 뒤 같은 턴의 다음 호출. 권한 오류(`requires approval`, `multiple operations`, `was blocked. For security`, `Contains simple_expansion`, `changes directory before`)와 `Exit code N` 단독은 제외. 실행 중인 스킬 자신의 파일을 Edit·Write 한 경우도 C1 | `C1:<normalize_error>` | False |
-| C2 | 다음 사람 발화가 `^아니`, `그게 아니`, `말고`, `왜 .{0,20}(했\|하지\|하냐)`, `다시 (해\|하\|작성)`, `취지`, `벗어나`, `대충`, `빈약`, `지나치`, `너무 (길\|많\|복잡)` 중 하나, 또는 도구 거절·중단 | `C2:?` | True |
+| C1 | 오류 뒤 같은 턴의 다음 호출. 권한 오류(`requires approval`, `multiple operations`, `was blocked. For security`, `Contains simple_expansion`, `changes directory before`, `This session is isolated in the worktree`)와 `ToolError.text` 가 빈 오류(`Exit code N` 단독 등)는 제외. 실행 중인 스킬 자신의 파일을 Edit·Write 한 경우도 C1 | `C1:<normalize_error>` | False |
+| C2 | 다음 사람 발화가 `^아니`, `그게 아니`, `말고`, `왜 .{0,20}(했\|하지\|하냐)`, `다시 (해\|하\|작성)`, `취지`, `벗어나`, `대충`, `빈약`, `지나치`, `너무 (길\|많\|복잡)` 중 하나, 또는 도구 거절·중단. 턴마다 `C2:?` 하나만 낸다 | `C2:?` | True |
 | C3 | 한 세션에서 2회 이상 나온 `command_signature` 중 `ls\|cat\|sed\|grep\|head\|tail\|echo\|wc\|find\|pwd\|rg\|git (status\|diff\|log\|show)` 로 시작하지 않는 것, heredoc 안 `def ` 정의(`C3:inline-helper`), 스킬 실행 구간에서 그 스킬 `references/` 파일 읽기(`C3:skill-preamble:<skill>`) | `C3:cmd:<signature>` 등 | False |
 | C4 | `ai_tail` 끝 80자가 `(할까요\|갈까요\|될까요\|드릴까요\|볼까요\|좋을까요\|괜찮을까요\|어떨까요)\??\s*$` 이고 다음 발화가 맨 동의(`네\|넵\|예\|어\|응\|ㅇㅇ\|ㅇㅋ\|좋아요?\|진행\|ok\|yes\|그래`, 30자 이내) | `C4:bare-yes` | False |
 | C4 | 사람 발화에 `묻지 말\|물어보지 말\|질문 없이\|쭉 가` 가 있는데 같은 턴 `ai_tail` 이 위 질문형으로 끝남 | `C4:asked-after-no-ask` | False |
 | C5 | `ai_tail` 에 `정정\|바로잡\|틀렸습니다\|과장했\|가정이었\|판단이 일렀` | `C5:?` | True |
 | C6 | Edit·Write·`acli jira workitem create`·`createJiraIssue` 호출 다음 사람 발화에 `되돌\|원복\|revert\|하지 말\|바꾸지 말` 또는 그 호출이 거절됨 | `C6:?` | True |
-| C7 | C2 와 같은 후보를 C7 후보로도 표시(judge 가 기존 규칙과 대조) | `C7:?` | True |
+| C7 | collect 는 만들지 않는다. judge 가 `C2:?` 후보마다 C2 와 C7 중 하나를 고른다(기존 규칙과 대조) | judge 가 정함 | — |
 | C8 | 사람 발화에 `/<이름>` 또는 `<이름> 스킬` 이 있고 그 턴에 `Skill` 호출이 없음 → `C8:skill:<이름>`; `Turn.cwd` 의 git toplevel 에 `.codegraph/` 가 있고 한 턴에 `grep\|rg\|find` Bash 가 5회 이상이며 `codegraph` 호출이 없음 → `C8:codegraph-unused` | 좌동 | False |
 | C9 | 다음 사람 발화가 직전 `ai_tail` 의 40자 이상 연속 구간을 포함 | `C9:?` | True |
 | C10 | 한 턴에 `sleep `·`Monitor`·`agent wait` 호출 3회 이상 → `C10:polling`; 사람 발화가 `끝났\|끝난건가\|다 됐\|되고 있나` | `C10:status-ask` | False |
 | C11 | `api_error` → `C11:api-error`; 앞 턴의 `calls` 와 `ai_tail` 이 모두 비어 있음 → `C11:resend` | 좌동 | False |
 
-`kind == "worker"` 이면 C2·C4·C9 를 만들지 않는다. `?` 가 들어간 sig 는 judge 가 정한다.
+`kind == "worker"` 이면 C1·C3·C10 만 만든다(`WORKER_ONLY`). `needs_judge` 는 C2·C5·C6·C9(`JUDGED`)이고, `?` 가 들어간 sig 는 judge 가 정한다.
 
 - [ ] **Step 1: 테스트 작성** — 조건마다 양성 1건과, 잡음 규칙 1건씩.
 
@@ -221,9 +223,9 @@ def test_permission_and_exit_code_errors_are_noise():
 def test_c4_bare_yes_after_question():
     assert any(x["sig"] == "C4:bare-yes" for x in collect.signals(turns("signals.jsonl"), "normal"))
 
-def test_worker_has_no_c2_c4_c9():
+def test_worker_collects_only_c1_c3_c10():
     sig = collect.signals(turns("signals.jsonl"), "worker")
-    assert not {x["condition"] for x in sig} & {"C2", "C4", "C9"}
+    assert {x["condition"] for x in sig} <= {"C1", "C3", "C10"}
 
 def test_c3_repeated_command_and_trivial_excluded():
     sig = [x["sig"] for x in collect.signals(turns("signals.jsonl"), "normal") if x["condition"] == "C3"]
@@ -262,11 +264,11 @@ def test_eval_session_writes_skip(tmp_projects):
   - `digest(transcript: Path, new_signals: list[dict]) -> str` — judge 에게 줄 Markdown. 포함: `rubric.md`, 신호 표, 신호가 걸린 턴의 사람 발화(500자)·호출 요약(12개)·오류·`ai_tail`, 다른 세션의 살아 있는 sig 목록(`all_harness_dirs` 의 `action-items.json`), `decisions.jsonl` sig 목록, 출력 스키마.
   - `recurrence(sig: str, this_session: str) -> int` — 이 세션을 포함해 sig 가 `signals.jsonl` 또는 `action-items.json` 에 나온 세션 수.
   - `score(item: dict, cfg: dict) -> tuple[float, str]` — `item["sessions"]`(재발 세션 수)·`impact`·`actionability` 로 가중합과 상태를 낸다. 재발성 점수는 Global Constraints 구간. 대상 경로가 `~/.claude/CLAUDE.md` 이거나 `/memory/` 를 포함하면 `propose`·`watch` 에 `global_bump` 를 더한다. `duplicate_of_rule` 가 있고 `rule_unenforced` 가 거짓이면 `discarded`. `decisions` 의 마지막 결정이 `rejected` 면 `rejected`.
-  - `merge(transcript: Path, judge_output: dict, mode: str) -> dict` — 스키마 검증 → 항목마다 `sessions = recurrence(sig, 이 세션)`·`score`·`target.owner` 계산 → 기존 `action-items.json` 과 sig 로 병합(근거는 덧붙이고, `approved|rejected|applied` 상태는 유지) → `runs/NNN-<mode>.json` 저장. 반환값은 병합된 items.
-  - `rescore() -> int` — 모든 세션의 items 를 현재 `scoring.yaml` 로 다시 계산, 바뀐 항목 수를 돌려준다.
+  - `merge(transcript: Path, judge_output: dict, mode: str) -> dict` — 스키마 검증 → 토픽(sig 의 첫 `:` 뒤)이 같은 C2·C7 항목 쌍은 출력 순서상 앞의 것만 남김 → 항목마다 `state.load_score_overrides()` 의 사용자 점수로 judge 의 `impact`·`actionability` 를 덮고 `sessions = recurrence(sig, 이 세션)`·`score`·`target.owner` 계산 → 기존 `action-items.json` 과 sig 로 병합(근거는 덧붙이고, `KEPT = approved|rejected|applied|regressed` 상태와 `regressed_after` 가 있는 `watch` 는 유지) → `runs/NNN-<mode>.json` 저장. 반환값은 병합된 items.
+  - `rescore() -> int` — 모든 세션의 items 를 현재 `scoring.yaml` 로 다시 계산, 바뀐 항목 수를 돌려준다. 저장된 점수에 사용자 점수(`load_score_overrides`)를 덮어 쓰고, 상태는 `merge` 와 같은 규칙으로 유지한다.
   - CLI: `judge.py digest <transcript>`, `judge.py merge <transcript> --mode explicit < judge.json`, `judge.py rescore`.
 
-`judge-schema.json`: `{"items": [{"sig": str, "condition": "C1".."C11", "impact": 1..3, "actionability": 1..3, "evidence": [{"session", "turn", "quote"}] (최소 1), "target": {"path": str}, "proposal": str, "duplicate_of_rule": str|null, "rule_unenforced": bool, "skills": {str: int}}]}`. sig 규칙: `?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다(digest 에 이 문장을 그대로 넣는다).
+`judge-schema.json`: `{"items": [{"sig": str, "condition": "C1".."C11", "impact": 1..3, "actionability": 1..3, "evidence": [{"session", "turn", "quote"}] (최소 1), "target": {"path": str}, "proposal": str, "duplicate_of_rule": str|null, "rule_unenforced": bool, "skills": {str: int}}]}`. sig 규칙: `?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다(digest 에 이 문장을 그대로 넣는다). `C2:?` 후보마다 `condition` 을 C2 와 C7 중 하나로 골라 항목을 최대 하나만 낸다(`C2_C7_RULE`, digest 에 함께 넣는다).
 
 - [ ] **Step 1: 테스트 작성**
 
@@ -311,7 +313,7 @@ def test_merge_rejects_schema_violation(tmp_projects): ...       # impact 4 → 
 **Interfaces:**
 - Consumes: Task 3 `collect.run`, Task 4 `digest`·`merge`, `state.acquire_lock`·`release_lock`
 - Produces:
-  - `background(transcript: Path, mode: str, claude_bin: str = "claude") -> bool` — lock 획득 실패면 False. 오늘(`judge-runs.jsonl` 날짜 기준) 실행 수가 `max_background_judges_per_day` 이상이면 False. `collect.run` 으로 새 신호를 받고, 이 세션에 아직 판정 안 된 신호(직전 run 이후 신호)가 없으면 True(할 일 없음). 있으면 `digest` 를 stdin 으로 `HARNESS_RETRO=1 <claude_bin> -p --no-session-persistence --tools "" --output-format json --json-schema <judge-schema.json 내용>` 실행, 응답 JSON 의 `structured_output`(없으면 `result` 를 JSON 으로 파싱)을 `merge(..., mode)` 에 넘긴다. 성공·실패 모두 `judge-runs.jsonl` 에 한 줄. 실패 시 `hook-errors.log` 에 한 줄, items 는 그대로.
+  - `background(transcript: Path, mode: str, claude_bin: str = "claude") -> bool` — lock 획득 실패면 False. 오늘(`judge-runs.jsonl` 날짜 기준) 실행 수가 `max_background_judges_per_day` 이상이면 False. 실행 수(`runs_today`)는 예약 줄과 결과 줄을 `(session, at)` 으로 묶어 한 번만 센다. `collect.run` 으로 새 신호를 받고, 이 세션에 아직 판정 안 된 신호(직전 run 이후 신호)가 없으면 True(할 일 없음). 있으면 `digest` 를 stdin 으로 `HARNESS_RETRO=1 <claude_bin> -p --no-session-persistence --tools "" --output-format json --json-schema <judge-schema.json 내용>` 실행, 응답 JSON 의 `structured_output`(없으면 `result` 를 JSON 으로 파싱)을 `merge(..., mode)` 에 넘긴다. `claude -p` 를 부르기 전에 `judge-runs.jsonl` 에 예약 줄(`"reserved": true`)을 쓰고, 성공·실패 모두 결과 줄을 한 줄 더 쓴다. 실패 시 `hook-errors.log` 에 한 줄, items 는 그대로.
   - `spawn_background(transcript: Path, mode: str) -> None` — `uv run --script <judge.py> background <transcript> --mode <mode>` 를 `start_new_session=True`·DEVNULL·`HARNESS_RETRO=1` 로 띄우고 바로 돌아온다.
   - "판정 대기" 판단: `signals.jsonl` 의 마지막 줄 번호와 마지막 `runs/*.json` 의 `signals_upto` 를 비교한다. `merge` 는 run 파일에 `signals_upto` 를 기록한다.
 
@@ -367,15 +369,16 @@ def test_missing_file_is_new_with_parent_repo(...): ...
 **Interfaces:**
 - Consumes: Task 1~6 전부
 - Produces:
-  - `report.sweep(now_iso: str) -> list[Path]` — `installed_at` 이후 수정된 기록 중 `harness/skip` 이 없고(`cursor` < 줄 수이거나 판정 대기 신호가 있는) 세션 목록.
-  - `report.regressions() -> list[dict]` — `decisions` 에서 `approved`·`applied` 인 sig 가, 결정 시각 이후에 시작된 세션의 `signals.jsonl` 에 다시 나오면 그 세션 items 에 `status: regressed` 항목을 만든다.
+  - `report.sweep(now_iso: str, exclude_session: str | None = None) -> list[Path]` — `installed_at` 이후 수정된 기록 중 `harness/skip` 이 없고(`cursor` < 줄 수이거나 판정 대기 신호가 있는) 세션 목록. 최근 `OPEN_SESSION_SEC`(10분) 안에 바뀐 기록과 `exclude_session` 은 뺀다. harness 디렉터리를 만들지 않는다(`state.harness_path`).
+  - `report.backfill(now_iso: str, days: int | None = None) -> list[Path]` — `installed_at` 이전(같은 시각 포함)에 수정된 기록을 mtime 최신순으로. `days` 가 있으면 최근 `days` 일 안의 것만, `harness/skip` 세션은 뺀다. harness 디렉터리를 만들지 않는다. sweep 대상과 겹치지 않는다.
+  - `report.regressions() -> list[dict]` — `decisions` 에서 `approved`·`applied` 인 sig 가, 결정 시각 이후에 시작된 세션의 `signals.jsonl` 에 다시 나오면 그 세션 items 에 `status: regressed` 항목을 만든다. 대상(`target.owner` 가 `plugin_cache` 로 시작하거나 `target.kind == "plugin_cache"`)이 외부 플러그인 캐시면 sig 마다 처음 한 번만 `regressed` 이고, 그 뒤 재발은 `watch`(`regressed_after` 유지, `reported_at` 제거)로 쓴다. 바뀔 세션만 락을 잡고 다시 읽어 계산한다. 락이 잡혀 있으면 그 세션을 건너뛰고 `hook-errors.log` 에 한 줄 남긴다(다음 SessionStart 에서 다시 시도). 세션 기록 경로는 harness 디렉터리에서 거꾸로 구하고, 없으면 `state.find_transcript` 로 찾는다(`_transcript_of`).
   - `report.pending(limit: int) -> list[tuple[Path, dict]]` — 모든 세션에서 `status in {propose, regressed}` 이고 `reported_at` 이 없는 항목, `score` 내림차순 `limit` 개.
   - `report.session_start_text(items, hook_errors: int) -> str` — 비어 있으면 `""`. 형식: 첫 줄 `harness-loop: 검토 대기 action item <N>건 — /harness-loop:retro review`, 이어서 항목마다 `- [<condition>] <proposal 첫 줄 80자> (<날짜> <프로젝트>)`, 오류가 있으면 `- 훅 오류 <n>건: <hook-errors.log 경로>`.
-  - `report.mark_reported(pairs) -> None`.
-  - `report.decide(sig: str, decision: str, session: str | None = None, impact: int | None = None, actionability: int | None = None) -> dict` — decision ∈ `approved|rejected|applied|edit-score`. 해당 세션(없으면 sig 가 있는 모든 세션) items 갱신, `append_decision`, edit-score 면 다시 채점.
+  - `report.mark_reported(pairs) -> None` — 세션마다 락을 잡고 `reported_at` 을 쓴다. 락이 잡혀 있으면 그 세션을 건너뛰고 `hook-errors.log` 에 한 줄 남긴다(그 항목은 다음에 다시 보고된다).
+  - `report.decide(sig: str, decision: str, session: str | None = None, impact: int | None = None, actionability: int | None = None) -> dict` — decision ∈ `approved|rejected|applied|edit-score`. 해당 세션(없으면 sig 가 있는 모든 세션)의 락을 모두 잡는다(`DECIDE_LOCK_TRIES`×`DECIDE_LOCK_SLEEP` 안에 못 잡으면 잡은 락을 풀고 아무것도 쓰지 않은 채 `ValueError`). 락 안에서 다시 읽어 items 를 갱신·저장하고(edit-score 면 다시 채점), 마지막에 `append_decision`(edit-score 면 준 `impact`·`actionability` 포함).
   - `report.list_items(scope: str) -> list[dict]` — scope ∈ `pending|session:<id>|all`.
-  - CLI: `report.py where` — `CLAUDE_CODE_SESSION_ID` 의 기록 경로(`state.find_transcript`)를 출력, 없으면 종료 코드 2. `report.py list [--session <id>|--all]`, `report.py decide <sig> <decision> [--session <id>] [--impact N] [--actionability N]`.
-  - `hook.py session-start|session-end` — stdin 훅 JSON. 가드(Global Constraints) 해당 시 `skip` 쓰고 종료. session-end: `spawn_background(transcript_path, "session-end")`. session-start: `source` 가 `startup|resume` 일 때만, `regressions()` → `sweep()` 결과마다 `spawn_background(t, "sweep")` → `pending(queue_limit)` 을 `{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": <text>}}` 로 stdout, `mark_reported`. `HERDR_PW_WORKER` 가 설정돼 있으면 보고를 출력하지 않는다(sweep 과 regressions 는 돈다). 예외는 모두 잡아 `hook-errors.log` 에 쓰고 종료 코드 0.
+  - CLI: `report.py where` — `CLAUDE_CODE_SESSION_ID` 의 기록 경로(`state.find_transcript`)를 출력, 없으면 종료 코드 2. `report.py list [--session <id>|--all] [--mark-reported]` — `--mark-reported` 는 어느 범위와도 함께 쓸 수 있고, 출력한 항목 중 `propose`·`regressed` 만 `mark_reported` 한다(출력은 표시 전 목록). `report.py decide <sig> <decision> [--session <id>] [--impact N] [--actionability N]`. `report.py backfill-list [--days N]` — `backfill` 결과를 한 줄에 경로 하나씩 출력, 없으면 아무것도 출력하지 않고 종료 코드 0.
+  - `hook.py session-start|session-end` — stdin 훅 JSON. 가드(Global Constraints) 해당 시 `skip` 쓰고 종료. session-end: `spawn_background(transcript_path, "session-end")`. session-start: `source` 가 `startup|resume` 일 때만, `regressions()` → `sweep(now, exclude_session=훅 입력 session_id)` 결과 중 오늘 남은 상한(`max_background_judges_per_day - runs_today()`)만큼 `spawn_background(t, "sweep")` → `pending(queue_limit)` 을 `{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": <text>}}` 로 stdout, `mark_reported`. `HERDR_PW_WORKER` 가 설정돼 있으면 보고를 출력하지 않는다(sweep 과 regressions 는 돈다). 예외는 모두 잡아 `hook-errors.log` 에 쓰고 종료 코드 0.
   - `hooks/hooks.json`: SessionStart `matcher: "startup|resume"`, `timeout: 10`; SessionEnd `timeout: 10`; 명령 `uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/hook.py" session-start`(또는 `session-end`).
 
 - [ ] **Step 1: 테스트 작성**
@@ -408,18 +411,18 @@ def test_hook_session_start_skips_worker_env(tmp_projects): ...   # HERDR_PW_WOR
 - Modify: `README.md`
 
 **Interfaces:**
-- Consumes: CLI 전부 — `collect.py`, `judge.py digest|merge|rescore|background`, `report.py list|decide`, `apply_target.py`
+- Consumes: CLI 전부 — `collect.py`, `judge.py digest|merge|rescore|background`, `report.py where|list|decide|backfill-list`, `apply_target.py`
 
 SKILL.md 가 정하는 절차(규칙만 쓴다):
 
 | 모드 | 진입 | 절차 |
 |---|---|---|
-| 현재 세션 회고 | `/harness-loop:retro` 또는 "이 세션 회고해줘"·"action item 정리해줘" | `report.py where` 로 현재 세션 기록 경로 얻기 → `collect.py` → `judge.py digest` → digest 와 대화 전체를 근거로 `judge-schema.json` 형식 JSON 작성 → `judge.py merge --mode explicit` → 리포트 출력 후 턴 종료 |
+| 현재 세션 회고 | `/harness-loop:retro` 또는 "이 세션 회고해줘"·"action item 정리해줘" | `report.py where` 로 현재 세션 기록 경로 얻기 → `collect.py` → `judge.py digest` → digest 와 대화 전체를 근거로 `judge-schema.json` 형식 JSON 작성 → `judge.py merge --mode explicit` → `report.py list --session <id>` 로 리포트 출력 → `report.py list --session <id> --mark-reported` 로 보고 표시 후 턴 종료 |
 | 쌓인 항목 검토 | `review` 또는 SessionStart 알림을 보고 "검토할게" | `report.py list` → 리포트 출력 후 턴 종료 |
-| 지난 기록 처리 | `backfill [--days N]` | `installed_at` 이전 기록에 `judge.py background --mode sweep` 를 순서대로 실행(일일 상한 적용), 처리 수 보고 |
+| 지난 기록 처리 | `backfill [--days N]` | `report.py backfill-list [--days N]` 출력을 파일로 받아(비면 0 보고 후 멈춤) 한 줄씩 `judge.py background <transcript> --mode sweep` 를 순서대로 실행(Bash 한 번에 기록 하나, 일일 상한 적용), 처리 수 보고 |
 | 결정 | 사용자 자유 입력("1 승인, 2 거절", "2번 영향 3으로") | `report.py decide` → 승인 항목마다 `apply_target.py <path>` → kind 별 반영 |
 
-반영 규칙: `repo` → `rules` 파일을 읽고 그 저장소의 기여 절차(스킬이 있으면 그 스킬, 예: contribute)를 따른다. `local` → diff 를 보여 승인받아 적용한다. `plugin_cache` → 파일을 고치지 않고 교훈을 메모리에 남기고 업스트림 이슈 초안을 리포트에 쓴다. `new` → 위치와 초안을 보이고 승인받아 만든 뒤 그 위치의 `kind` 규칙을 따른다. 반영이 끝나면 `report.py decide <sig> applied`.
+반영 규칙: `repo` → `rules` 파일을 읽고 그 저장소의 기여 절차(스킬이 있으면 그 스킬, 예: contribute)를 따른다. `local` → diff 를 보여 승인받아 적용한다. `plugin_cache` → 파일을 고치지 않고 교훈을 메모리에 남기고 업스트림 이슈 초안을 리포트에 쓴다. `new` → 위치와 초안을 보이고 승인받아 만든 뒤 그 위치의 `kind` 규칙을 따른다. 반영이 끝나면 `report.py decide <sig> applied`. edit-score 로 고친 점수는 그 sig 의 모든 세션에서 이후 병합·재채점보다 우선한다.
 
 리포트 형식: 조건·sig·점수(재발/영향/해결)·대상·소유 환경·개선안 요지·근거 인용 1~2개를 항목마다 표 한 줄과 아래 상세로 쓴다. 선택 질문 도구(AskUserQuestion)는 쓰지 않고 사용자의 자유 입력으로 결정을 받는다.
 
@@ -441,6 +444,6 @@ Step 1~2 의 모든 명령은 `HARNESS_PROJECTS_ROOT=<scratchpad>/projects CLAUD
 - [ ] **Step 1: 수집 재현** — 실제 기록 복사본으로 collect 를 돌린다: `<scratchpad>/projects` 에 `~/.claude/projects` 를 `cp -R` 하고 모든 jsonl 에 `collect.py` 실행. 기대: eval 세션 62개 내외에 `skip`, `C1:` 상위에 Atlassian `app is not installed` 토픽, `C3:cmd:acli jira workitem`·`py-inline[]` 이 다수 세션, `C4:bare-yes` 가 20개 세션 내외. 조건별 신호 수와 세션 수를 표로 남긴다.
 - [ ] **Step 2: 기준값 점검** — 신호가 많은 세션 5개에 `judge.py background --mode sweep` 를 실행(복사본 루트에서), propose·watch·discarded 분포와 `pending(queue_limit)` 결과를 표로 남긴다. propose 가 세션당 평균 3건을 넘으면 `propose` 를 올리는 안을 사용자에게 보고한다(직접 바꾸지 않는다).
 - [ ] **Step 3: 설치** — `/plugin marketplace add ~/src/skills`(이미 있으면 update) → `/plugin install harness-loop@tech-writing`. `ls ~/.claude/plugins/data/` 로 데이터 디렉터리 이름을 확인해 spec §8 을 갱신한다.
-- [ ] **Step 4: 끝까지 한 번 돌리기** — 새 세션에서 짧은 작업 → `/harness-loop:retro` 두 번(두 번째는 새 턴만 처리되는지) → 세션 종료 → 새 세션 시작 때 알림이 뜨는지 → `review` 에서 거절 1건 → 다음 판정에서 그 sig 가 올라오지 않는지 확인한다.
+- [ ] **Step 4: 끝까지 한 번 돌리기** — 새 세션에서 짧은 작업 → `/harness-loop:retro` 두 번(두 번째는 새 턴만 처리되는지) → 세션 종료 → 새 세션 시작 때 알림이 뜨는지(기본 채점에서 한 세션에서만 나온 sig 는 `watch` 라 알리지 않으므로, 다른 세션에서도 나온 sig 로 확인한다) → `review` 에서 거절 1건 → 다음 판정에서 그 sig 가 올라오지 않는지 확인한다.
 - [ ] **Step 5: 기존 수집기 제거** — `~/.claude/bin/harness-collect.py` 삭제(사용자 확인 후).
 - [ ] **Step 6: 커밋** — `docs: harness-loop 실데이터 검증 결과와 설치 경로 반영`

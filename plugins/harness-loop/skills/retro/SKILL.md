@@ -16,7 +16,7 @@ argument-hint: "[review | backfill [--days N]]"
 - `<transcript>` 는 세션 기록 jsonl 의 절대 경로, `<세션ID>` 는 그 파일 이름에서 `.jsonl` 을 뺀 값이다.
 - 임시 파일은 작업용 임시 디렉터리(scratchpad)에 쓴다. 아래에서는 `<tmp>` 로 적는다.
 - 사용자 결정은 자유 입력으로만 받는다. 선택지 질문 도구는 쓰지 않는다.
-- 리포트를 출력하면 그 턴을 끝내고 사용자 입력을 기다린다.
+- 리포트를 출력하면 그 턴을 끝내고 사용자 입력을 기다린다. 현재 세션 회고는 보고 기록(7단계)까지 마친 뒤 다른 출력 없이 턴을 끝낸다.
 - 스크립트가 0 이 아닌 코드로 끝나면 stderr 를 그대로 보여 주고 그 모드를 멈춘다. 단, `judge.py merge` 가 검증 오류로 끝나면 JSON 을 고쳐 다시 실행한다.
 
 ## 모드
@@ -55,10 +55,16 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" merge "<transcript>" --mode explicit < "<tmp>/harness-judge.json"
 ```
 
-6. 이 세션의 항목을 읽어 "리포트 형식" 절에 맞춰 출력하고 턴을 끝낸다.
+6. 이 세션의 항목을 읽어 "리포트 형식" 절에 맞춰 출력한다.
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" list --session "<세션ID>"
+```
+
+7. 리포트를 출력한 바로 뒤 보고한 항목(`propose`·`regressed`)을 기록하고 턴을 끝낸다. 기록한 항목은 SessionStart 알림에 다시 나오지 않는다.
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" list --session "<세션ID>" --mark-reported
 ```
 
 ### 판정 JSON 작성 규칙
@@ -66,6 +72,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 - digest 신호 표의 신호를 하나씩 판정한다. 결함이 아니면 항목을 만들지 않는다.
 - 신호로 잡히지 않았어도 대화에서 C1~C11 에 해당하는 사례를 찾으면 항목으로 넣는다.
 - `sig` 는 digest 의 "sig 규칙" 절을 따른다. `?` 를 그대로 쓰지 않는다.
+- `C2:?` 신호는 `condition` 을 C2(AI 가 원치 않는 일을 했다)와 C7(기존 메모리·CLAUDE.md 규칙을 따르지 않았거나 잘못된 곳에 저장했다) 중 하나로 고른다. 신호 하나에서 항목은 하나만 만들고, 같은 근거로 C2 항목과 C7 항목을 함께 만들지 않는다.
 - `impact`·`actionability` 는 digest 의 채점 기준표로 1~3 을 준다. 재발성은 쓰지 않는다.
 - `evidence` 는 항목마다 1개 이상이고, `session` 은 `<세션ID>`, `turn` 은 digest 의 턴 번호, `quote` 는 원문 인용이다.
 - `target.path` 는 고칠 파일의 절대 경로다. 아직 없는 스킬·스크립트면 만들 위치를 쓴다.
@@ -114,7 +121,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 | 거절 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" rejected` |
 | 영향·해결 점수 수정 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" edit-score --impact <1~3> --actionability <1~3>` (바꾸는 쪽만 준다) |
 
-3. 점수를 고친 항목은 출력의 `score`·`status` 를 보고 바뀐 점수와 상태를 한 줄로 알린다.
+3. 점수를 고친 항목은 출력의 `score`·`status` 를 보고 바뀐 점수와 상태를 한 줄로 알린다. 고친 점수는 그 sig 가 있는 모든 세션에 적용되고, 이후 판정 병합·재채점에서도 judge 점수 대신 쓰인다.
 4. 승인한 항목마다 반영 대상의 소유 환경을 판정한다. 출력 JSON 의 `kind`·`real_path`·`root`·`rules` 를 쓴다.
 
 ```bash
@@ -127,7 +134,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 |---|---|
 | `repo` | `rules` 의 파일을 읽고 그 저장소의 기여 절차를 따라 `real_path` 를 고친다. 기여 절차를 맡는 스킬(예: `contribute`)이 있으면 그 스킬로 커밋·PR 을 만든다 |
 | `local` | `real_path` 의 diff 를 보여 주고 사용자가 승인하면 적용한다 |
-| `plugin_cache` | 파일을 고치지 않는다. 교훈을 메모리에 남기고, 업스트림 이슈 초안(제목·재현·제안)을 리포트에 쓴다 |
+| `plugin_cache` | 파일을 고치지 않는다. 교훈을 메모리에 남기고, 업스트림 이슈 초안(제목·재현·제안)을 리포트에 쓴다. 이 sig 가 다시 나오면 처음 한 번만 `regressed` 로 올라오고, 그 뒤 재발은 `watch` 로 남아 보고되지 않는다 |
 | `new` | 만들 위치와 초안을 보여 주고 사용자가 승인하면 만든다. 그 뒤 `root` 가 있으면 `repo`, 없으면 `local` 규칙을 따른다 |
 
 6. 반영이 끝난 항목마다 기록한다.
