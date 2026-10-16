@@ -104,11 +104,17 @@ def test_error_line_skips_headings_and_ls_listing():
     assert transcript._error_line("#제목없음 붙은 해시") == "#제목없음 붙은 해시"
     ls = "drwxr-xr-x  5 u  staff  160 Oct 16 12:00 .\n-rw-r--r--  1 u  staff  10 Oct 16 12:00 a.txt\nls: b: No such file or directory"
     assert transcript._error_line(ls) == "ls: b: No such file or directory"
+    assert transcript._error_line("total 24\n" + ls) == "ls: b: No such file or directory"
+    assert transcript._error_line("lrwxr-xr-x@ 1 u  staff  10 Oct 16 12:00 l -> a\ndrwxrwxrwt+ 2 u  staff  64 Oct 16 12:00 t\nboom") == "boom"
+    assert transcript._error_line("---------- ERROR: x ----------\nmore") == "---------- ERROR: x ----------"
 
 
 def test_error_line_traceback_takes_last_exception_line():
     tb = "Traceback (most recent call last):\n  File \"x.py\", line 3, in <module>\nKeyError: 'a'"
     assert transcript._error_line(tb) == "KeyError: 'a'"
+    assert transcript._error_line("Traceback (most recent call last):\n  File \"x.py\", line 3, in <module>\nException: boom") == "Exception: boom"
+    assert transcript._error_line("Traceback (most recent call last):\n  File \"x.py\", line 3\n    raise ValueError(\"bad\")\nError: x") == "Error: x"
+    assert transcript._error_line("Traceback (most recent call last):\n  File \"x.py\", line 3\n    raise ValueError(\"bad\")") == "Traceback (most recent call last):"
     chained = "Exit code 1\nTraceback (most recent call last):\nValueError: first\n\nDuring handling...\nTraceback (most recent call last):\n  File \"y.py\"\nmod.CustomException: last"
     assert transcript._error_line(chained) == "mod.CustomException: last"
     assert transcript._error_line("Traceback (most recent call last):\n  File \"x.py\", line 3") == "Traceback (most recent call last):"

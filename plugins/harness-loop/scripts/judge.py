@@ -99,7 +99,7 @@ def digest(transcript_path: Path, new_signals: list[dict]) -> str:
         if len(t.calls) > 12:
             lines.append(f"- … 외 {len(t.calls) - 12}개")
         lines += ["", "오류:"]
-        lines += [f"- `{e.tool}` {_cell(e.text)}" for e in t.errors] or ["- 없음"]
+        lines += [f"- `{e.tool}` {_cell(e.text)}" for e in t.errors if e.text] or ["- 없음"]
         if t.rejected:
             lines.append(f"- 사용자가 거절한 호출 {len(t.rejected)}개")
         if t.interrupted:
@@ -194,7 +194,7 @@ def _drop_c2_c7_twins(items: list[dict]) -> list[dict]:
     """같은 토픽의 C2·C7 항목이 함께 오면 출력 순서상 먼저 온 것만 남긴다."""
     first, out = {}, []
     for it in items:
-        cond, topic = it["sig"].split(":", 1)
+        cond, topic = it["condition"], it["sig"].split(":", 1)[1]
         if cond in ("C2", "C7") and first.setdefault(topic, cond) != cond:
             continue
         out.append(it)

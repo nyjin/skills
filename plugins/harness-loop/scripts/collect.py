@@ -16,7 +16,6 @@ import transcript
 from transcript import Turn
 
 PERMISSION_NOISE = ("requires approval", "multiple operations", "was blocked. For security", "Contains simple_expansion", "changes directory before", "This session is isolated in the worktree")
-EXIT_CODE = re.compile(r"Exit code \d+")
 CORRECTION = re.compile(r"^아니|그게 아니|말고|왜 .{0,20}(했|하지|하냐)|다시 (해|하|작성)|취지|벗어나|대충|빈약|지나치|너무 (길|많|복잡)")
 QUESTION = re.compile(r"(할까요|갈까요|될까요|드릴까요|볼까요|좋을까요|괜찮을까요|어떨까요)\??\s*$")
 BARE_YES = re.compile(r"^(네|넵|예|어|응|ㅇㅇ|ㅇㅋ|좋아요?|진행|ok|yes|그래)(?![가-힣A-Za-z])", re.I)
@@ -111,7 +110,7 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
         order = {c.id: i for i, c in enumerate(turn.calls)}
         # C1
         for e in turn.errors:
-            if not e.text.strip() or any(p in e.text for p in PERMISSION_NOISE) or EXIT_CODE.fullmatch(e.text.strip()):
+            if not e.text.strip() or any(p in e.text for p in PERMISSION_NOISE):
                 continue
             i = order.get(e.call_id)
             if i is not None and i + 1 < len(turn.calls):

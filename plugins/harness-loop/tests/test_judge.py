@@ -152,7 +152,7 @@ def test_merge_recomputes_status_unless_kept(tmp_projects):
 def test_merge_records_signals_upto(tmp_projects):
     t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
     hdir = state.harness_dir(t)
-    (hdir / "signals.jsonl").write_text('{"sig": "C1:x"}\n{"sig": "C2:?"}\n{"sig": "C7:?"}\n')
+    (hdir / "signals.jsonl").write_text('{"sig": "C1:x"}\n{"sig": "C2:?"}\n{"sig": "C2:?"}\n')
     judge.merge(t, {"items": [out_item()]}, "session-end")
     assert json.loads((hdir / "runs" / "001-session-end.json").read_text())["signals_upto"] == 3
 
@@ -249,6 +249,21 @@ def test_digest_contains_rubric_signals_existing_sigs(tmp_projects):
     assert '"rule_unenforced"' in md
     assert judge.C2_C7_RULE in md
     assert "C2" in judge.C2_C7_RULE and "C7" in judge.C2_C7_RULE and "하나" in judge.C2_C7_RULE
+
+
+def test_digest_hides_errors_with_empty_text(tmp_projects):
+    t = copy_fixture(tmp_projects, "signals.jsonl", "sess-a")   # 1번 턴에 "Exit code 1" 단독 오류(빈 토픽)가 있다
+    md = judge.digest(t, [{"sig": "C4:bare-yes", "condition": "C4", "turn": 1, "line": 1, "skill": None, "quote": "q", "needs_judge": False}])
+    errors = md.split("오류:")[1].split("AI 응답 꼬리:")[0]
+    assert "error: unknown flag --json" in errors
+    assert all(l.split("` ", 1)[-1].strip() for l in errors.splitlines() if l.startswith("- `"))
+
+
+def test_merge_c2_c7_guard_uses_condition_field(tmp_projects):
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    items = judge.merge(t, {"items": [out_item("C2:x"), out_item("C2:x", condition="C7"), out_item("C9:y", condition="C7"), out_item("C2:y")]}, "explicit")
+    assert items["C2:x"]["condition"] == "C2"
+    assert sorted(items) == ["C2:x", "C9:y"]
 
 
 def test_digest_cli_uses_pending_signals(tmp_projects, capsys):
