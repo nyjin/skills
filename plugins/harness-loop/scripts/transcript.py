@@ -84,7 +84,7 @@ def _error_line(text):
     """오류 주제 줄. Traceback 이면 마지막 예외 줄, 아니면 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 줄(`total N` 포함)·글자나 숫자가 없는 줄을 건너뛴 첫 줄. 다 건너뛰면 빈 문자열."""
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     if TRACEBACK in lines:
-        exc = [l for l in lines if EXCEPTION_LINE.match(l)]
+        exc = [l for l in lines if EXCEPTION_LINE.match(l) and not _skippable(l)]
         if exc:
             return exc[-1][:200]
     return next((l for l in lines if not _skippable(l)), "")[:200]

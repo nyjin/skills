@@ -99,7 +99,7 @@ def digest(transcript_path: Path, new_signals: list[dict]) -> str:
         if len(t.calls) > 12:
             lines.append(f"- … 외 {len(t.calls) - 12}개")
         lines += ["", "오류:"]
-        lines += [f"- `{e.tool}` {_cell(e.text)}" for e in t.errors if e.text] or ["- 없음"]
+        lines += [f"- `{e.tool}` {_cell(e.text)}" for e in t.errors if e.text.strip()] or ["- 없음"]
         if t.rejected:
             lines.append(f"- 사용자가 거절한 호출 {len(t.rejected)}개")
         if t.interrupted:

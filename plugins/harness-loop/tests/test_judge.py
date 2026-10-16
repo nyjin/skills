@@ -259,6 +259,17 @@ def test_digest_hides_errors_with_empty_text(tmp_projects):
     assert all(l.split("` ", 1)[-1].strip() for l in errors.splitlines() if l.startswith("- `"))
 
 
+def test_digest_hides_whitespace_only_errors(tmp_projects, monkeypatch):
+    import transcript
+    from transcript import ToolError, Turn
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    turn = Turn(1, None, 1, "해줘", errors=[ToolError("a", "Bash", "   "), ToolError("b", "Read", "real")])
+    monkeypatch.setattr(transcript, "parse", lambda path, start=0: ([turn], 1))
+    md = judge.digest(t, [{"sig": "C1:real", "condition": "C1", "turn": 1, "line": 1, "skill": None, "quote": "q", "needs_judge": False}])
+    errors = md.split("오류:")[1].split("AI 응답 꼬리:")[0]
+    assert "- `Read` real" in errors and "`Bash`" not in errors
+
+
 def test_merge_c2_c7_guard_uses_condition_field(tmp_projects):
     t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
     items = judge.merge(t, {"items": [out_item("C2:x"), out_item("C2:x", condition="C7"), out_item("C9:y", condition="C7"), out_item("C2:y")]}, "explicit")

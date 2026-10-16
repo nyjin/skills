@@ -115,6 +115,8 @@ def test_error_line_traceback_takes_last_exception_line():
     assert transcript._error_line("Traceback (most recent call last):\n  File \"x.py\", line 3, in <module>\nException: boom") == "Exception: boom"
     assert transcript._error_line("Traceback (most recent call last):\n  File \"x.py\", line 3\n    raise ValueError(\"bad\")\nError: x") == "Error: x"
     assert transcript._error_line("Traceback (most recent call last):\n  File \"x.py\", line 3\n    raise ValueError(\"bad\")") == "Traceback (most recent call last):"
+    assert transcript._error_line("Exit code 1\nTraceback (most recent call last):\n  File \"x.py\", line 3") == "Traceback (most recent call last):"
+    assert transcript._error_line("Traceback (most recent call last):\nSystemExit: 1\nExit code 2") == "SystemExit: 1"
     chained = "Exit code 1\nTraceback (most recent call last):\nValueError: first\n\nDuring handling...\nTraceback (most recent call last):\n  File \"y.py\"\nmod.CustomException: last"
     assert transcript._error_line(chained) == "mod.CustomException: last"
     assert transcript._error_line("Traceback (most recent call last):\n  File \"x.py\", line 3") == "Traceback (most recent call last):"
