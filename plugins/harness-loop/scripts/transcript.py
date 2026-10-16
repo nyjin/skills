@@ -72,15 +72,13 @@ def _first_line(text):
 
 
 def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
-    """start_line 이후 줄만 읽어 턴을 만든다. 마지막으로 완전히 읽은 줄 번호를 함께 돌려준다."""
+    """파일 전체를 읽어 턴을 만들고, start_line 이후 줄이 하나라도 있는 턴만 돌려준다. 마지막으로 완전히 읽은 줄 번호를 함께 돌려준다."""
     turns: list[Turn] = []
     tools: dict[str, str] = {}
     skill = None
-    last = start_line
+    last = 0
     with open(path, encoding="utf-8", errors="replace") as f:
         for lineno, raw in enumerate(f, 1):
-            if lineno <= start_line:
-                continue
             try:
                 d = json.loads(raw)
             except ValueError:
@@ -127,10 +125,12 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                             turn.api_error = True
                         elif text.strip():
                             turn.ai_tail = text[-500:]
-    return turns, last
+    ends = [t.line - 1 for t in turns[1:]] + [last]
+    return [t for t, end in zip(turns, ends) if end > start_line], last
 
 
 def session_kind(turns: list[Turn], cfg: dict) -> str:
+    """start_line=0 으로 파싱한 세션 전체 턴 목록을 받는다."""
     markers = cfg.get("eval_markers") or []
     if any(m in e.text for t in turns for e in t.errors for m in markers):
         return "eval"

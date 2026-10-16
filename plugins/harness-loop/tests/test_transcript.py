@@ -66,3 +66,17 @@ def test_rejection_interrupt_sidechain_and_api_error():
     assert [c.name for c in first.calls] == ["Edit"]
     assert second.api_error is True and second.ai_tail == ""
     assert first.api_error is False
+
+
+def test_resume_mid_turn_reemits_whole_turn():
+    turns, _ = transcript.parse(FIX / "basic.jsonl", start_line=5)   # 5번 줄은 스킬 본문 주입, 오류 결과(7번 줄) 앞
+    first = turns[0]
+    assert first.index == 1 and first.line == 2
+    assert first.errors[0].tool == "mcp__claude_ai_Atlassian__getJiraIssue"
+    assert {c.skill for c in first.calls if c.name == "Bash"} == {"ticket-creator"}
+    assert [t.index for t in turns] == [1, 2]
+
+
+def test_resume_after_turn_keeps_session_index():
+    turns, _ = transcript.parse(FIX / "basic.jsonl", start_line=11)   # 1번 턴은 11번 줄까지
+    assert [(t.index, t.user[:2]) for t in turns] == [(2, "아니")]
