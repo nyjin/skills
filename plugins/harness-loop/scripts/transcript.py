@@ -125,6 +125,11 @@ def _error_line(text, tool=""):
     return next((l for l in lines if not _skippable(l)), "")[:200]
 
 
+def _resends_queued(turns, text) -> bool:
+    """사람 발화가 직전 2턴 안의 대기 입력(queued) 턴 텍스트와 같거나 그것으로 시작하면 다시 보낸 것이다."""
+    return any(q.queued and q.user.strip() and text.startswith(q.user) for q in turns[-2:])
+
+
 def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
     """파일 전체를 읽어 턴을 만들고, start_line 이후 줄이 하나라도 있는 턴만 돌려준다. 마지막으로 완전히 읽은 줄 번호를 함께 돌려준다."""
     turns: list[Turn] = []
@@ -164,6 +169,8 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                 if text.startswith(INTERRUPT):
                     if turn:
                         turn.interrupted = True
+                    continue
+                if _resends_queued(turns, text):
                     continue
                 skill = None
                 turns.append(Turn(len(turns) + 1, d.get("cwd"), lineno, text, slash=slash is not None))

@@ -209,3 +209,42 @@ def test_slash_command_from_peer_is_not_human_turn(tmp_path):
     p = tmp_path / "s.jsonl"
     p.write_text(json.dumps(row) + "\n")
     assert transcript.parse(p)[0] == []
+
+
+def _rows_file(tmp_path, rows):
+    import json
+
+    p = tmp_path / "s.jsonl"
+    p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    return p
+
+
+def _u(text):
+    return {"type": "user", "cwd": "/tmp/proj", "message": {"role": "user", "content": text}}
+
+
+def _q(text):
+    return {"type": "attachment", "cwd": "/tmp/proj", "attachment": {"type": "queued_command", "commandMode": "prompt", "origin": {"kind": "human"}, "prompt": text}}
+
+
+def _say(text):
+    return {"type": "assistant", "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
+
+
+def test_resend_of_queued_prompt_is_merged_into_queued_turn(tmp_path):
+    p = _rows_file(tmp_path, [_u("빌드해줘"), _q("테스트도 돌려줘"), _say("빌드했습니다."), _u("테스트도 돌려줘"), _say("테스트도 돌렸습니다.")])
+    turns, _ = transcript.parse(p)
+    assert [(t.user, t.queued) for t in turns] == [("빌드해줘", False), ("테스트도 돌려줘", True)]
+    assert turns[1].ai_tail == "테스트도 돌렸습니다."
+
+
+def test_resend_starting_with_queued_text_within_two_turns_is_dropped(tmp_path):
+    p = _rows_file(tmp_path, [_u("빌드해줘"), _q("테스트도 돌려줘"), _q("린트도"), _u("테스트도 돌려줘\n그리고 결과 알려줘")])
+    assert [t.user for t in transcript.parse(p)[0]] == ["빌드해줘", "테스트도 돌려줘", "린트도"]
+
+
+def test_resend_not_dropped_beyond_two_turns_or_without_queued(tmp_path):
+    p = _rows_file(tmp_path, [_u("빌드해줘"), _q("테스트도 돌려줘"), _u("다음"), _u("또 다음"), _u("테스트도 돌려줘")])
+    assert [t.user for t in transcript.parse(p)[0]] == ["빌드해줘", "테스트도 돌려줘", "다음", "또 다음", "테스트도 돌려줘"]
+    p = _rows_file(tmp_path, [_u("해줘"), _u("해줘")])
+    assert [t.user for t in transcript.parse(p)[0]] == ["해줘", "해줘"]
