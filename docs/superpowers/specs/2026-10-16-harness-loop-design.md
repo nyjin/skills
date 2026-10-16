@@ -88,7 +88,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 
 - judge는 명시 호출과 SessionEnd(그리고 그 보완인 SessionStart sweep)에서만 돈다. 하루 1회 배치는 없다.
 - 명시 호출 리포트를 보여 준 뒤 그 세션의 `propose`·`regressed` 항목을 보고한 것으로 표시한다(`report.py list --session <id> --mark-reported`). SessionStart 알림은 이 항목을 다시 알리지 않는다.
-- 명시 호출 judge는 현재 세션 모델이 대화 전체를 보고 판정한다. 백그라운드 judge(`claude -p`)는 `judge.py`가 조립한 다이제스트(신호, 해당 턴 발화와 AI 응답 꼬리)만 본다. C2·C5·C7처럼 맥락이 필요한 판정은 명시 호출 쪽이 더 정확하다.
+- 명시 호출 judge는 현재 세션 모델이 대화 전체를 보고 판정한다. 백그라운드 judge(`claude -p`)는 `judge.py`가 조립한 다이제스트(신호, 해당 턴 발화와 AI 응답 꼬리)만 본다. C2·C5·C7처럼 맥락이 필요한 판정은 명시 호출 쪽이 더 정확하다. 백그라운드 judge 는 `--setting-sources project --strict-mcp-config` 로, 플러그인 데이터 디렉터리(`.claude/` 가 없다)를 cwd 로 실행한다. 사용자 설정의 훅·MCP 와 세션 cwd 프로젝트의 자동 메모리가 judge 에 섞이지 않는다.
 - `HARNESS_RETRO=1`이면 두 훅 모두 아무것도 하지 않는다. judge 세션이 자기 자신을 분석하지 않게 한다.
 - 서브에이전트 세션(훅 입력에 `agent_id`가 있음)에서는 두 훅 모두 아무것도 하지 않는다. `CLAUDE_CODE_CHILD_SESSION`은 가드로 쓰지 않는다. Claude Code가 보통의 최상위 세션 훅·Bash에서도 1로 설정하므로(실측) 이것으로 거르면 모든 세션이 빠진다. 워커 세션(`HERDR_PW_WORKER` 가 설정된 세션)에서는 수집은 하되 SessionStart 보고는 하지 않는다.
 - SessionStart 훅 matcher는 `startup|resume`이다. compact·clear 때는 다시 보고하지 않는다.

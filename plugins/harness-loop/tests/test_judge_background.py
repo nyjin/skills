@@ -82,11 +82,22 @@ def test_background_judge_merges_fake_output(tmp_projects, fake_claude_ok, tmp_p
     assert json.loads(runs[0].read_text())["signals_upto"] == len((hdir / "signals.jsonl").read_text().splitlines())
     assert not (hdir / "lock").exists()
     [call] = calls(fake_claude_ok)
-    assert call.startswith("1 -p --no-session-persistence --tools  --output-format json --json-schema {")
+    assert call.startswith("1 -p --setting-sources project --strict-mcp-config --no-session-persistence --tools  --output-format json --json-schema {")
     assert "harness-loop judge 입력" in (tmp_path / "fake-claude.stdin").read_text()
     [line] = run_lines()
     assert line["ok"] is True and line["mode"] == "session-end" and line["session"] == "basic" and line["transcript"] == str(t)
     assert "error" not in line
+
+
+def test_background_judge_runs_isolated_from_user_settings(tmp_projects, tmp_path):
+    exe = make_fake(tmp_path, "fake-claude-cwd", f'pwd -P > "{tmp_path}/cwd.txt"\n' + reply(result="", structured_output={"items": [ITEM]}))
+    t = copy_fixture(tmp_projects, "basic.jsonl")
+    assert judge.background(t, "session-end", claude_bin=exe) is True
+    [call] = calls(exe)
+    argv = call.split(" --json-schema ")[0].split(" ")
+    assert argv == ["1", "-p", "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence", "--tools", "", "--output-format", "json"]
+    assert (tmp_path / "cwd.txt").read_text().strip() == str(state.data_dir().resolve())
+    assert not (state.data_dir() / ".claude").exists()
 
 
 def test_background_judge_parses_result_when_no_structured_output(tmp_projects, tmp_path):

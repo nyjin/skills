@@ -337,10 +337,10 @@ def _judge_output(stdout: str) -> dict:
 
 def _invoke(path: Path, hdir: Path, mode: str, claude_bin: str) -> None:
     text = digest(path, pending_signals(hdir))
-    cmd = [claude_bin, "-p", "--no-session-persistence", "--tools", "", "--output-format", "json", "--json-schema", SCHEMA.read_text(encoding="utf-8")]
+    cmd = [claude_bin, "-p", "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence", "--tools", "", "--output-format", "json", "--json-schema", SCHEMA.read_text(encoding="utf-8")]
     os.utime(hdir / "lock")
     try:
-        proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=JUDGE_TIMEOUT, env={**os.environ, "HARNESS_RETRO": "1"})
+        proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=JUDGE_TIMEOUT, cwd=state.data_dir(), env={**os.environ, "HARNESS_RETRO": "1"})
     except subprocess.TimeoutExpired:
         raise ValueError(f"timeout {JUDGE_TIMEOUT}s")
     if proc.returncode != 0:

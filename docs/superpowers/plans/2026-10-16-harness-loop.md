@@ -21,7 +21,7 @@
 - 훅은 어떤 경우에도 종료 코드 0 이고, 오류는 `hook-errors.log` 에 한 줄씩 남긴다.
 - `HARNESS_RETRO=1`, 훅 입력에 `agent_id` 가 있음 → 그 세션에 `skip` 을 쓰고 아무것도 하지 않는다. `CLAUDE_CODE_CHILD_SESSION` 은 가드가 아니다(보통의 최상위 세션 훅·Bash 에서도 1 로 설정된다는 실측 결과).
 - `HERDR_PW_WORKER` 가 설정된 세션(herdr 워커)은 수집·판정은 하되 SessionStart 보고를 출력하지 않는다.
-- 백그라운드 judge: `HARNESS_RETRO=1 claude -p --no-session-persistence --tools "" --output-format json --json-schema <스키마>`, `subprocess.Popen(..., start_new_session=True, stdin/stdout/stderr=DEVNULL)`.
+- 백그라운드 judge: `HARNESS_RETRO=1 claude -p --setting-sources project --strict-mcp-config --no-session-persistence --tools "" --output-format json --json-schema <스키마>`(cwd 는 플러그인 데이터 디렉터리), `subprocess.Popen(..., start_new_session=True, stdin/stdout/stderr=DEVNULL)`.
 - 스킬 문서는 규칙·표·명령만 쓴다. 이력·결정 과정·근거 서술은 넣지 않고, config 값은 속성명으로만 참조한다. 마크다운 산문은 한 단락을 한 줄로 쓴다.
 - 커밋 메시지는 이 저장소 형식(`feat: …`, `docs: …`, 한국어)이고 끝에 `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` 를 붙인다.
 
@@ -313,7 +313,7 @@ def test_merge_rejects_schema_violation(tmp_projects): ...       # impact 4 → 
 **Interfaces:**
 - Consumes: Task 3 `collect.run`, Task 4 `digest`·`merge`, `state.acquire_lock`·`release_lock`
 - Produces:
-  - `background_status(transcript: Path, mode: str, claude_bin: str = "claude") -> int` — `BG_OK`(0)·`BG_FAILED`(1)·`BG_CAP`(2)·`BG_LOCKED`(3) 중 하나. `background(...) -> bool` 은 `background_status(...) == BG_OK` 다. lock 획득 실패면 `BG_LOCKED`. 오늘(`judge-runs.jsonl` 날짜 기준) 실행 수가 `max_background_judges_per_day` 이상이면 `BG_CAP`. 실행 수(`runs_today`)는 예약 줄과 결과 줄을 `(session, at)` 으로 묶어 한 번만 센다. `collect.run` 으로 새 신호를 받고, 이 세션에 아직 판정 안 된 신호(직전 run 이후 신호)가 없으면 `BG_OK`(할 일 없음). 있으면 `digest` 를 stdin 으로 `HARNESS_RETRO=1 <claude_bin> -p --no-session-persistence --tools "" --output-format json --json-schema <judge-schema.json 내용>` 실행, 응답 JSON 의 `structured_output`(없으면 `result` 를 JSON 으로 파싱)을 `merge(..., mode)` 에 넘긴다. `claude -p` 를 부르기 전에 `judge-runs.jsonl` 에 예약 줄(`"reserved": true`)을 쓰고, 성공·실패 모두 결과 줄을 한 줄 더 쓴다. 실패 시 `hook-errors.log` 에 한 줄, items 는 그대로, `BG_FAILED`.
+  - `background_status(transcript: Path, mode: str, claude_bin: str = "claude") -> int` — `BG_OK`(0)·`BG_FAILED`(1)·`BG_CAP`(2)·`BG_LOCKED`(3) 중 하나. `background(...) -> bool` 은 `background_status(...) == BG_OK` 다. lock 획득 실패면 `BG_LOCKED`. 오늘(`judge-runs.jsonl` 날짜 기준) 실행 수가 `max_background_judges_per_day` 이상이면 `BG_CAP`. 실행 수(`runs_today`)는 예약 줄과 결과 줄을 `(session, at)` 으로 묶어 한 번만 센다. `collect.run` 으로 새 신호를 받고, 이 세션에 아직 판정 안 된 신호(직전 run 이후 신호)가 없으면 `BG_OK`(할 일 없음). 있으면 `digest` 를 stdin 으로 `HARNESS_RETRO=1 <claude_bin> -p --setting-sources project --strict-mcp-config --no-session-persistence --tools "" --output-format json --json-schema <judge-schema.json 내용>` 을 cwd `data_dir()` 에서 실행, 응답 JSON 의 `structured_output`(없으면 `result` 를 JSON 으로 파싱)을 `merge(..., mode)` 에 넘긴다. `claude -p` 를 부르기 전에 `judge-runs.jsonl` 에 예약 줄(`"reserved": true`)을 쓰고, 성공·실패 모두 결과 줄을 한 줄 더 쓴다. 실패 시 `hook-errors.log` 에 한 줄, items 는 그대로, `BG_FAILED`.
   - `spawn_background(transcript: Path, mode: str) -> None` — `uv run --script <judge.py> background <transcript> --mode <mode>` 를 `start_new_session=True`·DEVNULL·`HARNESS_RETRO=1` 로 띄우고 바로 돌아온다.
   - "판정 대기" 판단: `signals.jsonl` 의 마지막 줄 번호와 마지막 `runs/*.json` 의 `signals_upto` 를 비교한다. `merge` 는 run 파일에 `signals_upto` 를 기록한다.
 
