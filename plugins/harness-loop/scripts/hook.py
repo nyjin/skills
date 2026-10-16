@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 def _guarded(data: dict) -> bool:
-    return os.environ.get("HARNESS_RETRO") == "1" or bool(data.get("agent_id")) or bool(os.environ.get("CLAUDE_CODE_CHILD_SESSION"))
+    return os.environ.get("HARNESS_RETRO") == "1" or bool(data.get("agent_id"))
 
 
 def run(event: str, raw: str) -> None:

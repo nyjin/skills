@@ -68,12 +68,12 @@ def test_hook_guard_agent_id(tmp_projects, monkeypatch, capsys, spawned):
     assert spawned == []
 
 
-def test_hook_guard_child_session(tmp_projects, monkeypatch, capsys, spawned):
+def test_hook_child_session_env_alone_does_not_skip(tmp_projects, monkeypatch, capsys, spawned):
     t = make_transcript(tmp_projects, "s1")
     monkeypatch.setenv("CLAUDE_CODE_CHILD_SESSION", "1")
     out = run_hook(monkeypatch, capsys, "session-end", {"session_id": "s1", "transcript_path": str(t)})
-    assert out == "" and spawned == []
-    assert (tmp_projects / "proj" / "s1" / "harness" / "skip").exists()
+    assert out == "" and spawned == [(t, "session-end")]
+    assert not (tmp_projects / "proj" / "s1" / "harness" / "skip").exists()
 
 
 def test_hook_session_end_spawns_judge(tmp_projects, monkeypatch, capsys, spawned):
