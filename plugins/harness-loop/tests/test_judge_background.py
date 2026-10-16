@@ -1,6 +1,8 @@
 import json
+import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -187,10 +189,65 @@ def test_spawn_background_popen_args(tmp_projects, monkeypatch):
 
 def test_cli_background_exit_codes(tmp_projects, monkeypatch):
     t = copy_fixture(tmp_projects, "basic.jsonl")
-    monkeypatch.setattr(judge, "background", lambda tr, mode, claude_bin="claude": mode == "sweep")
+    monkeypatch.setattr(judge, "background", lambda tr, mode, claude_bin="claude": tr == t and mode == "sweep")
     with pytest.raises(SystemExit) as e:
         judge.main(["background", str(t), "--mode", "sweep"])
     assert e.value.code == 0
     with pytest.raises(SystemExit) as e:
         judge.main(["background", str(t), "--mode", "explicit"])
     assert e.value.code == 1
+
+
+def test_judge_timeout_is_below_lock_stale_window():
+    import inspect
+
+    assert judge.JUDGE_TIMEOUT < inspect.signature(state.acquire_lock).parameters["stale_sec"].default
+
+
+def test_lock_mtime_refreshed_before_claude(tmp_projects, tmp_path, monkeypatch):
+    t = copy_fixture(tmp_projects, "basic.jsonl")
+    lock = state.harness_dir(t) / "lock"
+    real_run = collect.run
+
+    def aging_run(path):
+        out = real_run(path)
+        os.utime(lock, (time.time() - 3000, time.time() - 3000))
+        return out
+
+    monkeypatch.setattr(collect, "run", aging_run)
+    exe = make_fake(tmp_path, "fake-claude-lock", f'[ -n "$(find "{lock}" -maxdepth 0 -mmin -5)" ] || exit 1\n' + reply(result="", structured_output={"items": [ITEM]}))
+    assert judge.background(t, "session-end", claude_bin=exe) is True
+
+
+def _raise(*a, **kw):
+    raise RuntimeError("kaboom")
+
+
+@pytest.mark.parametrize("breaker", ["collect", "config", "runs-file"])
+def test_any_failure_after_lock_is_logged(tmp_projects, fake_claude_ok, monkeypatch, breaker):
+    t = copy_fixture(tmp_projects, "basic.jsonl")
+    if breaker == "collect":
+        monkeypatch.setattr(collect, "run", _raise)
+    elif breaker == "config":
+        (state.data_dir() / "scoring.yaml").write_text("weights: [\n")
+    else:
+        (state.data_dir() / "judge-runs.jsonl").mkdir()
+    assert judge.background(t, "session-end", claude_bin=fake_claude_ok) is False
+    log = (state.data_dir() / "hook-errors.log").read_text().splitlines()
+    assert len(log) == 1 and str(t) in log[0]
+    assert not (state.harness_dir(t) / "lock").exists()
+
+
+def test_run_line_write_failure_is_logged_once(tmp_projects, fake_claude_ok, monkeypatch):
+    t = copy_fixture(tmp_projects, "basic.jsonl")
+    real_open = open
+
+    def guarded_open(file, *a, **kw):
+        if str(file).endswith("judge-runs.jsonl") and a and a[0] == "a":
+            raise OSError("disk full")
+        return real_open(file, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", guarded_open)
+    assert judge.background(t, "session-end", claude_bin=fake_claude_ok) is False
+    log = (state.data_dir() / "hook-errors.log").read_text().splitlines()
+    assert len(log) == 1 and "disk full" in log[0]

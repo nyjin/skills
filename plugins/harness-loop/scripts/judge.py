@@ -23,7 +23,7 @@ CONDITIONS = {f"C{i}" for i in range(1, 12)}
 MODES = ("explicit", "session-end", "sweep")
 KEPT = {"approved", "rejected", "applied", "regressed"}
 LIVE = {"propose", "watch", "approved", "applied", "regressed"}
-JUDGE_TIMEOUT = 600
+JUDGE_TIMEOUT = 540
 SIG_RULE = "`?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다."
 
 
@@ -310,9 +310,10 @@ def _judge_output(stdout: str) -> dict:
         raise ValueError("structured_output 이 없고 result 도 JSON 이 아니다")
 
 
-def _invoke(path: Path, mode: str, claude_bin: str) -> None:
-    text = digest(path, pending_signals(state.harness_dir(path)))
+def _invoke(path: Path, hdir: Path, mode: str, claude_bin: str) -> None:
+    text = digest(path, pending_signals(hdir))
     cmd = [claude_bin, "-p", "--no-session-persistence", "--tools", "", "--output-format", "json", "--json-schema", SCHEMA.read_text(encoding="utf-8")]
+    os.utime(hdir / "lock")
     try:
         proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=JUDGE_TIMEOUT, env={**os.environ, "HARNESS_RETRO": "1"})
     except subprocess.TimeoutExpired:
@@ -322,6 +323,35 @@ def _invoke(path: Path, mode: str, claude_bin: str) -> None:
     merge(path, _judge_output(proc.stdout), mode)
 
 
+def _log_error(path: Path, error: Exception) -> None:
+    try:
+        with open(state.data_dir() / "hook-errors.log", "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().astimezone().isoformat()} judge background {path}: {' '.join(str(error).split())}\n")
+    except Exception:
+        pass
+
+
+def _judge_once(path: Path, hdir: Path, mode: str, claude_bin: str) -> bool:
+    if _runs_today() >= state.load_config()["max_background_judges_per_day"]:
+        return False
+    collect.run(path)
+    if (hdir / "skip").exists() or not pending_signals(hdir):
+        return True
+    now = datetime.now().astimezone()
+    line = {"at": now.isoformat(), "date": now.date().isoformat(), "session": path.stem, "transcript": str(path), "mode": mode, "ok": True}
+    error = None
+    try:
+        _invoke(path, hdir, mode, claude_bin)
+    except Exception as e:
+        error = e
+        line.update(ok=False, error=str(e))
+    with open(state.data_dir() / "judge-runs.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+    if error:
+        raise error
+    return True
+
+
 def background(transcript_path: Path, mode: str, claude_bin: str = "claude") -> bool:
     """락을 잡고 새 신호를 모아 claude -p 로 판정해 병합한다. 할 일이 없으면 True, 막히거나 실패하면 False."""
     path = Path(transcript_path)
@@ -329,23 +359,10 @@ def background(transcript_path: Path, mode: str, claude_bin: str = "claude") -> 
     if not state.acquire_lock(hdir):
         return False
     try:
-        data = state.data_dir()
-        if _runs_today() >= state.load_config()["max_background_judges_per_day"]:
-            return False
-        collect.run(path)
-        if (hdir / "skip").exists() or not pending_signals(hdir):
-            return True
-        now = datetime.now().astimezone()
-        line = {"at": now.isoformat(), "date": now.date().isoformat(), "session": path.stem, "transcript": str(path), "mode": mode, "ok": True}
-        try:
-            _invoke(path, mode, claude_bin)
-        except Exception as e:
-            line.update(ok=False, error=str(e))
-            with open(data / "hook-errors.log", "a", encoding="utf-8") as f:
-                f.write(f"{now.isoformat()} judge background {path}: {' '.join(str(e).split())}\n")
-        with open(data / "judge-runs.jsonl", "a", encoding="utf-8") as f:
-            f.write(json.dumps(line, ensure_ascii=False) + "\n")
-        return line["ok"]
+        return _judge_once(path, hdir, mode, claude_bin)
+    except Exception as e:
+        _log_error(path, e)
+        return False
     finally:
         state.release_lock(hdir)
 
