@@ -77,7 +77,7 @@ def test_c4_long_answer_is_not_bare_yes():
 
 
 def test_c4_question_word_prefix_is_not_bare_yes():
-    for reply in ("어디까지 했어?", "예시 하나 더", "네이버로 바꿔"):
+    for reply in ("어디까지 했어?", "예시 하나 더", "진행 상황은?", "네이버로 바꿔", "네？"):
         assert "C4:bare-yes" not in sigs_of([T(1, "해줘", ai_tail="생성할까요?"), T(2, reply)])
     assert "C4:bare-yes" in sigs_of([T(1, "해줘", ai_tail="생성할까요?"), T(2, "네 진행해")])
 

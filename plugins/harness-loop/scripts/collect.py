@@ -132,7 +132,7 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
             if c.name == "Read" and c.skill and "/references/" in (c.input or {}).get("file_path", "") and _owns(c.input["file_path"], c.skill):
                 add(f"C3:skill-preamble:{c.skill}", turn, c.input["file_path"], c.skill)
         # C4
-        if prev and QUESTION.search(prev.ai_tail[-80:]) and len(turn.user.strip()) <= 30 and BARE_YES.match(turn.user.strip()):
+        if prev and QUESTION.search(prev.ai_tail[-80:]) and len(turn.user.strip()) <= 30 and BARE_YES.match(turn.user.strip()) and not turn.user.strip().endswith(("?", "？")):
             add("C4:bare-yes", turn, turn.user, _skill_of(prev))
         if NO_ASK.search(turn.user) and QUESTION.search(turn.ai_tail[-80:]):
             add("C4:asked-after-no-ask", turn, turn.ai_tail[-80:], _skill_of(turn))
