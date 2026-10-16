@@ -283,3 +283,19 @@ def test_two_consecutive_queued_prompts_parse_and_no_resend(tmp_path):
     ts = transcript.parse(p)[0]
     assert [(t.user, t.queued) for t in ts] == [("빌드해줘", False), ("테스트도 돌려줘", True), ("린트도", True)]
     assert "C11:resend" not in sigs_of(ts)
+
+
+def test_c1_retry_after_queued_prompt_is_signal(tmp_path):
+    rows = [
+        {"type": "user", "cwd": "/tmp/proj", "message": {"role": "user", "content": "빌드해줘"}},
+        {"type": "assistant", "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "b1", "name": "Bash", "input": {"command": "make build"}}]}},
+        {"type": "user", "cwd": "/tmp/proj", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "b1", "content": "make: *** No rule to make target build", "is_error": True}]}},
+        {"type": "attachment", "cwd": "/tmp/proj", "attachment": {"type": "queued_command", "commandMode": "prompt", "origin": {"kind": "human"}, "prompt": "테스트도 돌려줘"}},
+        {"type": "assistant", "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "b2", "name": "Bash", "input": {"command": "make all"}}]}},
+    ]
+    p = tmp_path / "q3.jsonl"
+    p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    s = by_cond(collect.signals(transcript.parse(p)[0], "normal"), "C1")
+    assert [(x["sig"], x["turn"]) for x in s] == [("C1:make: *** No rule to make target build", 1)]
+    t = T(1, "해줘", [bash("a", "x")], [ToolError("a", "Bash", "boom")])
+    assert by_cond(collect.signals([t, T(2, "다른 거", [bash("b", "y")])], "normal"), "C1") == []

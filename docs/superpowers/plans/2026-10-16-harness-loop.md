@@ -120,7 +120,7 @@ def test_decisions_last_wins(tmp_projects):
 **Interfaces:**
 - Consumes: 없음
 - Produces (`transcript.py`):
-  - `@dataclass Turn`: `index: int`(1부터), `cwd: str | None`(그 사람 발화 줄의 `cwd` 필드), `line: int`(사람 발화 줄 번호), `user: str`, `calls: list[Call]`, `errors: list[ToolError]`, `rejected: list[str]`, `interrupted: bool`, `ai_tail: str`(마지막 AI 텍스트 끝 500자), `api_error: bool`.
+  - `@dataclass Turn`: `index: int`(1부터), `cwd: str | None`(그 사람 발화 줄의 `cwd` 필드), `line: int`(사람 발화 줄 번호), `user: str`, `calls: list[Call]`, `errors: list[ToolError]`, `rejected: list[str]`, `interrupted: bool`, `ai_tail: str`(마지막 AI 텍스트 끝 500자), `api_error: bool`, `queued: bool`(AI 가 일하는 도중 친 발화 `queued_command` 로 연 턴).
   - `@dataclass Call`: `id, name, input: dict, skill: str | None`(그 시점 실행 중인 스킬).
   - `@dataclass ToolError`: `call_id, tool, text`(주제 줄 200자). 주제 줄은 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 의 `total N` 줄과 권한 표기 줄·글자나 숫자가 없는 줄을 건너뛴 첫 줄이고, `Traceback (most recent call last):` 줄이 있으면 마지막 예외 줄(`EXCEPTION_LINE`, 건너뛸 줄 제외)이다. 모두 건너뛰면 `""`.
   - `parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]` — `start_line` 이후만 읽고, 마지막으로 완전히 읽은 줄 번호를 돌려준다.
@@ -264,7 +264,7 @@ def test_eval_session_writes_skip(tmp_projects):
   - `digest(transcript: Path, new_signals: list[dict]) -> str` — judge 에게 줄 Markdown. 포함: `rubric.md`, 신호 표, 신호가 걸린 턴의 사람 발화(500자)·호출 요약(12개)·오류·`ai_tail`, 다른 세션의 살아 있는 sig 목록(`all_harness_dirs` 의 `action-items.json`), `decisions.jsonl` sig 목록, 출력 스키마.
   - `recurrence(sig: str, this_session: str) -> int` — 이 세션을 포함해 sig 가 `signals.jsonl` 또는 `action-items.json` 에 나온 세션 수.
   - `score(item: dict, cfg: dict) -> tuple[float, str]` — `item["sessions"]`(재발 세션 수)·`impact`·`actionability` 로 가중합과 상태를 낸다. 재발성 점수는 Global Constraints 구간. 대상 경로가 `~/.claude/CLAUDE.md` 이거나 `/memory/` 를 포함하면 `propose`·`watch` 에 `global_bump` 를 더한다. `duplicate_of_rule` 가 있고 `rule_unenforced` 가 거짓이면 `discarded`. `decisions` 의 마지막 결정이 `rejected` 면 `rejected`.
-  - `merge(transcript: Path, judge_output: dict, mode: str) -> dict` — 스키마 검증 → 토픽(sig 의 첫 `:` 뒤)이 같은 C2·C7 항목 쌍은 출력 순서상 앞의 것만 남김 → 항목마다 `state.load_score_overrides()` 의 사용자 점수로 judge 의 `impact`·`actionability` 를 덮고 `sessions = recurrence(sig, 이 세션)`·`score`·`target.owner` 계산 → 기존 `action-items.json` 과 sig 로 병합(근거는 덧붙이고, `KEPT = approved|rejected|applied|regressed` 상태와 `regressed_after` 가 있는 `watch` 는 유지) → `runs/NNN-<mode>.json` 저장. 반환값은 병합된 items.
+  - `merge(transcript: Path, judge_output: dict, mode: str) -> dict` — 스키마 검증 → 사용자 점수(`state.load_score_overrides()`)를 덮은 실효 `impact`·`actionability` 가 모두 1 인 항목은 버림(고칠 것 없음 하한. 사용자가 1/1 보다 높게 고친 sig 는 남는다) → 토픽(sig 의 첫 `:` 뒤)이 같은 C2·C7 항목 쌍은 출력 순서상 앞의 것만 남김 → 항목마다 `state.load_score_overrides()` 의 사용자 점수로 judge 의 `impact`·`actionability` 를 덮고 `sessions = recurrence(sig, 이 세션)`·`score`·`target.owner` 계산 → 기존 `action-items.json` 과 sig 로 병합(근거는 덧붙이고, `KEPT = approved|rejected|applied|regressed` 상태와 `regressed_after` 가 있는 `watch` 는 유지) → `runs/NNN-<mode>.json` 저장. 반환값은 병합된 items.
   - `rescore() -> int` — 모든 세션의 items 를 현재 `scoring.yaml` 로 다시 계산, 바뀐 항목 수를 돌려준다. 저장된 점수에 사용자 점수(`load_score_overrides`)를 덮어 쓰고, 상태는 `merge` 와 같은 규칙으로 유지한다.
   - CLI: `judge.py digest <transcript>`, `judge.py merge <transcript> --mode explicit < judge.json`, `judge.py rescore`, `judge.py background <transcript> --mode <mode>`(Task 5, 종료 코드는 `background_status` 값: 0 판정했거나 할 일 없음, 1 실패, 2 하루 상한, 3 락이 잡혀 있음).
 

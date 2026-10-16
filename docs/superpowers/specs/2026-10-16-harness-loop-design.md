@@ -96,14 +96,14 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 - 세션마다 `harness/lock`으로 judge 동시 실행을 막는다. SessionEnd judge와 SessionStart sweep이 같은 세션을 잡으면 나중 쪽이 건너뛴다. 보고 쪽 쓰기(재발 표시, 보고 표시, 결정 기록)도 같은 락을 잡는다. 재발 표시와 보고 표시는 락이 잡혀 있으면 그 세션을 건너뛰고 `hook-errors.log`에 한 줄 남긴다. 건너뛴 재발 표시는 다음 SessionStart에서 다시 시도하고, 보고 표시를 건너뛴 항목은 다음에 다시 보고된다. 결정 기록(`decide`)은 잠시 재시도하고, 그래도 못 잡으면 아무것도 쓰지 않고 오류로 끝난다.
 - 백그라운드 judge 실행 수는 `max_background_judges_per_day`(config 값)를 넘지 않는다. 넘으면 남은 세션은 다음 날 sweep으로 미룬다. judge는 `claude -p`를 부르기 전에 `judge-runs.jsonl`에 예약 줄을 쓰고 끝나면 결과 줄을 쓴다. 하루 실행 수는 두 줄을 (세션, 시작 시각)으로 묶어 한 번만 센다. 그래서 아직 끝나지 않은 judge도 하루 실행 수에 들어간다. SessionStart는 남은 횟수만큼만 sweep judge를 띄운다.
 - 외부 플러그인 캐시 대상의 재발로 `watch`가 된 항목(`regressed_after`가 있음)은 이후 병합·재채점에서도 `watch`로 둔다. 승인·거절·반영·재발(`regressed`) 상태도 병합·재채점이 바꾸지 않는다.
-- judge 는 대상 파일에 바꿀 것이 있을 때만 항목을 낸다. 병합은 judge 가 영향·해결 가능성을 모두 1 로 준 항목을 버린다(고칠 것이 없는 항목의 결정적 하한).
+- judge 는 대상 파일에 바꿀 것이 있을 때만 항목을 낸다. 병합은 영향·해결 가능성이 모두 1 인 항목을 버린다(고칠 것이 없는 항목의 결정적 하한). 이 판단은 사용자가 고친 점수를 덮은 실효 점수로 한다. 사용자가 1/1 보다 높게 고친 sig 는 버리지 않는다.
 - 훅은 항상 `exit 0`으로 끝나고, 오류는 `${CLAUDE_PLUGIN_DATA}/hook-errors.log`에 쌓아 SessionStart 알림에 건수를 붙인다.
 
 ## 5. 감지 조건
 
 `collect.py`가 결정적으로 신호를 뽑고, LLM 판정이 필요한 조건은 후보만 표시해 judge에 넘긴다.
 
-턴은 사람 발화 하나에서 시작한다. AI 가 일하는 도중 사용자가 친 발화(`type: attachment`, `attachment.type: queued_command`, `commandMode: prompt`, `origin.kind` 가 없거나 `human`)도 새 턴을 연다. 이 턴과 그 바로 다음 턴에는 `C11:resend` 를 내지 않는다(AI 가 일하는 중에 들어온 발화라 재전송이 아니다). 작업 알림(`task-notification`)과 다른 에이전트 메시지(`origin.kind: peer`)는 사람 발화가 아니다.
+턴은 사람 발화 하나에서 시작한다. AI 가 일하는 도중 사용자가 친 발화(`type: attachment`, `attachment.type: queued_command`, `commandMode: prompt`, `origin.kind` 가 없거나 `human`)도 새 턴을 연다. 이 턴과 그 바로 다음 턴에는 `C11:resend` 를 내지 않는다(AI 가 일하는 중에 들어온 발화라 재전송이 아니다). 오류가 난 호출이 턴의 마지막 호출이고 다음 턴이 이런 대기 입력 턴이면, 그 턴의 첫 호출을 C1 의 다음 호출로 본다. 작업 알림(`task-notification`)과 다른 에이전트 메시지(`origin.kind: peer`)는 사람 발화가 아니다.
 
 | # | 조건 | collect가 잡는 신호 | judge가 판정할 것 |
 |---|---|---|---|
@@ -151,7 +151,7 @@ max_background_judges_per_day: 10
 - 통과 조건: 같은 규칙이 이미 있으면 점수와 무관하게 폐기하되, 지켜지지 않은 기존 규칙이면 "규칙 강화" 항목으로 바꾼다(C7).
 - 항목마다 근거(세션 ID·턴·인용)가 최소 1개 있어야 한다. 없으면 judge 출력 검증에서 거부한다.
 - 기본값에서 한 세션에서만 나온 sig 는 영향·해결 가능성이 모두 3 이어도 2.2 로 `propose` 에 못 미쳐 `watch` 에 머문다. 다른 세션에서 다시 나와 재발성이 오르면 `propose` 가 되어 보고된다.
-- 사용자가 리뷰 중 점수를 고치면 `decisions.jsonl` 에 고친 `impact`·`actionability` 를 남긴다. 이 값은 sig 를 키로 모든 세션에 적용되고, 이후 병합·재채점에서 judge 점수보다 우선한다.
+- 사용자가 리뷰 중 점수를 고치면 `decisions.jsonl` 에 고친 `impact`·`actionability` 를 남긴다. 이 값은 sig 를 키로 모든 세션에 적용되고(그래서 `decide … edit-score` 는 `--session` 을 받지 않는다), 이후 병합·재채점에서 judge 점수보다 우선한다.
 
 ## 7. action item
 

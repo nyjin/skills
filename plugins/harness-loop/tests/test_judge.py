@@ -158,6 +158,17 @@ def test_merge_drops_nothing_to_fix_items(tmp_projects):
     assert run["output"] == out
 
 
+def test_nothing_to_fix_floor_uses_user_scores(tmp_projects):
+    other_session(tmp_projects, "s1", items={"C1:edited": {"sig": "C1:edited", "status": "watch", "scores": {"impact": 3, "actionability": 3}}})
+    state.append_decision("C1:edited", "edit-score", impact=2)
+    state.append_decision("C1:lowered", "edit-score", impact=1, actionability=1)
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    out = {"items": [out_item("C1:edited", impact=1, actionability=1), out_item("C1:lowered", impact=3, actionability=2)]}
+    items = judge.merge(t, out, "explicit")
+    assert sorted(items) == ["C1:edited"]
+    assert items["C1:edited"]["scores"]["impact"] == 2
+
+
 def test_digest_says_items_only_when_something_to_change(tmp_projects):
     t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
     assert judge.ITEM_RULE in judge.digest(t, [])

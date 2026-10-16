@@ -225,13 +225,18 @@ def _next_run(hdir: Path, mode: str) -> Path:
 def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
     if mode not in MODES:
         raise ValueError(f"mode 는 {'|'.join(MODES)} 중 하나다: {mode}")
-    new_items = _drop_c2_c7_twins([it for it in _validate(judge_output) if (it["impact"], it["actionability"]) != (1, 1)])
+    overrides = state.load_score_overrides()
+
+    def nothing_to_fix(it):
+        o = overrides.get(it["sig"], {})
+        return o.get("impact", it["impact"]) == 1 and o.get("actionability", it["actionability"]) == 1
+
+    new_items = _drop_c2_c7_twins([it for it in _validate(judge_output) if not nothing_to_fix(it)])
     path = Path(transcript_path)
     session = path.stem
     hdir = state.harness_dir(path)
     cfg = state.load_config()
     items = state.load_items(hdir)
-    overrides = state.load_score_overrides()
     for it in new_items:
         sig = it["sig"]
         it = {**it, **overrides.get(sig, {})}

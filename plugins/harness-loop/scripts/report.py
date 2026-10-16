@@ -265,6 +265,8 @@ def _lock_all(hdirs: list[Path]) -> None:
 def decide(sig: str, decision: str, session: str | None = None, impact: int | None = None, actionability: int | None = None) -> dict:
     if decision not in DECISIONS:
         raise ValueError(f"decision 은 {'|'.join(DECISIONS)} 중 하나다: {decision}")
+    if decision == "edit-score" and session is not None:
+        raise ValueError("edit-score 는 sig 단위로 모든 세션에 적용되므로 --session 과 함께 쓸 수 없다.")
     hdirs = [h for h in state.all_harness_dirs() if (session is None or h.parent.name == session) and sig in state.load_items(h)]
     if not hdirs:
         raise ValueError(f"sig 가 없다: {sig}" + (f" (세션 {session})" if session else ""))

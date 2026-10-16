@@ -149,12 +149,24 @@ def test_decide_reject_blocks_future_merge(tmp_projects):
 def test_decide_edit_score_rescores(tmp_projects):
     t = transcript(tmp_projects, "s1")
     put_items(t, item("C1:a", score=2.6))
-    got = report.decide("C1:a", "edit-score", session="s1", impact=1, actionability=1)
+    got = report.decide("C1:a", "edit-score", impact=1, actionability=1)
     it = state.load_items(hdir_of(t))["C1:a"]
     assert it["scores"]["impact"] == 1 and it["scores"]["actionability"] == 1
     assert it["score"] == pytest.approx(0.4 * 1 + 0.4 * 1 + 0.2 * 1)
     assert it["status"] == "discarded"
     assert got["sig"] == "C1:a"
+
+
+def test_edit_score_rejects_session_scope(tmp_projects, capsys):
+    t = transcript(tmp_projects, "s1")
+    put_items(t, item("C1:a", score=2.6))
+    with pytest.raises(ValueError, match="edit-score"):
+        report.decide("C1:a", "edit-score", session="s1", impact=1)
+    assert not (state.data_dir() / "decisions.jsonl").exists()
+    assert state.load_items(hdir_of(t))["C1:a"]["scores"]["impact"] == 3
+    with pytest.raises(SystemExit) as e:
+        report.main(["decide", "C1:a", "edit-score", "--session", "s1", "--impact", "1"])
+    assert e.value.code == 1 and "--session" in capsys.readouterr().err
 
 
 def test_decide_unknown_sig_raises(tmp_projects):
@@ -255,13 +267,13 @@ def test_regressed_item_copies_scores_and_partial_edit_score(tmp_projects):
     report.regressions()
     got = state.load_items(hdir_of(new))
     assert got["C1:a"]["scores"] == item("C1:a")["scores"] and got["C1:a"]["sessions"] == 2
-    report.decide("C1:a", "edit-score", session="new", impact=1)
+    report.decide("C1:a", "edit-score", impact=1)
     assert state.load_items(hdir_of(new))["C1:a"]["scores"]["impact"] == 1
     lines = (state.data_dir() / "decisions.jsonl").read_text().count("\n")
     with pytest.raises(ValueError):
-        report.decide("C2:b", "edit-score", session="new", impact=1)
+        report.decide("C2:b", "edit-score", impact=1)
     assert (state.data_dir() / "decisions.jsonl").read_text().count("\n") == lines
-    report.decide("C2:b", "edit-score", session="new", impact=1, actionability=2)
+    report.decide("C2:b", "edit-score", impact=1, actionability=2)
     assert state.load_items(hdir_of(new))["C2:b"]["scores"] == {"impact": 1, "actionability": 2}
 
 

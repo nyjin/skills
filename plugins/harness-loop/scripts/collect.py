@@ -106,14 +106,15 @@ def signals(turns: list[Turn], kind: str) -> list[dict]:
     first_cmd: dict[str, tuple] = {}
     cmd_count: Counter = Counter()
     prev = None
-    for turn in turns:
+    for n, turn in enumerate(turns):
         order = {c.id: i for i, c in enumerate(turn.calls)}
-        # C1
+        nxt = turns[n + 1] if n + 1 < len(turns) else None
+        # C1 — 오류가 턴의 마지막 호출이면 이어지는 대기 입력(queued) 턴의 첫 호출을 다음 호출로 본다
         for e in turn.errors:
             if not e.text.strip() or any(p in e.text for p in PERMISSION_NOISE):
                 continue
             i = order.get(e.call_id)
-            if i is not None and i + 1 < len(turn.calls):
+            if i is not None and (i + 1 < len(turn.calls) or (nxt is not None and nxt.queued and nxt.calls)):
                 add("C1:" + normalize_error(e.text), turn, e.text, turn.calls[i].skill)
         for c in turn.calls:
             if c.name in EDITS and c.skill and _owns((c.input or {}).get("file_path", ""), c.skill):
