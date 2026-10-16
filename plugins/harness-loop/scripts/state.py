@@ -135,6 +135,8 @@ def load_decisions() -> dict[str, dict]:
             r = json.loads(line)
         except ValueError:
             continue
+        if r.get("decision") == "edit-score":
+            continue
         result[r["sig"]] = {"decision": r["decision"], "at": r["at"], "target": r.get("target")}
     return result
 

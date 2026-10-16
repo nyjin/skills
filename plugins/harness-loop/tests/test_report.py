@@ -171,12 +171,12 @@ def test_session_start_text_format(tmp_projects):
 def test_hook_error_count_since_last_report(tmp_projects):
     log = state.data_dir() / "hook-errors.log"
     log.write_text("a\nb\n")
-    assert report.new_hook_errors() == 2
-    report.mark_hook_errors_seen()
-    assert report.new_hook_errors() == 0
+    total, new = report.hook_errors()
+    assert (total, new) == (2, 2)
     with open(log, "a") as f:
         f.write("c\n")
-    assert report.new_hook_errors() == 1
+    report.mark_hook_errors_seen(total)
+    assert report.hook_errors() == (3, 1)
 
 
 def test_where_cli(tmp_projects, monkeypatch, capsys):
@@ -190,3 +190,57 @@ def test_where_cli(tmp_projects, monkeypatch, capsys):
     with pytest.raises(SystemExit) as e:
         report.main(["where"])
     assert e.value.code == 2
+
+
+def test_sweep_uses_cursor_mtime_and_line_count(tmp_projects):
+    set_installed(T0)
+    later = T0 + timedelta(days=1)
+    stale = transcript(tmp_projects, "stale", mtime=later)
+    state.write_cursor(hdir_of(stale), 1)
+    early = (T0 + timedelta(hours=1)).timestamp()
+    os.utime(hdir_of(stale) / "cursor", (early, early))
+    current = transcript(tmp_projects, "current", mtime=later)
+    state.write_cursor(hdir_of(current), 1)
+    got = report.sweep(datetime.now().astimezone().isoformat())
+    assert [p.stem for p in got] == ["stale"]
+
+
+def test_edit_score_after_reject_keeps_rejection(tmp_projects):
+    t = transcript(tmp_projects, "s1")
+    put_items(t, item("C1:app"))
+    report.decide("C1:app", "rejected")
+    report.decide("C1:app", "edit-score", impact=3, actionability=3)
+    assert state.load_decisions()["C1:app"]["decision"] == "rejected"
+    assert "edit-score" in (state.data_dir() / "decisions.jsonl").read_text()
+    _, status = judge.score({"sig": "C1:app", "sessions": 4, "impact": 3, "actionability": 3}, state.load_config())
+    assert status == "rejected"
+
+
+def test_edit_score_after_approval_keeps_regression_tracking(tmp_projects):
+    old = transcript(tmp_projects, "old", start=T0)
+    put_items(old, item("C1:a"))
+    report.decide("C1:a", "approved")
+    report.decide("C1:a", "edit-score", impact=2)
+    new = transcript(tmp_projects, "new", start=datetime.now().astimezone() + timedelta(hours=1))
+    (hdir_of(new) / "signals.jsonl").write_text(json.dumps({"sig": "C1:a", "line": 3}) + "\n")
+    assert [c["sig"] for c in report.regressions()] == ["C1:a"]
+
+
+def test_regressed_item_copies_scores_and_partial_edit_score(tmp_projects):
+    old = transcript(tmp_projects, "old", start=T0)
+    put_items(old, item("C1:a", status="approved", sessions=2))
+    state.append_decision("C1:a", "approved")
+    state.append_decision("C2:b", "approved")
+    new = transcript(tmp_projects, "new", start=datetime.now().astimezone() + timedelta(hours=1))
+    (hdir_of(new) / "signals.jsonl").write_text(json.dumps({"sig": "C1:a", "line": 3}) + "\n" + json.dumps({"sig": "C2:b", "line": 4}) + "\n")
+    report.regressions()
+    got = state.load_items(hdir_of(new))
+    assert got["C1:a"]["scores"] == item("C1:a")["scores"] and got["C1:a"]["sessions"] == 2
+    report.decide("C1:a", "edit-score", session="new", impact=1)
+    assert state.load_items(hdir_of(new))["C1:a"]["scores"]["impact"] == 1
+    lines = (state.data_dir() / "decisions.jsonl").read_text().count("\n")
+    with pytest.raises(ValueError):
+        report.decide("C2:b", "edit-score", session="new", impact=1)
+    assert (state.data_dir() / "decisions.jsonl").read_text().count("\n") == lines
+    report.decide("C2:b", "edit-score", session="new", impact=1, actionability=2)
+    assert state.load_items(hdir_of(new))["C2:b"]["scores"] == {"impact": 1, "actionability": 2}

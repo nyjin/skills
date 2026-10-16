@@ -47,7 +47,13 @@ def sweep(now_iso: str) -> list[Path]:
         hdir = t.parent / t.stem / "harness"
         if (hdir / "skip").exists():
             continue
-        if state.read_cursor(hdir) < _line_count(t) or judge.pending_signals(hdir):
+        if judge.pending_signals(hdir):
+            out.append(t)
+            continue
+        cursor = hdir / "cursor"
+        if cursor.exists() and cursor.stat().st_mtime >= mtime:
+            continue
+        if state.read_cursor(hdir) < _line_count(t):
             out.append(t)
     return out
 
@@ -94,7 +100,7 @@ def regressions() -> list[dict]:
                 continue
             src = sources.get(sig, {})
             new = dict(items.get(sig, {}))
-            new.update({k: src[k] for k in ("condition", "proposal", "target") if k in src})
+            new.update({k: src[k] for k in ("condition", "proposal", "target", "scores", "sessions") if k in src})
             new.setdefault("condition", sig.split(":", 1)[0])
             new.setdefault("score", src.get("score", 0))
             new.update(sig=sig, status="regressed", regressed_after=at.isoformat())
@@ -130,17 +136,18 @@ def _error_lines() -> int:
     return _line_count(log) if log.exists() else 0
 
 
-def new_hook_errors() -> int:
+def hook_errors() -> tuple[int, int]:
+    """(hook-errors.log 전체 줄 수, 마지막 보고 이후 새 줄 수)."""
     try:
         seen = int(_seen_file().read_text().strip())
     except (OSError, ValueError):
         seen = 0
     total = _error_lines()
-    return total - seen if total >= seen else total
+    return total, total - seen if total >= seen else total
 
 
-def mark_hook_errors_seen() -> None:
-    _seen_file().write_text(str(_error_lines()))
+def mark_hook_errors_seen(total: int) -> None:
+    _seen_file().write_text(str(total))
 
 
 def session_start_text(items: list[tuple[Path, dict]], hook_errors: int) -> str:
@@ -179,6 +186,11 @@ def decide(sig: str, decision: str, session: str | None = None, impact: int | No
     if not hdirs:
         raise ValueError(f"sig 가 없다: {sig}" + (f" (세션 {session})" if session else ""))
     first = state.load_items(hdirs[0])[sig]
+    if decision == "edit-score":
+        for hdir in hdirs:
+            scores = state.load_items(hdir)[sig].get("scores") or {}
+            if (impact is None and not isinstance(scores.get("impact"), int)) or (actionability is None and not isinstance(scores.get("actionability"), int)):
+                raise ValueError(f"점수가 없는 항목이라 impact·actionability 를 모두 줘야 한다: {sig} (세션 {hdir.parent.name})")
     state.append_decision(sig, decision, target=(first.get("target") or {}).get("path"))
     cfg = state.load_config()
     updated = []

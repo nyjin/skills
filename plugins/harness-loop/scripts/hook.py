@@ -44,12 +44,13 @@ def run(event: str, raw: str) -> None:
     if os.environ.get("HERDR_PW_WORKER"):
         return
     pairs = report.pending(state.load_config()["queue_limit"])
-    text = report.session_start_text(pairs, report.new_hook_errors())
+    errors_total, errors_new = report.hook_errors()
+    text = report.session_start_text(pairs, errors_new)
     if not text:
         return
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}, ensure_ascii=False))
     report.mark_reported(pairs)
-    report.mark_hook_errors_seen()
+    report.mark_hook_errors_seen(errors_total)
 
 
 def _log_error(event: str, error: BaseException) -> None:
