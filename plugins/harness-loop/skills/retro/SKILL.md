@@ -15,6 +15,7 @@ argument-hint: "[review | backfill [--days N]]"
 - 명령에는 `uv` 가 필요하다. 없으면 설치를 안내하고 멈춘다.
 - `<transcript>` 는 세션 기록 jsonl 의 절대 경로, `<세션ID>` 는 그 파일 이름에서 `.jsonl` 을 뺀 값이다.
 - 임시 파일은 작업용 임시 디렉터리(scratchpad)에 쓴다. 아래에서는 `<tmp>` 로 적는다.
+- 리포트와 사용자에게 하는 모든 말은 한국어로 쓴다.
 - 사용자 결정은 자유 입력으로만 받는다. 선택지 질문 도구는 쓰지 않는다.
 - 리포트를 출력하면 그 턴을 끝내고 사용자 입력을 기다린다. 현재 세션 회고는 보고 기록(7단계)까지 마친 뒤 다른 출력 없이 턴을 끝낸다.
 - 스크립트가 0 이 아닌 코드로 끝나면 stderr 를 그대로 보여 주고 그 모드를 멈춘다. 단, `judge.py merge` 가 검증 오류로 끝나면 JSON 을 고쳐 다시 실행하고, backfill 의 `judge.py background` 종료 코드는 그 절의 규칙을 따른다.
@@ -80,7 +81,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 - `evidence` 는 항목마다 1개 이상이고, `session` 은 `<세션ID>`, `turn` 은 digest 의 턴 번호, `quote` 는 원문 인용이다.
 - `target.path` 는 고칠 파일의 절대 경로다. 아직 없는 스킬·스크립트면 만들 위치를 쓴다.
 - `proposal` 첫 줄은 개선안 요지 한 문장이고, 다음 줄부터 diff 초안을 쓴다.
-- 같은 규칙이 이미 CLAUDE.md·메모리·스킬에 있으면 `duplicate_of_rule` 에 그 파일과 문구를 쓰고, 그 규칙이 지켜지지 않았으면 `rule_unenforced` 를 true 로 둔다. 없으면 null 과 false 다.
+- 같은 규칙이 이미 대상 파일(`target.path`)에 있으면 `duplicate_of_rule` 에 그 파일 경로와 문구를 쓰고, 그 규칙이 지켜지지 않았으면 `rule_unenforced` 를 true 로 둔다. 없으면 null 과 false 다. 규칙이 다른 범위(다른 프로젝트 메모리, 프로젝트 메모리와 전역 CLAUDE.md 사이)에만 있으면 중복이 아니라 C7 개선 대상이므로 null 로 둔다.
 - `skills` 는 그 sig 가 나온 스킬별 건수다. 스킬과 무관하면 `{}` 다.
 
 ## 쌓인 항목 검토

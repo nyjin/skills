@@ -65,3 +65,8 @@ def test_lock_exit_code_rule_for_collect_and_merge():
     _, _, body = _parts()
     line = next(l for l in body.splitlines() if "종료 코드 3" in l and "collect.py" in l)
     assert "judge.py merge" in line and "백그라운드" in line and "다시" in line
+
+
+def test_korean_output_rule():
+    _, _, body = _parts()
+    assert any("한국어" in l and "리포트" in l for l in body.splitlines() if l.startswith("- "))

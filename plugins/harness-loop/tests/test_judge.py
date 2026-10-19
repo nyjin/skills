@@ -76,9 +76,33 @@ def test_global_target_bumps_threshold():
 
 def test_duplicate_rule_discarded_unless_unenforced():
     cfg = state.load_config()
-    item = {"sig": "C7:a", "sessions": 4, "impact": 3, "actionability": 3, "evidence": EV, "target": {"path": "/r/x.md"}, "duplicate_of_rule": "CLAUDE.md: 묻지 말 것"}
+    item = {"sig": "C7:a", "sessions": 4, "impact": 3, "actionability": 3, "evidence": EV, "target": {"path": "/r/x.md"}, "duplicate_of_rule": "/r/x.md: 묻지 말 것"}
     assert judge.score({**item, "rule_unenforced": False}, cfg) == (pytest.approx(3.0), "discarded")
     assert judge.score({**item, "rule_unenforced": True}, cfg) == (pytest.approx(3.0), "propose")
+
+
+def test_duplicate_rule_only_discarded_when_in_target_file(tmp_path):
+    cfg = state.load_config()
+    home = Path.home()
+    (home / ".claude").mkdir(parents=True, exist_ok=True)
+    (home / ".claude/CLAUDE.md").write_text("x")
+    item = {"sig": "C7:a", "sessions": 1, "impact": 3, "actionability": 3, "evidence": EV, "rule_unenforced": False}
+    # 대상 파일에 같은 규칙 → 폐기 (원문 `~` 형태·펼친 형태 모두)
+    glob_target = {"target": {"path": "~/.claude/CLAUDE.md"}}
+    assert judge.score({**item, **glob_target, "duplicate_of_rule": "~/.claude/CLAUDE.md: 묻지 말 것"}, cfg)[1] == "discarded"
+    assert judge.score({**item, **glob_target, "duplicate_of_rule": f"{home}/.claude/CLAUDE.md 의 '묻지 말 것'"}, cfg)[1] == "discarded"
+    local = {"target": {"path": "/r/skills/x/SKILL.md"}}
+    assert judge.score({**item, **local, "duplicate_of_rule": "/r/skills/x/SKILL.md: 묻지 말 것"}, cfg)[1] == "discarded"
+    # 다른 범위(다른 메모리 파일)에만 있는 규칙 → 정상 채점
+    other = "/h/.claude/projects/p/memory/feedback.md: 묻지 말 것"
+    assert judge.score({**item, **local, "duplicate_of_rule": other}, cfg) == (pytest.approx(2.2), "propose")   # 0.4+1.2+0.6
+    assert judge.score({**item, **glob_target, "duplicate_of_rule": other}, cfg) == (pytest.approx(2.2), "watch")   # 기준 2.2+0.3=2.5
+
+
+def test_digest_says_duplicate_only_for_target_file(tmp_projects):
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    text = judge.digest(t, [])
+    assert "duplicate_of_rule" in text and "대상 파일" in text and "다른 범위" in text
 
 
 def test_rejected_sig_stays_rejected(tmp_projects):

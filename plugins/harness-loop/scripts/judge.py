@@ -28,6 +28,7 @@ LIVE = {"propose", "watch", "approved", "applied", "regressed"}
 JUDGE_TIMEOUT = 540
 BG_OK, BG_FAILED, BG_CAP, BG_LOCKED = 0, 1, 2, 3
 C2_C7_RULE = "`C2:?` 후보마다 항목의 `condition` 을 C2(AI 가 원치 않는 일을 했다)와 C7(메모리·CLAUDE.md 에 있는 기존 규칙을 따르지 않았거나 잘못된 곳에 저장했다) 중 하나로 골라, 후보 하나에서 항목은 최대 하나만 내고 같은 근거로 C2 항목과 C7 항목을 함께 내지 않는다."
+DUP_RULE = "`duplicate_of_rule` 은 같은 규칙이 이미 대상 파일(`target.path`)에 있을 때만 그 파일 경로와 문구로 쓴다. 규칙이 다른 범위에만 있으면(다른 프로젝트 메모리, 프로젝트 메모리와 전역 CLAUDE.md 사이) 중복이 아니라 C7 개선 대상이므로 null 로 둔다."
 ITEM_RULE = "항목은 대상 파일에 바꿀 것이 있을 때만 낸다. 결함이 아니거나 고칠 것이 없으면(예: \"변경 불필요\") 항목을 내지 않는다."
 SIG_RULE = "`?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다."
 
@@ -123,7 +124,7 @@ def digest(transcript_path: Path, new_signals: list[dict]) -> str:
     decisions = state.load_decisions()
     parts.append("## 결정된 sig\n\n" + ("\n".join(f"- {sig}: {d['decision']}" for sig, d in sorted(decisions.items())) or "- 없음"))
 
-    parts.append(f"## sig 규칙\n\n{SIG_RULE} `?` 가 아닌 신호는 sig 를 그대로 쓴다. {C2_C7_RULE} {ITEM_RULE}")
+    parts.append(f"## sig 규칙\n\n{SIG_RULE} `?` 가 아닌 신호는 sig 를 그대로 쓴다. {C2_C7_RULE} {ITEM_RULE} {DUP_RULE}")
     parts.append("## 출력 스키마\n\n```json\n" + SCHEMA.read_text(encoding="utf-8").strip() + "\n```")
     return "\n\n".join(parts) + "\n"
 
@@ -151,13 +152,23 @@ def _is_global(path: str) -> bool:
     return path in ("~/.claude/CLAUDE.md", str(Path.home() / ".claude/CLAUDE.md")) or "/memory/" in path
 
 
+def _duplicate_in_target(item: dict) -> bool:
+    """duplicate_of_rule 이 대상 파일(원문, `~` 펼침, realpath 중 하나)을 가리키면 True. 다른 범위에만 있는 규칙은 중복이 아니다(C7 개선 대상)."""
+    dup = item.get("duplicate_of_rule") or ""
+    path = (item.get("target") or {}).get("path") or ""
+    if not dup or not path:
+        return False
+    forms = {path, os.path.expanduser(path), os.path.realpath(os.path.expanduser(path))}
+    return any(f in dup for f in forms)
+
+
 def score(item: dict, cfg: dict) -> tuple[float, str]:
     w = cfg["weights"]
     total = round(w["recurrence"] * _recurrence_score(item["sessions"]) + w["impact"] * item["impact"] + w["actionability"] * item["actionability"], 6)
     decision = state.load_decisions().get(item["sig"])
     if decision and decision["decision"] == "rejected":
         return total, "rejected"
-    if item.get("duplicate_of_rule") and not item.get("rule_unenforced"):
+    if _duplicate_in_target(item) and not item.get("rule_unenforced"):
         return total, "discarded"
     bump = cfg["global_bump"] if _is_global((item.get("target") or {}).get("path", "")) else 0
     if total >= round(cfg["propose"] + bump, 6):
