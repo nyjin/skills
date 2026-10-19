@@ -211,6 +211,27 @@ def load_decisions() -> dict[str, dict]:
     return result
 
 
+def aware(text: str) -> datetime:
+    dt = datetime.fromisoformat(text)
+    return dt if dt.tzinfo else dt.astimezone()
+
+
+def session_start(t: Path) -> datetime:
+    """세션 시작 시각: 기록의 첫 timestamp, 없으면 파일 mtime."""
+    try:
+        with open(t, encoding="utf-8") as f:
+            for raw in f:
+                try:
+                    ts = json.loads(raw).get("timestamp")
+                except (ValueError, AttributeError):
+                    continue
+                if isinstance(ts, str):
+                    return aware(ts)
+    except (OSError, ValueError):
+        pass
+    return datetime.fromtimestamp(Path(t).stat().st_mtime).astimezone()
+
+
 def sig_key(sig: str) -> str:
     """재발·결정 대조용 키. `C2:x` 와 `C7:x` 는 같은 문제라 `C7:` 을 `C2:` 로 접는다."""
     return "C2:" + sig[3:] if sig.startswith("C7:") else sig

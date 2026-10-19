@@ -23,11 +23,6 @@ def _now() -> datetime:
     return datetime.now().astimezone()
 
 
-def _aware(text: str) -> datetime:
-    dt = datetime.fromisoformat(text)
-    return dt if dt.tzinfo else dt.astimezone()
-
-
 def _transcript_of(hdir: Path) -> Path:
     t = hdir.parent.parent / f"{hdir.parent.name}.jsonl"
     return t if t.exists() else state.find_transcript(hdir.parent.name) or t
@@ -40,8 +35,8 @@ def _line_count(path: Path) -> int:
 
 def sweep(now_iso: str, exclude_session: str | None = None) -> list[Path]:
     """판정이 밀린 세션 기록. 최근 OPEN_SESSION_SEC 안에 바뀐 기록(아직 열린 세션)과 exclude_session 은 뺀다."""
-    installed = _aware((state.data_dir() / "installed_at").read_text().strip()).timestamp()
-    now = _aware(now_iso).timestamp()
+    installed = state.aware((state.data_dir() / "installed_at").read_text().strip()).timestamp()
+    now = state.aware(now_iso).timestamp()
     out = []
     for t in sorted(state.projects_root().glob("*/*.jsonl")):
         mtime = t.stat().st_mtime
@@ -63,8 +58,8 @@ def sweep(now_iso: str, exclude_session: str | None = None) -> list[Path]:
 
 def backfill(now_iso: str, days: int | None = None) -> list[Path]:
     """설치 전에 바뀐 세션 기록, 최신순. days 가 있으면 최근 days 일 안의 것만. skip 표시 세션은 뺀다."""
-    installed = _aware((state.data_dir() / "installed_at").read_text().strip()).timestamp()
-    since = _aware(now_iso).timestamp() - days * 86400 if days is not None else None
+    installed = state.aware((state.data_dir() / "installed_at").read_text().strip()).timestamp()
+    since = state.aware(now_iso).timestamp() - days * 86400 if days is not None else None
     found = []
     for t in state.projects_root().glob("*/*.jsonl"):
         mtime = t.stat().st_mtime
@@ -74,58 +69,29 @@ def backfill(now_iso: str, days: int | None = None) -> list[Path]:
     return [t for _, t in sorted(found, key=lambda p: p[0], reverse=True)]
 
 
-def _session_start(t: Path) -> datetime:
-    try:
-        with open(t, encoding="utf-8") as f:
-            for raw in f:
-                try:
-                    ts = json.loads(raw).get("timestamp")
-                except (ValueError, AttributeError):
-                    continue
-                if isinstance(ts, str):
-                    return _aware(ts)
-    except (OSError, ValueError):
-        pass
-    return datetime.fromtimestamp(t.stat().st_mtime).astimezone()
-
-
-def _has_sig(hdir: Path, sig: str) -> bool:
-    return sig in state.load_items(hdir) or any(s.get("sig") == sig for s in judge._read_signals(hdir))
-
-
-def _plugin_cache(item: dict) -> bool:
-    target = item.get("target") or {}
-    return str(target.get("owner") or "").startswith("plugin_cache") or target.get("kind") == "plugin_cache"
+def _has_sig(hdir: Path, key: str) -> bool:
+    return any(state.sig_key(s) == key for s in state.load_items(hdir)) or any(state.sig_key(str(s.get("sig"))) == key for s in judge._read_signals(hdir))
 
 
 def regressions() -> list[dict]:
-    """승인·반영 뒤 시작한 세션에서 sig 가 다시 나오면 regressed 로 만든다. plugin_cache 대상은 sig 당 한 번만 regressed 이고 그 뒤 재발은 watch 다."""
-    decided = {sig: _aware(d["at"]) for sig, d in state.load_decisions().items() if d["decision"] in ("approved", "applied")}
-    if not decided:
+    """승인·반영 뒤 시작한 세션에서 sig(C2·C7 쌍둥이 포함)가 다시 나오면 regressed 로 만든다. 상태 규칙은 judge.regression 과 같다(plugin_cache 대상은 sig 당 한 번만 regressed, 그 뒤 재발은 watch)."""
+    ctx = judge.regression_context()
+    if not ctx[0]:
         return []
-    hdirs = state.all_harness_dirs()
-    sources = {}
-    regressed = set()
-    for hdir in hdirs:
-        for sig, it in state.load_items(hdir).items():
-            if sig in decided and it.get("status") in ("approved", "applied"):
-                sources.setdefault(sig, it)
-            if it.get("status") == "regressed":
-                regressed.add(sig)
     created = []
-    for hdir in hdirs:
+    for hdir in state.all_harness_dirs():
         t = _transcript_of(hdir)
         if not t.exists():
             continue
-        started = _session_start(t)
-        if not _regress(hdir, state.load_items(hdir), decided, started, sources, regressed):
+        started = state.session_start(t)
+        if not _regress(hdir, state.load_items(hdir), started, ctx):
             continue
         if not state.acquire_lock(hdir):
             _log_locked("regressions", hdir)
             continue
         try:
             items = state.load_items(hdir)
-            changes = _regress(hdir, items, decided, started, sources, regressed)
+            changes = _regress(hdir, items, started, ctx)
             if changes:
                 state.save_items(hdir, items)
         finally:
@@ -133,23 +99,26 @@ def regressions() -> list[dict]:
         for new in changes:
             if new["status"] == "regressed":
                 created.append(new)
-                regressed.add(new["sig"])
+                ctx[2].add(state.sig_key(new["sig"]))
     return created
 
 
-def _regress(hdir: Path, items: dict, decided: dict, started: datetime, sources: dict, regressed: set) -> list[dict]:
-    """items 를 제자리에서 고치고 새로 쓴 항목들을 돌려준다."""
+def _regress(hdir: Path, items: dict, started: datetime, ctx: tuple[dict, dict, set]) -> list[dict]:
+    """items 를 제자리에서 고치고 새로 쓴 항목들을 돌려준다. 세션에 쌍둥이 sig 항목이 있으면 그 sig 로 쓴다."""
+    decided, sources, _ = ctx
     changes = []
-    for sig, at in decided.items():
-        src = sources.get(sig, {})
-        once = _plugin_cache(src) and sig in regressed
-        if started <= at or items.get(sig, {}).get("status") in ({"regressed", "watch"} if once else {"regressed"}) or not _has_sig(hdir, sig):
+    for key in decided:
+        src = sources.get(key, {})
+        sig = next((s for s in items if state.sig_key(s) == key), None) or src.get("sig") or key
+        result = judge.regression(sig, items.get(sig, {}).get("status"), started, ctx)
+        if not result or not _has_sig(hdir, key):
             continue
+        status, at = result
         new = dict(items.get(sig, {}))
         new.update({k: src[k] for k in ("condition", "proposal", "target", "scores", "sessions") if k in src})
         new.setdefault("condition", sig.split(":", 1)[0])
         new.setdefault("score", src.get("score", 0))
-        new.update(sig=sig, status="watch" if once else "regressed", regressed_after=at.isoformat())
+        new.update(sig=sig, status=status, regressed_after=at.isoformat())
         new.pop("reported_at", None)
         items[sig] = new
         changes.append(new)

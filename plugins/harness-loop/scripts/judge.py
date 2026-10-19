@@ -180,6 +180,39 @@ def score(item: dict, cfg: dict) -> tuple[float, str]:
     return total, "discarded"
 
 
+def _plugin_cache(item: dict) -> bool:
+    target = item.get("target") or {}
+    return str(target.get("owner") or "").startswith("plugin_cache") or target.get("kind") == "plugin_cache"
+
+
+def regression_context() -> tuple[dict, dict, set]:
+    """재발 판정 재료 (decided, sources, regressed). decided: 마지막 결정이 승인·반영인 sig_key → 결정 시각. sources: sig_key → 승인·반영 항목. regressed: 이미 regressed 항목이 있는 sig_key."""
+    decided = {key: state.aware(d["at"]) for key, d in state.load_decisions_by_key().items() if d["decision"] in ("approved", "applied")}
+    sources, regressed = {}, set()
+    if decided:
+        for hdir in state.all_harness_dirs():
+            for sig, it in state.load_items(hdir).items():
+                key = state.sig_key(sig)
+                if key in decided and it.get("status") in ("approved", "applied"):
+                    sources.setdefault(key, it)
+                if it.get("status") == "regressed":
+                    regressed.add(key)
+    return decided, sources, regressed
+
+
+def regression(sig: str, status: str | None, started: datetime, ctx: tuple[dict, dict, set]) -> tuple[str, datetime] | None:
+    """승인·반영 뒤 시작한 세션에 sig 가 다시 나왔을 때의 (새 상태, 결정 시각). 해당 없으면 None. status 는 그 세션 항목의 현재 상태다. plugin_cache 대상은 sig 당 한 번만 regressed 이고 그 뒤 재발은 watch 다."""
+    decided, sources, regressed = ctx
+    key = state.sig_key(sig)
+    at = decided.get(key)
+    if at is None or started <= at:
+        return None
+    once = _plugin_cache(sources.get(key, {})) and key in regressed
+    if status in ({"regressed", "watch"} if once else {"regressed"}):
+        return None
+    return ("watch" if once else "regressed"), at
+
+
 def _validate(output) -> list[dict]:
     def need(ok, msg):
         if not ok:
@@ -250,6 +283,8 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
     hdir = state.harness_dir(path)
     cfg = state.load_config()
     items = state.load_items(hdir)
+    started = state.session_start(path)
+    ctx = regression_context()
     for it in new_items:
         sig = it["sig"]
         it = {**it, **overrides.get(sig, {})}
@@ -270,7 +305,12 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
             "rule_unenforced": it["rule_unenforced"],
         }
         old = items.get(sig, {})
+        regressed = regression(sig, old.get("status"), started, ctx)
+        if regressed:
+            fresh["status"], fresh["regressed_after"] = regressed[0], regressed[1].isoformat()
         merged = {**old, **fresh}
+        if regressed:
+            merged.pop("reported_at", None)
         evidence = list(old.get("evidence", []))
         seen = {json.dumps(e, sort_keys=True, ensure_ascii=False) for e in evidence}
         for e in it["evidence"]:

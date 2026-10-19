@@ -1,5 +1,6 @@
 import json
 import shutil
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -458,3 +459,54 @@ def test_rejected_twin_sig_scores_rejected(tmp_projects):
     assert judge.score(item, cfg)[1] == "rejected"
     state.append_decision("C7:uv-run", "approved")
     assert judge.score({**item, "sig": "C2:uv-run"}, cfg)[1] == "propose"
+
+
+def stamped(root, sid, start):
+    """첫 줄 timestamp 가 start 인 세션 기록."""
+    t = root / "proj" / f"{sid}.jsonl"
+    t.parent.mkdir(exist_ok=True)
+    rows = [{"type": "user", "timestamp": start.isoformat(), "cwd": "/tmp/proj", "message": {"role": "user", "content": "발화"}}]
+    t.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    return t
+
+
+def approved_source(root, sig, owner="repo:/r"):
+    other_session(root, "old", items={sig: {"sig": sig, "condition": sig.split(":")[0], "status": "approved", "target": {"path": "/r/x.md", "owner": owner}}})
+    state.append_decision(sig, "approved", target="/r/x.md")
+    return datetime.fromisoformat(state.load_decisions()[sig]["at"])
+
+
+def test_merge_marks_approved_sig_recurring_after_decision_regressed(tmp_projects):
+    at = approved_source(tmp_projects, "C1:app-not-installed")
+    t = stamped(tmp_projects, "after", at + timedelta(seconds=5))
+    hdir = state.harness_dir(t)
+    state.save_items(hdir, {"C1:app-not-installed": {"sig": "C1:app-not-installed", "status": "watch", "reported_at": "2026-10-16T00:00:00+09:00"}})
+    it = judge.merge(t, {"items": [out_item()]}, "explicit")["C1:app-not-installed"]
+    assert it["status"] == "regressed"
+    assert it["regressed_after"] == at.isoformat()
+    assert "reported_at" not in it
+    assert state.load_items(hdir)["C1:app-not-installed"]["status"] == "regressed"
+    import report
+    assert report.regressions() == []
+
+
+def test_merge_before_decision_is_not_regressed(tmp_projects):
+    at = approved_source(tmp_projects, "C1:app-not-installed")
+    t = stamped(tmp_projects, "before", at - timedelta(hours=1))
+    it = judge.merge(t, {"items": [out_item()]}, "explicit")["C1:app-not-installed"]
+    assert it["status"] == "propose" and "regressed_after" not in it
+
+
+def test_merge_regression_follows_plugin_cache_once_rule(tmp_projects):
+    at = approved_source(tmp_projects, "C1:app-not-installed", owner="plugin_cache")
+    other_session(tmp_projects, "first", items={"C1:app-not-installed": {"sig": "C1:app-not-installed", "status": "regressed"}})
+    t = stamped(tmp_projects, "after", at + timedelta(seconds=5))
+    it = judge.merge(t, {"items": [out_item()]}, "explicit")["C1:app-not-installed"]
+    assert it["status"] == "watch" and it["regressed_after"] == at.isoformat()
+
+
+def test_merge_regresses_c7_twin_of_approved_c2(tmp_projects):
+    at = approved_source(tmp_projects, "C2:uv-run")
+    t = stamped(tmp_projects, "after", at + timedelta(seconds=5))
+    it = judge.merge(t, {"items": [out_item("C7:uv-run")]}, "explicit")["C7:uv-run"]
+    assert it["status"] == "regressed" and it["regressed_after"] == at.isoformat()

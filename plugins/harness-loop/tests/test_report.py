@@ -485,3 +485,15 @@ def test_backfill_list_cli_empty(tmp_projects, capsys):
     transcript(tmp_projects, "late", mtime=T0 + timedelta(days=1))
     report.main(["backfill-list"])
     assert capsys.readouterr().out == ""
+
+
+def test_regression_matches_c7_twin_of_approved_c2(tmp_projects):
+    old = transcript(tmp_projects, "old", start=T0)
+    put_items(old, item("C2:uv-run", status="approved"))
+    state.append_decision("C2:uv-run", "approved")
+    new = recurring(tmp_projects, "new", sig="C2:?")
+    put_items(new, item("C7:uv-run", status="watch"))
+    assert [c["sig"] for c in report.regressions()] == ["C7:uv-run"]
+    got = state.load_items(hdir_of(new))
+    assert set(got) == {"C7:uv-run"} and got["C7:uv-run"]["status"] == "regressed"
+    assert report.regressions() == []
