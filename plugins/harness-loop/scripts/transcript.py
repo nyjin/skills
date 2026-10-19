@@ -186,9 +186,9 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                 if _resends_queued(turns, text):
                     continue
                 turns.append(Turn(len(turns) + 1, d.get("cwd"), lineno, text, slash=slash is not None))
-                # 플러그인 스킬 형식(`/플러그인:스킬`) 슬래시 명령은 그 자체로 스킬 구간을 연다. `/model` 같은 내장 명령은 열지 않는다
+                # 플러그인 스킬 형식(`/플러그인:스킬`) 슬래시 명령은 그 자체로 스킬 구간을 연다(이름은 `/` 뺀 전체, Skill 호출이 남기는 것과 같다). `/model` 같은 내장 명령은 열지 않는다
                 name = _slash_skill(turns[-1])
-                skill = name.split(":")[-1] if name and ":" in name else None
+                skill = name if name and ":" in name else None
             elif d.get("type") == "attachment":
                 text = _queued_text(d.get("attachment"))
                 if text is not None and not text.startswith((CONTINUED, INTERRUPT)):

@@ -366,4 +366,4 @@ def test_slash_skill_turn_enables_skill_preamble(tmp_path):
     ]
     p = tmp_path / "s.jsonl"
     p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
-    assert "C3:skill-preamble:retro" in sigs_of(transcript.parse(p)[0])
+    assert "C3:skill-preamble:harness-loop:retro" in sigs_of(transcript.parse(p)[0])

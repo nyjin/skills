@@ -264,7 +264,7 @@ def test_queued_prefix_must_end_on_word_boundary(tmp_path):
 
 def test_slash_plugin_skill_sets_skill_span():
     turns, _ = transcript.parse(FIX / "slash.jsonl")
-    assert [c.skill for c in turns[1].calls] == ["retro"]
+    assert [c.skill for c in turns[1].calls] == ["harness-loop:retro"]
 
 
 def test_slash_skill_span_from_later_skill_call_and_not_for_builtin(tmp_path):
