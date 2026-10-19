@@ -217,19 +217,25 @@ def aware(text: str) -> datetime:
 
 
 def session_start(t: Path) -> datetime:
-    """세션 시작 시각: 기록의 첫 timestamp, 없으면 파일 mtime."""
+    """세션 시작 시각: 기록에서 처음 읽히는 timestamp(형식이 깨진 줄은 건너뜀), 없으면 파일 mtime."""
     try:
         with open(t, encoding="utf-8") as f:
             for raw in f:
                 try:
                     ts = json.loads(raw).get("timestamp")
+                    if isinstance(ts, str):
+                        return aware(ts)
                 except (ValueError, AttributeError):
                     continue
-                if isinstance(ts, str):
-                    return aware(ts)
-    except (OSError, ValueError):
+    except OSError:
         pass
     return datetime.fromtimestamp(Path(t).stat().st_mtime).astimezone()
+
+
+def find_twin(items: dict, sig: str) -> str | None:
+    """items 에서 sig 와 sig_key 가 같은 첫 sig(자기 자신 또는 C2·C7 쌍둥이). 없으면 None."""
+    key = sig_key(sig)
+    return next((s for s in items if sig_key(s) == key), None)
 
 
 def sig_key(sig: str) -> str:

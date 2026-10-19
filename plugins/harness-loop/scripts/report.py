@@ -5,6 +5,7 @@
 # ///
 """SessionStart 보고, sweep·backfill 대상 선별, 재발 감지, 결정 기록과 action item 조회."""
 import argparse
+import itertools
 import json
 import os
 import sys
@@ -17,6 +18,7 @@ import state
 REPORTABLE = {"propose", "regressed"}
 DECISIONS = ("approved", "rejected", "applied", "edit-score")
 OPEN_SESSION_SEC = 600
+PROJECT_SCAN_LINES = 50
 
 
 def _now() -> datetime:
@@ -109,7 +111,7 @@ def _regress(hdir: Path, items: dict, started: datetime, ctx: tuple[dict, dict, 
     changes = []
     for key in decided:
         src = sources.get(key, {})
-        sig = next((s for s in items if state.sig_key(s) == key), None) or src.get("sig") or key
+        sig = state.find_twin(items, key) or src.get("sig") or key
         result = judge.regression(sig, items.get(sig, {}).get("status"), started, ctx)
         if not result or not _has_sig(hdir, key):
             continue
@@ -195,10 +197,10 @@ def session_start_text(items: list[tuple[Path, dict]], hook_errors: int) -> str:
 
 
 def _project_label(t: Path, hdir: Path) -> str:
-    """알림에 보일 프로젝트: 기록에서 처음 나온 `cwd` 의 마지막 두 경로 요소, 없으면 프로젝트 디렉터리 이름."""
+    """알림에 보일 프로젝트: 기록 앞 PROJECT_SCAN_LINES 줄에서 처음 나온 `cwd` 의 마지막 두 경로 요소, 없으면 프로젝트 디렉터리 이름."""
     try:
         with open(t, encoding="utf-8") as f:
-            for raw in f:
+            for raw in itertools.islice(f, PROJECT_SCAN_LINES):
                 try:
                     cwd = json.loads(raw).get("cwd")
                 except (ValueError, AttributeError):

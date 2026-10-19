@@ -540,3 +540,26 @@ def test_score_override_applies_to_c2_c7_twin_in_merge_and_rescore(tmp_projects)
     judge.rescore()
     it = state.load_items(tmp_projects / "other" / "s2" / "harness")["C7:uv-run"]
     assert (it["scores"]["impact"], it["scores"]["actionability"]) == (1, 2)
+
+
+def test_merge_folds_c7_onto_existing_c2_in_session(tmp_projects):
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    judge.merge(t, {"items": [out_item("C2:uv-run", skills={"a": 2})]}, "explicit")
+    ev2 = [{"session": "sess-a", "turn": 2, "quote": "둘째"}]
+    items = judge.merge(t, {"items": [out_item("C7:uv-run", impact=2, evidence=ev2, skills={"a": 1, "b": 1})]}, "explicit")
+    assert list(items) == ["C2:uv-run"]
+    it = items["C2:uv-run"]
+    assert it["sig"] == "C2:uv-run" and it["condition"] == "C2"
+    assert [e["turn"] for e in it["evidence"]] == [1, 2]
+    assert it["skills"] == {"a": 2, "b": 1}
+    assert it["scores"]["impact"] == 2
+
+
+def test_merge_twin_after_regression_keeps_one_regressed_item(tmp_projects):
+    at = approved_source(tmp_projects, "C2:uv-run")
+    t = stamped(tmp_projects, "after", at + timedelta(seconds=5))
+    judge.merge(t, {"items": [out_item("C2:uv-run")]}, "explicit")
+    items = judge.merge(t, {"items": [out_item("C7:uv-run")]}, "explicit")
+    assert list(items) == ["C2:uv-run"] and items["C2:uv-run"]["status"] == "regressed"
+    import report
+    assert [i["sig"] for _, i in report.pending(5)] == ["C2:uv-run"]

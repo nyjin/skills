@@ -545,3 +545,11 @@ def test_pending_reports_c2_c7_twin_pair_once(tmp_projects):
     assert [i["sig"] for _, i in got] == ["C7:x"]
     report.mark_reported(got)
     assert report.pending(5) == []
+
+
+def test_project_label_scans_only_first_50_lines(tmp_projects):
+    t = tmp_projects / "-late-cwd" / "s1.jsonl"
+    t.parent.mkdir()
+    rows = [{"type": "user", "message": {"role": "user", "content": "x"}}] * 50 + [{"type": "user", "cwd": "/a/b/c"}]
+    t.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    assert report.session_start_text([(hdir_of(t), item("C1:a"))], 0).splitlines()[1].endswith(" -late-cwd)")

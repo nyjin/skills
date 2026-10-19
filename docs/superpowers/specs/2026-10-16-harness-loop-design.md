@@ -67,7 +67,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 
 - 세션 ID는 `CLAUDE_CODE_SESSION_ID`(명시 호출), 훅 입력의 `session_id`·`transcript_path`(SessionEnd)로 얻는다. 기록 경로는 `HARNESS_PROJECTS_ROOT`(없으면 `~/.claude/projects`)에서 찾고, `HARNESS_PROJECTS_ROOT`가 있는데 거기서 못 찾으면 `~/.claude/projects`에서 한 번 더 찾는다.
 - 관찰 목록은 따로 두지 않는다. `status: watch`인 항목이 살아 있는 세션 디렉터리에 남아 있는 동안이 관찰 기간이다.
-- 재발성은 `projects_root()/*/*/harness/`(기본 `~/.claude/projects`, `HARNESS_PROJECTS_ROOT`가 있으면 그 루트)의 `signals.jsonl`·`action-items.json`을 훑어 같은 sig가 나온 서로 다른 세션 수로 센다. 토픽이 같은 `C2:<토픽>` 과 `C7:<토픽>` 은 같은 문제이므로 재발성, 결정 대조(거절 확인, 재발 감지), 결정 기록(`decide` 는 쌍둥이 항목 모두에 적용하고 결정 기록에는 입력한 sig 를 남긴다), 사용자 점수 수정(병합·재채점이 쌍둥이 sig 의 수정 점수도 쓴다), 보고 중복 제거(보고 대기 목록과 이미 보고한 sig 확인)에서 한 sig 로 본다.
+- 재발성은 `projects_root()/*/*/harness/`(기본 `~/.claude/projects`, `HARNESS_PROJECTS_ROOT`가 있으면 그 루트)의 `signals.jsonl`·`action-items.json`을 훑어 같은 sig가 나온 서로 다른 세션 수로 센다. 토픽이 같은 `C2:<토픽>` 과 `C7:<토픽>` 은 같은 문제이므로 재발성, 결정 대조(거절 확인, 재발 감지), 결정 기록(`decide` 는 쌍둥이 항목 모두에 적용하고 결정 기록에는 입력한 sig 를 남긴다), 사용자 점수 수정(병합·재채점이 쌍둥이 sig 의 수정 점수도 쓴다), 병합(세션에 쌍둥이 항목이 있으면 새 항목을 그 항목에 합쳐 세션마다 하나만 둔다), 보고 중복 제거(보고 대기 목록과 이미 보고한 sig 확인)에서 한 sig 로 본다.
 
 ## 4. 흐름
 

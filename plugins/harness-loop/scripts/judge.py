@@ -288,13 +288,13 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
     started = state.session_start(path)
     ctx = regression_context()
     for it in new_items:
-        sig = it["sig"]
+        sig = state.find_twin(items, it["sig"]) or it["sig"]   # 세션에 쌍둥이 항목이 있으면 그 sig 로 합친다
         it = {**it, **overrides.get(state.sig_key(sig), {})}
         sessions = recurrence(sig, session)
         total, status = score({**it, "sessions": sessions}, cfg)
         fresh = {
             "sig": sig,
-            "condition": it["condition"],
+            "condition": items[sig].get("condition") or it["condition"] if sig != it["sig"] else it["condition"],
             "status": status,
             "scores": {"recurrence": _recurrence_score(sessions), "impact": it["impact"], "actionability": it["actionability"]},
             "score": total,

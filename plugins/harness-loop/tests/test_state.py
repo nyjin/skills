@@ -97,3 +97,9 @@ def test_decisions_by_key_last_wins_across_c2_c7_twins(tmp_projects):
     d = state.load_decisions_by_key()["C2:x"]
     assert d["decision"] == "rejected" and d["sig"] == "C7:x"
     assert set(state.load_decisions()) == {"C2:x", "C7:x"}
+
+
+def test_session_start_skips_malformed_timestamp(tmp_path):
+    t = tmp_path / "s.jsonl"
+    t.write_text('{"timestamp": "not-a-date"}\n{"timestamp": "2026-10-01T09:00:00+09:00"}\n')
+    assert state.session_start(t).isoformat() == "2026-10-01T09:00:00+09:00"
