@@ -74,7 +74,7 @@
   - `read_cursor(hdir) -> int`, `write_cursor(hdir, line: int) -> None`.
   - `acquire_lock(hdir, stale_sec=600) -> bool`, `release_lock(hdir) -> None` — `lock/` 디렉터리 생성의 원자성을 쓴다.
   - `load_items(hdir) -> dict[str, dict]`(sig → item), `save_items(hdir, items) -> None` — 임시 파일에 쓰고 `os.replace`.
-  - `append_decision(sig, decision, target=None, note=None, impact=None, actionability=None) -> None`(`impact`·`actionability` 는 주어졌을 때만 기록), `load_decisions() -> dict[str, dict]`(sig → edit-score 를 뺀 마지막 결정, `{"decision", "at", "target"}`), `sig_key(sig) -> str`(`C7:x` 를 `C2:x` 로 접는다. 재발성·결정 대조에만 쓴다), `load_decisions_by_key() -> dict[str, dict]`(sig_key → C2·C7 쌍둥이를 합친 마지막 결정, 원래 sig 를 `sig` 에 둔다).
+  - `append_decision(sig, decision, target=None, note=None, impact=None, actionability=None) -> None`(`impact`·`actionability` 는 주어졌을 때만 기록), `load_decisions() -> dict[str, dict]`(sig → edit-score 를 뺀 마지막 결정, `{"decision", "at", "target"}`), `sig_key(sig) -> str`(`C7:x` 를 `C2:x` 로 접는다. 재발성·결정 대조·`decide` 대상 선택·`pending` 중복 제거에 쓴다), `load_decisions_by_key() -> dict[str, dict]`(sig_key → C2·C7 쌍둥이를 합친 마지막 결정, 원래 sig 를 `sig` 에 둔다).
   - `load_score_overrides() -> dict[str, dict]` — edit-score 기록에서 sig 별로 필드마다 마지막 `impact`·`actionability`.
   - `all_harness_dirs() -> list[Path]` — `projects_root()/*/*/harness`. 테스트에서는 `HARNESS_PROJECTS_ROOT` 로 루트를 바꾼다.
 

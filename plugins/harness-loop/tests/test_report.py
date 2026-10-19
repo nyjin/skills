@@ -510,3 +510,38 @@ def test_session_start_text_marks_regressed_and_shows_session_cwd(tmp_projects):
     lines = report.session_start_text([(h, item("C1:a", status="regressed", proposal="다시 고치기")), (h, item("C2:b", proposal="제안"))], 0).splitlines()
     assert lines[1] == "- [C1·반영 실패] 다시 고치기 (2026-10-15 src/kurly-app)"
     assert lines[2] == "- [C2] 제안 (2026-10-15 src/kurly-app)"
+
+
+def test_regressed_twin_keeps_session_item_condition(tmp_projects):
+    old = transcript(tmp_projects, "old", start=T0)
+    put_items(old, item("C2:uv-run", status="approved", proposal="원래 제안"))
+    state.append_decision("C2:uv-run", "approved")
+    new = recurring(tmp_projects, "new", sig="C2:?")
+    put_items(new, item("C7:uv-run", status="watch"))
+    report.regressions()
+    got = state.load_items(hdir_of(new))["C7:uv-run"]
+    assert got["status"] == "regressed" and got["condition"] == "C7" and got["proposal"] == "원래 제안"
+
+
+def test_decide_applies_to_c2_c7_twins_and_records_typed_sig(tmp_projects):
+    a, b = transcript(tmp_projects, "a"), transcript(tmp_projects, "b")
+    put_items(a, item("C2:x"))
+    put_items(b, item("C7:x"), item("C1:y"))
+    result = report.decide("C2:x", "approved")
+    assert sorted((i["session"], i["sig"]) for i in result["items"]) == [("a", "C2:x"), ("b", "C7:x")]
+    assert state.load_items(hdir_of(b))["C7:x"]["status"] == "approved"
+    assert state.load_items(hdir_of(b))["C1:y"]["status"] == "propose"
+    assert list(state.load_decisions()) == ["C2:x"]
+    report.decide("C2:x", "rejected", session="b")
+    assert state.load_items(hdir_of(b))["C7:x"]["status"] == "rejected"
+    assert state.load_items(hdir_of(a))["C2:x"]["status"] == "approved"
+
+
+def test_pending_reports_c2_c7_twin_pair_once(tmp_projects):
+    a, b = transcript(tmp_projects, "a"), transcript(tmp_projects, "b")
+    put_items(a, item("C2:x", score=2.6))
+    put_items(b, item("C7:x", score=2.8))
+    got = report.pending(5)
+    assert [i["sig"] for _, i in got] == ["C7:x"]
+    report.mark_reported(got)
+    assert report.pending(5) == []

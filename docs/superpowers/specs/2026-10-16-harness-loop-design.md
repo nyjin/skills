@@ -67,17 +67,19 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 
 - 세션 ID는 `CLAUDE_CODE_SESSION_ID`(명시 호출), 훅 입력의 `session_id`·`transcript_path`(SessionEnd)로 얻는다. 기록 경로는 `HARNESS_PROJECTS_ROOT`(없으면 `~/.claude/projects`)에서 찾고, `HARNESS_PROJECTS_ROOT`가 있는데 거기서 못 찾으면 `~/.claude/projects`에서 한 번 더 찾는다.
 - 관찰 목록은 따로 두지 않는다. `status: watch`인 항목이 살아 있는 세션 디렉터리에 남아 있는 동안이 관찰 기간이다.
-- 재발성은 `projects_root()/*/*/harness/`(기본 `~/.claude/projects`, `HARNESS_PROJECTS_ROOT`가 있으면 그 루트)의 `signals.jsonl`·`action-items.json`을 훑어 같은 sig가 나온 서로 다른 세션 수로 센다. 토픽이 같은 `C2:<토픽>` 과 `C7:<토픽>` 은 같은 문제이므로 재발성과 결정 대조(거절 확인, 재발 감지)에서 한 sig 로 본다.
+- 재발성은 `projects_root()/*/*/harness/`(기본 `~/.claude/projects`, `HARNESS_PROJECTS_ROOT`가 있으면 그 루트)의 `signals.jsonl`·`action-items.json`을 훑어 같은 sig가 나온 서로 다른 세션 수로 센다. 토픽이 같은 `C2:<토픽>` 과 `C7:<토픽>` 은 같은 문제이므로 재발성, 결정 대조(거절 확인, 재발 감지), 결정 기록(`decide` 는 쌍둥이 항목 모두에 적용하고 결정 기록에는 입력한 sig 를 남긴다), 보고 중복 제거(보고 대기 목록과 이미 보고한 sig 확인)에서 한 sig 로 본다.
 
 ## 4. 흐름
 
 ```
 [세션 안]   /harness-loop:retro
               → collect(cursor 이후 턴) → judge(기존 action-items·다른 세션 sig·decisions 대조)
+              → 병합: 승인·반영된 sig 가 결정 뒤 시작한 이 세션에 다시 나오면 regressed
               → action-items.json 갱신 → 보고 → 승인/거절/점수 수정 → 반영
             /harness-loop:retro review
               → 다른 세션에서 쌓인 미검토 action item 검토
 [SessionEnd] 훅 → collect(cursor 이후 턴) → 신호 있으면 백그라운드 claude -p judge
+              → 병합(명시 호출과 같은 재발 판정)
               (HARNESS_RETRO=1 로 실행, 세션 종료를 기다리지 않는다)
 [SessionStart] 훅 (LLM 없음)
               → 미처리 세션(기록은 있는데 cursor 가 끝에 못 미침) 이 있으면 백그라운드 judge

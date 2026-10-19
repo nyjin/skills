@@ -115,7 +115,8 @@ def _regress(hdir: Path, items: dict, started: datetime, ctx: tuple[dict, dict, 
             continue
         status, at = result
         new = dict(items.get(sig, {}))
-        new.update({k: src[k] for k in ("condition", "proposal", "target", "scores", "sessions") if k in src})
+        copied = ("proposal", "target", "scores", "sessions") if sig in items else ("condition", "proposal", "target", "scores", "sessions")
+        new.update({k: src[k] for k in copied if k in src})
         new.setdefault("condition", sig.split(":", 1)[0])
         new.setdefault("score", src.get("score", 0))
         new.update(sig=sig, status=status, regressed_after=at.isoformat())
@@ -135,17 +136,17 @@ def _log_locked(what: str, hdir: Path) -> None:
 
 
 def pending(limit: int) -> list[tuple[Path, dict]]:
-    """보고하지 않은 propose·regressed 항목. 다른 세션에서 이미 보고한 sig 는 regressed 가 아니면 다시 내지 않는다."""
+    """보고하지 않은 propose·regressed 항목. 다른 세션에서 이미 보고한 sig 는 regressed 가 아니면 다시 내지 않는다. C2·C7 쌍둥이 sig 는 sig_key 로 한 sig 로 본다."""
     loaded = [(hdir, state.load_items(hdir)) for hdir in state.all_harness_dirs()]
-    reported = {sig for _, items in loaded for sig, it in items.items() if it.get("reported_at")}
+    reported = {state.sig_key(sig) for _, items in loaded for sig, it in items.items() if it.get("reported_at")}
     out = []
     for hdir, items in loaded:
         for sig, it in items.items():
-            if it.get("status") in REPORTABLE and not it.get("reported_at") and (it.get("status") == "regressed" or sig not in reported):
+            if it.get("status") in REPORTABLE and not it.get("reported_at") and (it.get("status") == "regressed" or state.sig_key(sig) not in reported):
                 out.append((hdir, it))
     out.sort(key=lambda p: p[1].get("score") or 0, reverse=True)
     seen = set()
-    out = [p for p in out if not (p[1].get("sig") in seen or seen.add(p[1].get("sig")))]
+    out = [p for p in out if not (state.sig_key(p[1]["sig"]) in seen or seen.add(state.sig_key(p[1]["sig"])))]
     return out[:limit]
 
 
@@ -241,7 +242,7 @@ def decide(sig: str, decision: str, session: str | None = None, impact: int | No
         raise ValueError(f"decision 은 {'|'.join(DECISIONS)} 중 하나다: {decision}")
     if decision == "edit-score" and session is not None:
         raise ValueError("edit-score 는 sig 단위로 모든 세션에 적용되므로 --session 과 함께 쓸 수 없다.")
-    hdirs = [h for h in state.all_harness_dirs() if (session is None or h.parent.name == session) and sig in state.load_items(h)]
+    hdirs = [h for h in state.all_harness_dirs() if (session is None or h.parent.name == session) and _twins(state.load_items(h), sig)]
     if not hdirs:
         raise ValueError(f"sig 가 없다: {sig}" + (f" (세션 {session})" if session else ""))
     _lock_all(hdirs)
@@ -252,35 +253,44 @@ def decide(sig: str, decision: str, session: str | None = None, impact: int | No
             state.release_lock(hdir)
 
 
+def _twins(items: dict, sig: str) -> list[str]:
+    """items 에서 sig 와 sig_key 가 같은 sig 들(C2·C7 쌍둥이 포함)."""
+    key = state.sig_key(sig)
+    return [s for s in items if state.sig_key(s) == key]
+
+
 def _decide_locked(sig: str, decision: str, hdirs: list[Path], impact: int | None, actionability: int | None) -> dict:
     loaded = {hdir: state.load_items(hdir) for hdir in hdirs}
-    for hdir, items in loaded.items():
-        if sig not in items:
+    matched = {hdir: _twins(items, sig) for hdir, items in loaded.items()}
+    for hdir, sigs in matched.items():
+        if not sigs:
             raise ValueError(f"sig 가 없다: {sig} (세션 {hdir.parent.name})")
     if decision == "edit-score":
         for hdir, items in loaded.items():
-            scores = items[sig].get("scores") or {}
-            if (impact is None and not isinstance(scores.get("impact"), int)) or (actionability is None and not isinstance(scores.get("actionability"), int)):
-                raise ValueError(f"점수가 없는 항목이라 impact·actionability 를 모두 줘야 한다: {sig} (세션 {hdir.parent.name})")
-    first = loaded[hdirs[0]][sig]
+            for local in matched[hdir]:
+                scores = items[local].get("scores") or {}
+                if (impact is None and not isinstance(scores.get("impact"), int)) or (actionability is None and not isinstance(scores.get("actionability"), int)):
+                    raise ValueError(f"점수가 없는 항목이라 impact·actionability 를 모두 줘야 한다: {local} (세션 {hdir.parent.name})")
+    first = loaded[hdirs[0]][matched[hdirs[0]][0]]
     cfg = state.load_config()
     updated = []
     for hdir, items in loaded.items():
-        it = items[sig]
-        if decision == "edit-score":
-            scores = dict(it.get("scores") or {})
-            if impact is not None:
-                scores["impact"] = impact
-            if actionability is not None:
-                scores["actionability"] = actionability
-            it["scores"] = scores
-            total, status = judge.score({**it, "sessions": it.get("sessions", 1), "impact": scores["impact"], "actionability": scores["actionability"]}, cfg)
-            it["score"] = total
-            if it.get("status") not in judge.KEPT:
-                it["status"] = status
-        else:
-            it["status"] = decision
-        updated.append({"session": hdir.parent.name, **it})
+        for local in matched[hdir]:
+            it = items[local]
+            if decision == "edit-score":
+                scores = dict(it.get("scores") or {})
+                if impact is not None:
+                    scores["impact"] = impact
+                if actionability is not None:
+                    scores["actionability"] = actionability
+                it["scores"] = scores
+                total, status = judge.score({**it, "sessions": it.get("sessions", 1), "impact": scores["impact"], "actionability": scores["actionability"]}, cfg)
+                it["score"] = total
+                if it.get("status") not in judge.KEPT:
+                    it["status"] = status
+            else:
+                it["status"] = decision
+            updated.append({"session": hdir.parent.name, **it})
     for hdir, items in loaded.items():
         state.save_items(hdir, items)
     state.append_decision(sig, decision, target=(first.get("target") or {}).get("path"), impact=impact, actionability=actionability)
