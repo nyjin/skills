@@ -190,7 +190,7 @@ def _decision_records() -> list[dict]:
 
 
 def load_score_overrides() -> dict[str, dict]:
-    """edit-score 기록에서 sig 별로 필드마다 마지막에 준 impact·actionability."""
+    """edit-score 기록에서 sig_key 별로(C2·C7 쌍둥이 합침) 필드마다 마지막에 준 impact·actionability."""
     result = {}
     for r in _decision_records():
         if r["decision"] != "edit-score":
@@ -198,7 +198,7 @@ def load_score_overrides() -> dict[str, dict]:
         for key in ("impact", "actionability"):
             v = r.get(key)
             if isinstance(v, int) and not isinstance(v, bool):
-                result.setdefault(r["sig"], {})[key] = v
+                result.setdefault(sig_key(r["sig"]), {})[key] = v
     return result
 
 

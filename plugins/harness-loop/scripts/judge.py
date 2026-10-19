@@ -276,7 +276,7 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
     overrides = state.load_score_overrides()
 
     def nothing_to_fix(it):
-        o = overrides.get(it["sig"], {})
+        o = overrides.get(state.sig_key(it["sig"]), {})
         return o.get("impact", it["impact"]) == 1 and o.get("actionability", it["actionability"]) == 1
 
     new_items = _drop_c2_c7_twins([it for it in _validate(judge_output) if not nothing_to_fix(it)])
@@ -289,7 +289,7 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
     ctx = regression_context()
     for it in new_items:
         sig = it["sig"]
-        it = {**it, **overrides.get(sig, {})}
+        it = {**it, **overrides.get(state.sig_key(sig), {})}
         sessions = recurrence(sig, session)
         total, status = score({**it, "sessions": sessions}, cfg)
         fresh = {
@@ -343,7 +343,7 @@ def rescore() -> int:
         dirty = False
         for sig, it in items.items():
             stored = it.get("scores") or {}
-            scores = {**stored, **overrides.get(sig, {})}
+            scores = {**stored, **overrides.get(state.sig_key(sig), {})}
             try:
                 total, status = score({**it, "impact": scores["impact"], "actionability": scores["actionability"]}, cfg)
             except (KeyError, TypeError):

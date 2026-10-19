@@ -75,7 +75,7 @@
   - `acquire_lock(hdir, stale_sec=600) -> bool`, `release_lock(hdir) -> None` — `lock/` 디렉터리 생성의 원자성을 쓴다.
   - `load_items(hdir) -> dict[str, dict]`(sig → item), `save_items(hdir, items) -> None` — 임시 파일에 쓰고 `os.replace`.
   - `append_decision(sig, decision, target=None, note=None, impact=None, actionability=None) -> None`(`impact`·`actionability` 는 주어졌을 때만 기록), `load_decisions() -> dict[str, dict]`(sig → edit-score 를 뺀 마지막 결정, `{"decision", "at", "target"}`), `sig_key(sig) -> str`(`C7:x` 를 `C2:x` 로 접는다. 재발성·결정 대조·`decide` 대상 선택·`pending` 중복 제거에 쓴다), `load_decisions_by_key() -> dict[str, dict]`(sig_key → C2·C7 쌍둥이를 합친 마지막 결정, 원래 sig 를 `sig` 에 둔다).
-  - `load_score_overrides() -> dict[str, dict]` — edit-score 기록에서 sig 별로 필드마다 마지막 `impact`·`actionability`.
+  - `load_score_overrides() -> dict[str, dict]` — edit-score 기록에서 `sig_key` 별로(C2·C7 쌍둥이 합침) 필드마다 마지막 `impact`·`actionability`. `merge`·`rescore` 는 `sig_key(sig)` 로 찾는다.
   - `all_harness_dirs() -> list[Path]` — `projects_root()/*/*/harness`. 테스트에서는 `HARNESS_PROJECTS_ROOT` 로 루트를 바꾼다.
 
 - [ ] **Step 1: 테스트 작성** — `tests/conftest.py` 는 저장소 `tests/conftest.py` 와 같은 `load_script(name)` 를 `plugins/harness-loop/scripts` 기준으로 두고, `tmp_projects` 픽스처가 `HARNESS_PROJECTS_ROOT`·`CLAUDE_PLUGIN_DATA` 를 `tmp_path` 아래로 바꾼다.

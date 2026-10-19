@@ -527,3 +527,16 @@ def test_digest_decided_section_forbids_new_sig_for_decided_problem(tmp_projects
     assert "같은 문제" in section and "재사용" in section and "새 sig" in section
     for word in ("범위", "문구", "C2", "C7"):
         assert word in section, word
+
+
+def test_score_override_applies_to_c2_c7_twin_in_merge_and_rescore(tmp_projects):
+    state.append_decision("C2:uv-run", "edit-score", impact=1, actionability=3)
+    state.append_decision("C7:uv-run", "edit-score", actionability=2)
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    items = judge.merge(t, {"items": [out_item("C7:uv-run", impact=3, actionability=3)]}, "explicit")
+    assert (items["C7:uv-run"]["scores"]["impact"], items["C7:uv-run"]["scores"]["actionability"]) == (1, 2)
+    other_session(tmp_projects, "s2", items={"C7:uv-run": {"sig": "C7:uv-run", "condition": "C7", "status": "propose", "sessions": 1, "target": {"path": "/r/x.md"},
+                                                          "scores": {"recurrence": 1, "impact": 3, "actionability": 3}, "score": 2.2}})
+    judge.rescore()
+    it = state.load_items(tmp_projects / "other" / "s2" / "harness")["C7:uv-run"]
+    assert (it["scores"]["impact"], it["scores"]["actionability"]) == (1, 2)
