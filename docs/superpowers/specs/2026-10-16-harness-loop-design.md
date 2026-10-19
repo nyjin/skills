@@ -150,7 +150,7 @@ propose: 2.2
 watch: 1.6
 global_bump: 0.3        # 전역 CLAUDE.md·메모리 대상이면 propose·watch 에 더한다
 queue_limit: 3
-max_background_judges_per_day: 10
+max_background_judges_per_day: 30
 ```
 
 - 통과 조건: 같은 규칙이 이미 대상 파일에 있으면 점수와 무관하게 폐기하되, 지켜지지 않은 기존 규칙이면 "규칙 강화" 항목으로 바꾼다(C7). 규칙이 다른 범위에만 있으면(다른 프로젝트 메모리, 프로젝트 메모리와 전역 CLAUDE.md 사이) 중복이 아니므로 보통대로 채점한다. 대상 파일인지는 `duplicate_of_rule` 에 대상 경로(원문, `~` 를 펼친 형태, realpath 중 하나)가 들어 있는지로 본다.

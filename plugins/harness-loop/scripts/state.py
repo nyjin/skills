@@ -25,7 +25,7 @@ DEFAULT_CONFIG = {
     "watch": 1.6,
     "global_bump": 0.3,
     "queue_limit": 3,
-    "max_background_judges_per_day": 10,
+    "max_background_judges_per_day": 30,
     "eval_markers": ["트리거 측정 중"],
 }
 

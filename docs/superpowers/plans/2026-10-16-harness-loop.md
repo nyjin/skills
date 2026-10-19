@@ -15,7 +15,7 @@
 - 플러그인 이름 `harness-loop`, 스킬 이름 `retro`(호출 `/harness-loop:retro`, `review`, `backfill`), 위치 `~/src/skills/plugins/harness-loop/`, marketplace `source` 는 `./plugins/harness-loop`.
 - 세션 상태: `~/.claude/projects/<프로젝트>/<세션ID>/harness/`(`HARNESS_PROJECTS_ROOT` 가 있으면 그 루트 아래 같은 구조) 아래 `cursor`, `signals.jsonl`, `runs/NNN-<explicit|session-end|sweep>.json`, `action-items.json`, `lock/`, `skip`.
 - 공용 상태: `${CLAUDE_PLUGIN_DATA}` 아래 `scoring.yaml`, `rubric.md`, `decisions.jsonl`, 그리고 운영 파일 `installed_at`, `judge-runs.jsonl`, `hook-errors.log`, `hook-events.log`(락 경합으로 건너뛴 보고 쪽 쓰기). `CLAUDE_PLUGIN_DATA` 가 없으면 `~/.claude/plugins/data/harness-loop-local/` 를 쓴다.
-- `scoring.yaml` 기본값: `weights: {recurrence: 0.4, impact: 0.4, actionability: 0.2}`, `propose: 2.2`, `watch: 1.6`, `global_bump: 0.3`, `queue_limit: 3`, `max_background_judges_per_day: 10`, `eval_markers: ["트리거 측정 중"]`.
+- `scoring.yaml` 기본값: `weights: {recurrence: 0.4, impact: 0.4, actionability: 0.2}`, `propose: 2.2`, `watch: 1.6`, `global_bump: 0.3`, `queue_limit: 3`, `max_background_judges_per_day: 30`, `eval_markers: ["트리거 측정 중"]`.
 - 재발성 점수: 같은 sig 가 나온 서로 다른 세션 수 1 → 1점, 2~3 → 2점, 4 이상 → 3점.
 - 상태값: `propose|watch|discarded|approved|rejected|applied|regressed`.
 - 훅은 어떤 경우에도 종료 코드 0 이고, 오류는 `hook-errors.log` 에 한 줄씩 남긴다.
