@@ -357,3 +357,13 @@ def test_slash_turn_is_not_c8_and_local_command_is_not_resend():
 def test_c8_still_fires_for_typed_slash_without_skill_call():
     assert "C8:skill:eli5" in sigs_of([T(1, "/eli5 이거 설명해줘")])
     assert sigs_of([T(1, "/eli5 이거 설명해줘", slash=True)]) == []
+
+
+def test_slash_skill_turn_enables_skill_preamble(tmp_path):
+    rows = [
+        {"type": "user", "cwd": "/tmp/proj", "message": {"role": "user", "content": "<command-message>retro</command-message>\n<command-name>/harness-loop:retro</command-name>"}},
+        {"type": "assistant", "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "r1", "name": "Read", "input": {"file_path": "/p/skills/retro/references/a.md"}}]}},
+    ]
+    p = tmp_path / "s.jsonl"
+    p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    assert "C3:skill-preamble:retro" in sigs_of(transcript.parse(p)[0])

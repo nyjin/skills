@@ -248,3 +248,41 @@ def test_resend_not_dropped_beyond_two_turns_or_without_queued(tmp_path):
     assert [t.user for t in transcript.parse(p)[0]] == ["빌드해줘", "테스트도 돌려줘", "다음", "또 다음", "테스트도 돌려줘"]
     p = _rows_file(tmp_path, [_u("해줘"), _u("해줘")])
     assert [t.user for t in transcript.parse(p)[0]] == ["해줘", "해줘"]
+
+
+def test_short_queued_prompt_does_not_swallow_turns(tmp_path):
+    p = _rows_file(tmp_path, [_u("빌드해줘"), _q("네"), _u("네 그럼 배포도 해줘")])
+    assert [t.user for t in transcript.parse(p)[0]] == ["빌드해줘", "네", "네 그럼 배포도 해줘"]
+
+
+def test_queued_prefix_must_end_on_word_boundary(tmp_path):
+    p = _rows_file(tmp_path, [_u("빌드해줘"), _q("테스트도 돌려줘"), _u("테스트도 돌려줘요 빨리")])   # 접두 뒤가 글자
+    assert [t.user for t in transcript.parse(p)[0]] == ["빌드해줘", "테스트도 돌려줘", "테스트도 돌려줘요 빨리"]
+    p = _rows_file(tmp_path, [_u("빌드해줘"), _q("테스트도 돌려줘"), _u("테스트도 돌려줘, 그리고 결과도")])
+    assert [t.user for t in transcript.parse(p)[0]] == ["빌드해줘", "테스트도 돌려줘"]
+
+
+def test_slash_plugin_skill_sets_skill_span():
+    turns, _ = transcript.parse(FIX / "slash.jsonl")
+    assert [c.skill for c in turns[1].calls] == ["retro"]
+
+
+def test_slash_skill_span_from_later_skill_call_and_not_for_builtin(tmp_path):
+    def call(cid, name, inp):
+        return {"type": "assistant", "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": cid, "name": name, "input": inp}]}}
+
+    p = _rows_file(tmp_path, [
+        _u("<command-name>/eli5</command-name>\n<command-args>x</command-args>"),
+        call("r1", "Read", {"file_path": "/s/eli5/references/a.md"}),
+        call("k1", "Skill", {"skill": "eli5"}),
+        _u("<command-name>/model</command-name>"),
+        call("r2", "Read", {"file_path": "/s/a.md"}),
+    ])
+    turns, _ = transcript.parse(p)
+    assert [c.skill for c in turns[0].calls] == ["eli5", "eli5"]
+    assert [c.skill for c in turns[1].calls] == [None]
+
+
+def test_bash_traceback_rule_wins_over_error_word():
+    tb2 = "Exit code 1\nTraceback (most recent call last):\n  File \"x.py\", line 3, in <module>\n    raise error(\"cannot open\")\nKeyError: 'a'"
+    assert transcript._error_line(tb2, "Bash") == "KeyError: 'a'"

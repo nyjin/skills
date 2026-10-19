@@ -112,22 +112,35 @@ def _skippable(line):
 
 
 def _error_line(text, tool=""):
-    """오류 주제 줄. ANSI 이스케이프를 지운 뒤, Bash 오류면 건너뛸 줄을 뺀 나머지 중 오류 낱말(BASH_ERROR)이 있는 마지막 줄, 그다음 Traceback 이면 마지막 예외 줄, 아니면 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 줄(`total N` 포함)·글자나 숫자가 없는 줄을 건너뛴 첫 줄. 다 건너뛰면 빈 문자열."""
+    """오류 주제 줄. ANSI 이스케이프를 지운 뒤, Traceback 이면 마지막 예외 줄, 그다음 Bash 오류면 건너뛸 줄을 뺀 나머지 중 오류 낱말(BASH_ERROR)이 있는 마지막 줄, 아니면 `Exit code N`·셔뱅·마크다운 제목·`ls -l` 줄(`total N` 포함)·글자나 숫자가 없는 줄을 건너뛴 첫 줄. 다 건너뛰면 빈 문자열."""
     lines = [l.strip() for l in ANSI.sub("", text).splitlines() if l.strip()]
-    if tool == "Bash":
-        hits = [l for l in lines if BASH_ERROR.search(l) and not _skippable(l)]
-        if hits:
-            return hits[-1][:200]
     if TRACEBACK in lines:
         exc = [l for l in lines if EXCEPTION_LINE.match(l) and not _skippable(l)]
         if exc:
             return exc[-1][:200]
+    if tool == "Bash":
+        hits = [l for l in lines if BASH_ERROR.search(l) and not _skippable(l)]
+        if hits:
+            return hits[-1][:200]
     return next((l for l in lines if not _skippable(l)), "")[:200]
 
 
+RESEND_MIN = 8
+
+
 def _resends_queued(turns, text) -> bool:
-    """사람 발화가 직전 2턴 안의 대기 입력(queued) 턴 텍스트와 같거나 그것으로 시작하면 다시 보낸 것이다."""
-    return any(q.queued and q.user.strip() and text.startswith(q.user) for q in turns[-2:])
+    """사람 발화가 직전 2턴 안의 대기 입력(queued) 턴 텍스트(RESEND_MIN 자 이상)와 같거나, 그것으로 시작하고 바로 뒤가 공백·문장부호(단어 경계)면 다시 보낸 것이다."""
+    def resends(q):
+        if not q.queued or len(q.user.strip()) < RESEND_MIN or not text.startswith(q.user):
+            return False
+        rest = text[len(q.user):]
+        return not rest or not rest[0].isalnum()
+    return any(resends(q) for q in turns[-2:])
+
+
+def _slash_skill(turn):
+    """슬래시 명령 턴의 명령 이름(`/` 뺀 첫 낱말). 슬래시 턴이 아니면 None."""
+    return turn.user.split()[0][1:] if turn.slash and turn.user.split() else None
 
 
 def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
@@ -172,8 +185,10 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                     continue
                 if _resends_queued(turns, text):
                     continue
-                skill = None
                 turns.append(Turn(len(turns) + 1, d.get("cwd"), lineno, text, slash=slash is not None))
+                # 플러그인 스킬 형식(`/플러그인:스킬`) 슬래시 명령은 그 자체로 스킬 구간을 연다. `/model` 같은 내장 명령은 열지 않는다
+                name = _slash_skill(turns[-1])
+                skill = name.split(":")[-1] if name and ":" in name else None
             elif d.get("type") == "attachment":
                 text = _queued_text(d.get("attachment"))
                 if text is not None and not text.startswith((CONTINUED, INTERRUPT)):
@@ -185,6 +200,12 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                         name, inp = b.get("name", ""), b.get("input") or {}
                         if name == "Skill":
                             skill = inp.get("skill")
+                            # `/x` 로 연 턴에서 같은 이름의 Skill 호출이 나오면 그 앞 호출도 그 스킬 구간이다
+                            slash_name = _slash_skill(turn)
+                            if slash_name and skill and slash_name.split(":")[-1] == skill.split(":")[-1]:
+                                for c in turn.calls:
+                                    if c.skill is None:
+                                        c.skill = skill
                         tools[b.get("id")] = name
                         turn.calls.append(Call(b.get("id"), name, inp, skill))
                     elif b.get("type") == "text":
