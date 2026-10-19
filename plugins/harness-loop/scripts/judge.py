@@ -33,6 +33,8 @@ DUP_RULE = "`duplicate_of_rule` 은 같은 규칙이 이미 대상 파일(`targe
 ITEM_RULE = "항목은 대상 파일에 바꿀 것이 있을 때만 낸다. 결함이 아니거나 고칠 것이 없으면(예: \"변경 불필요\") 항목을 내지 않는다."
 LANG_RULE = "`proposal` 과 모든 설명은 한국어로 쓴다. 근거 인용(`evidence.quote`)과 diff 의 원문 줄은 원문 그대로 둔다."
 DECIDED_RULE = "후보가 위 결정된 sig(승인·거절·반영)와 같은 문제면 범위·문구·C2/C7 분류가 달라도 그 sig 를 그대로 재사용한다. 결정된 문제를 다른 말로 설명하려고 새 sig 를 만들지 않는다."
+FOCUS_RULE = "항목 하나는 결함 하나다. 서로 다른 잘못을 한 항목에 묶지 않는다. 결정된 sig 가 아닌 기존 sig 는 그 이름만 읽어도 이번 사례가 무엇인지 알 수 있을 때만 재사용하고, 아니면 사례를 그대로 말하는 새 sig 를 만든다. 사용자가 요청 해석을 한 번 바로잡고 곧바로 맞게 진행됐으면(틀린 산출물이 남지 않았으면) 대화 중 정상적인 조정이므로 항목을 내지 않는다."
+SOURCE_RULE = "지적 · 제안이 외부 도구(ocr 같은 리뷰 도구)나 사용자 결정에서 나왔으면 그것 자체를 결함으로 보지 않는다. 결함은 AI 가 그것을 받아 내린 판단(권고 · 해석 · 실행)에만 매기고, `target` 도 그 판단을 고칠 자리로 잡는다. 사용자가 정한 설계 방향은 근거로 쓰지 않는다."
 SIG_RULE = "`?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다."
 
 
@@ -127,7 +129,7 @@ def digest(transcript_path: Path, new_signals: list[dict]) -> str:
     decisions = state.load_decisions()
     parts.append("## 결정된 sig\n\n" + ("\n".join(f"- {sig}: {d['decision']}" for sig, d in sorted(decisions.items())) or "- 없음") + f"\n\n{DECIDED_RULE}")
 
-    parts.append(f"## sig 규칙\n\n{SIG_RULE} `?` 가 아닌 신호는 sig 를 그대로 쓴다. {C2_C7_RULE} {ITEM_RULE} {DUP_RULE}\n\n## 출력 언어\n\n{LANG_RULE}")
+    parts.append(f"## sig 규칙\n\n{SIG_RULE} `?` 가 아닌 신호는 sig 를 그대로 쓴다. {C2_C7_RULE} {ITEM_RULE} {FOCUS_RULE} {SOURCE_RULE} {DUP_RULE}\n\n## 출력 언어\n\n{LANG_RULE}")
     parts.append("## 출력 스키마\n\n```json\n" + SCHEMA.read_text(encoding="utf-8").strip() + "\n```")
     return "\n\n".join(parts) + "\n"
 

@@ -199,6 +199,8 @@ def test_digest_says_items_only_when_something_to_change(tmp_projects):
     t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
     assert judge.ITEM_RULE in judge.digest(t, [])
     assert "고칠 것" in judge.ITEM_RULE
+    assert judge.FOCUS_RULE in judge.digest(t, [])
+    assert judge.SOURCE_RULE in judge.digest(t, [])
 
 
 def test_merge_records_signals_upto(tmp_projects):
