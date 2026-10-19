@@ -70,3 +70,14 @@ def test_lock_exit_code_rule_for_collect_and_merge():
 def test_korean_output_rule():
     _, _, body = _parts()
     assert any("한국어" in l and "리포트" in l for l in body.splitlines() if l.startswith("- "))
+
+
+def test_korean_rule_leads_procedure_and_report_format():
+    _, _, body = _parts()
+    common = body.split("## 공통 규칙", 1)[1].split("\n## ", 1)[0]
+    first = next(l for l in common.splitlines() if l.startswith("- "))
+    assert "한국어" in first and "영어" in first
+    report_format = body.split("## 리포트 형식", 1)[1]
+    assert any("한국어" in l for l in report_format.splitlines() if l.startswith("- "))
+    rules = body.split("### 판정 JSON 작성 규칙", 1)[1].split("\n## ", 1)[0]
+    assert any("proposal" in l and "한국어" in l for l in rules.splitlines())

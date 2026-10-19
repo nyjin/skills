@@ -30,6 +30,8 @@ BG_OK, BG_FAILED, BG_CAP, BG_LOCKED = 0, 1, 2, 3
 C2_C7_RULE = "`C2:?` 후보마다 항목의 `condition` 을 C2(AI 가 원치 않는 일을 했다)와 C7(메모리·CLAUDE.md 에 있는 기존 규칙을 따르지 않았거나 잘못된 곳에 저장했다) 중 하나로 골라, 후보 하나에서 항목은 최대 하나만 내고 같은 근거로 C2 항목과 C7 항목을 함께 내지 않는다."
 DUP_RULE = "`duplicate_of_rule` 은 같은 규칙이 이미 대상 파일(`target.path`)에 있을 때만 그 파일 경로와 문구로 쓴다. 규칙이 다른 범위에만 있으면(다른 프로젝트 메모리, 프로젝트 메모리와 전역 CLAUDE.md 사이) 중복이 아니라 C7 개선 대상이므로 null 로 둔다."
 ITEM_RULE = "항목은 대상 파일에 바꿀 것이 있을 때만 낸다. 결함이 아니거나 고칠 것이 없으면(예: \"변경 불필요\") 항목을 내지 않는다."
+LANG_RULE = "`proposal` 과 모든 설명은 한국어로 쓴다. 근거 인용(`evidence.quote`)과 diff 의 원문 줄은 원문 그대로 둔다."
+DECIDED_RULE = "후보가 위 결정된 sig(승인·거절·반영)와 같은 문제면 범위·문구·C2/C7 분류가 달라도 그 sig 를 그대로 재사용한다. 결정된 문제를 다른 말로 설명하려고 새 sig 를 만들지 않는다."
 SIG_RULE = "`?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다."
 
 
@@ -122,9 +124,9 @@ def digest(transcript_path: Path, new_signals: list[dict]) -> str:
     parts.append("## 살아 있는 sig\n\n" + ("\n".join(f"- {sig} ({note})" for sig, note in sorted(live)) or "- 없음"))
 
     decisions = state.load_decisions()
-    parts.append("## 결정된 sig\n\n" + ("\n".join(f"- {sig}: {d['decision']}" for sig, d in sorted(decisions.items())) or "- 없음"))
+    parts.append("## 결정된 sig\n\n" + ("\n".join(f"- {sig}: {d['decision']}" for sig, d in sorted(decisions.items())) or "- 없음") + f"\n\n{DECIDED_RULE}")
 
-    parts.append(f"## sig 규칙\n\n{SIG_RULE} `?` 가 아닌 신호는 sig 를 그대로 쓴다. {C2_C7_RULE} {ITEM_RULE} {DUP_RULE}")
+    parts.append(f"## sig 규칙\n\n{SIG_RULE} `?` 가 아닌 신호는 sig 를 그대로 쓴다. {C2_C7_RULE} {ITEM_RULE} {DUP_RULE}\n\n## 출력 언어\n\n{LANG_RULE}")
     parts.append("## 출력 스키마\n\n```json\n" + SCHEMA.read_text(encoding="utf-8").strip() + "\n```")
     return "\n\n".join(parts) + "\n"
 

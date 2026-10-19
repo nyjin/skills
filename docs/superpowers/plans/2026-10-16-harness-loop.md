@@ -268,7 +268,7 @@ def test_eval_session_writes_skip(tmp_projects):
   - `rescore() -> int` — 모든 세션의 items 를 현재 `scoring.yaml` 로 다시 계산, 바뀐 항목 수를 돌려준다. 저장된 점수에 사용자 점수(`load_score_overrides`)를 덮어 쓰고, 상태는 `merge` 와 같은 규칙으로 유지한다.
   - CLI: `judge.py digest <transcript>`, `judge.py merge <transcript> --mode explicit < judge.json`(collect CLI 와 같이 세션 락을 잡고, 못 잡으면 종료 코드 3), `judge.py rescore`, `judge.py background <transcript> --mode <mode>`(Task 5, 종료 코드는 `background_status` 값: 0 판정했거나 할 일 없음, 1 실패, 2 하루 상한, 3 락이 잡혀 있음).
 
-`judge-schema.json`: `{"items": [{"sig": str, "condition": "C1".."C11", "impact": 1..3, "actionability": 1..3, "evidence": [{"session", "turn", "quote"}] (최소 1), "target": {"path": str}, "proposal": str, "duplicate_of_rule": str|null, "rule_unenforced": bool, "skills": {str: int}}]}`. sig 규칙: `?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다(digest 에 이 문장을 그대로 넣는다). `C2:?` 후보마다 `condition` 을 C2 와 C7 중 하나로 골라 항목을 최대 하나만 낸다(`C2_C7_RULE`, digest 에 함께 넣는다).
+`judge-schema.json`: `{"items": [{"sig": str, "condition": "C1".."C11", "impact": 1..3, "actionability": 1..3, "evidence": [{"session", "turn", "quote"}] (최소 1), "target": {"path": str}, "proposal": str, "duplicate_of_rule": str|null, "rule_unenforced": bool, "skills": {str: int}}]}`. sig 규칙: `?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다(digest 에 이 문장을 그대로 넣는다). `C2:?` 후보마다 `condition` 을 C2 와 C7 중 하나로 골라 항목을 최대 하나만 낸다(`C2_C7_RULE`, digest 에 함께 넣는다). "결정된 sig" 절 끝에 결정된 문제와 같으면 범위·문구·C2/C7 분류가 달라도 그 sig 를 재사용하고 새 sig 를 만들지 않는다는 문장(`DECIDED_RULE`)을, 끝에 `proposal`·설명은 한국어, 인용은 원문 그대로라는 "출력 언어" 절(`LANG_RULE`)을 넣는다.
 
 - [ ] **Step 1: 테스트 작성**
 

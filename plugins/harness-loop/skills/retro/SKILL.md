@@ -10,12 +10,12 @@ argument-hint: "[review | backfill [--days N]]"
 
 ## 공통 규칙
 
+- 리포트, 판정 JSON 의 `proposal`, 사용자에게 하는 모든 말은 한국어로 쓴다. 대화나 기록이 영어여도 영어로 답하지 않는다. 원문 인용만 원문 그대로 둔다.
 - 명령은 모두 아래 형식 그대로 Bash 로 실행한다. 앞의 `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}"` 를 빼지 않는다.
 - `${CLAUDE_PLUGIN_DATA}` 자리가 빈 값이나 글자 그대로 남아 있으면 아무 명령도 실행하지 않고 사용자에게 그 사실을 알린다.
 - 명령에는 `uv` 가 필요하다. 없으면 설치를 안내하고 멈춘다.
 - `<transcript>` 는 세션 기록 jsonl 의 절대 경로, `<세션ID>` 는 그 파일 이름에서 `.jsonl` 을 뺀 값이다.
 - 임시 파일은 작업용 임시 디렉터리(scratchpad)에 쓴다. 아래에서는 `<tmp>` 로 적는다.
-- 리포트와 사용자에게 하는 모든 말은 한국어로 쓴다.
 - 사용자 결정은 자유 입력으로만 받는다. 선택지 질문 도구는 쓰지 않는다.
 - 리포트를 출력하면 그 턴을 끝내고 사용자 입력을 기다린다. 현재 세션 회고는 보고 기록(7단계)까지 마친 뒤 다른 출력 없이 턴을 끝낸다.
 - 스크립트가 0 이 아닌 코드로 끝나면 stderr 를 그대로 보여 주고 그 모드를 멈춘다. 단, `judge.py merge` 가 검증 오류로 끝나면 JSON 을 고쳐 다시 실행하고, backfill 의 `judge.py background` 종료 코드는 그 절의 규칙을 따른다.
@@ -76,11 +76,12 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 - digest 신호 표의 신호를 하나씩 판정한다. 결함이 아니거나 대상 파일에 바꿀 것이 없으면 항목을 만들지 않는다. `impact`·`actionability` 가 모두 1 인 항목은 병합에서 버려진다.
 - 신호로 잡히지 않았어도 대화에서 C1~C11 에 해당하는 사례를 찾으면 항목으로 넣는다.
 - `sig` 는 digest 의 "sig 규칙" 절을 따른다. `?` 를 그대로 쓰지 않는다.
+- 후보가 digest 의 "결정된 sig" 와 같은 문제면 범위·문구·C2/C7 분류가 달라도 그 sig 를 재사용하고 새 sig 를 만들지 않는다.
 - `C2:?` 신호는 `condition` 을 C2(AI 가 원치 않는 일을 했다)와 C7(기존 메모리·CLAUDE.md 규칙을 따르지 않았거나 잘못된 곳에 저장했다) 중 하나로 고른다. 신호 하나에서 항목은 하나만 만들고, 같은 근거로 C2 항목과 C7 항목을 함께 만들지 않는다.
 - `impact`·`actionability` 는 digest 의 채점 기준표로 1~3 을 준다. 재발성은 쓰지 않는다.
 - `evidence` 는 항목마다 1개 이상이고, `session` 은 `<세션ID>`, `turn` 은 digest 의 턴 번호, `quote` 는 원문 인용이다.
 - `target.path` 는 고칠 파일의 절대 경로다. 아직 없는 스킬·스크립트면 만들 위치를 쓴다.
-- `proposal` 첫 줄은 개선안 요지 한 문장이고, 다음 줄부터 diff 초안을 쓴다.
+- `proposal` 은 한국어로 쓴다. 첫 줄은 개선안 요지 한 문장이고, 다음 줄부터 diff 초안을 쓴다.
 - 같은 규칙이 이미 대상 파일(`target.path`)에 있으면 `duplicate_of_rule` 에 그 파일 경로와 문구를 쓰고, 그 규칙이 지켜지지 않았으면 `rule_unenforced` 를 true 로 둔다. 없으면 null 과 false 다. 규칙이 다른 범위(다른 프로젝트 메모리, 프로젝트 메모리와 전역 CLAUDE.md 사이)에만 있으면 중복이 아니라 C7 개선 대상이므로 null 로 둔다.
 - `skills` 는 그 sig 가 나온 스킬별 건수다. 스킬과 무관하면 `{}` 다.
 
@@ -176,4 +177,5 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 
 - `regressed` 항목은 상세 첫 줄에 `반영 실패: <regressed_after> 이후 재발` 을 쓴다.
 - review 모드는 상세에 `session`·`project` 를 한 줄 더 쓴다.
+- 리포트는 표 머리글·상세·안내 문장을 모두 한국어로 쓴다. 근거 인용만 원문 그대로 둔다.
 - 리포트 끝에 "결정은 자유롭게 입력하세요. 예: 1 승인, 2 거절, 3번 영향 3으로" 한 줄을 쓴다.

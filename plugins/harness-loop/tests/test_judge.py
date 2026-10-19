@@ -510,3 +510,20 @@ def test_merge_regresses_c7_twin_of_approved_c2(tmp_projects):
     t = stamped(tmp_projects, "after", at + timedelta(seconds=5))
     it = judge.merge(t, {"items": [out_item("C7:uv-run")]}, "explicit")["C7:uv-run"]
     assert it["status"] == "regressed" and it["regressed_after"] == at.isoformat()
+
+
+def test_digest_requires_korean_prose_with_verbatim_quotes(tmp_projects):
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    text = judge.digest(t, [])
+    rule = next(l for l in text.splitlines() if "한국어" in l)
+    assert "proposal" in rule and "인용" in rule and "그대로" in rule
+
+
+def test_digest_decided_section_forbids_new_sig_for_decided_problem(tmp_projects):
+    state.append_decision("C2:python-without-uv-run-with", "rejected")
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    section = judge.digest(t, []).split("## 결정된 sig", 1)[1].split("\n## ", 1)[0]
+    assert "- C2:python-without-uv-run-with: rejected" in section
+    assert "같은 문제" in section and "재사용" in section and "새 sig" in section
+    for word in ("범위", "문구", "C2", "C7"):
+        assert word in section, word
