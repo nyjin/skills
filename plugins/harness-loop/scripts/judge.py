@@ -130,12 +130,14 @@ def digest(transcript_path: Path, new_signals: list[dict]) -> str:
 
 
 def recurrence(sig: str, this_session: str) -> int:
+    """sig 가 나온 서로 다른 세션 수(this_session 포함). C2·C7 쌍둥이 sig 는 같은 sig 로 센다."""
+    key = state.sig_key(sig)
     sessions = {this_session}
     for hdir in state.all_harness_dirs():
         sid = hdir.parent.name
         if sid in sessions:
             continue
-        if sig in state.load_items(hdir) or (not _placeholder(sig) and any(s.get("sig") == sig for s in _read_signals(hdir))):
+        if any(state.sig_key(s) == key for s in state.load_items(hdir)) or (not _placeholder(sig) and any(state.sig_key(str(s.get("sig"))) == key for s in _read_signals(hdir))):
             sessions.add(sid)
     return len(sessions)
 
@@ -165,7 +167,7 @@ def _duplicate_in_target(item: dict) -> bool:
 def score(item: dict, cfg: dict) -> tuple[float, str]:
     w = cfg["weights"]
     total = round(w["recurrence"] * _recurrence_score(item["sessions"]) + w["impact"] * item["impact"] + w["actionability"] * item["actionability"], 6)
-    decision = state.load_decisions().get(item["sig"])
+    decision = state.load_decisions_by_key().get(state.sig_key(item["sig"]))
     if decision and decision["decision"] == "rejected":
         return total, "rejected"
     if _duplicate_in_target(item) and not item.get("rule_unenforced"):

@@ -81,3 +81,19 @@ def test_find_transcript_falls_back_to_default_projects(tmp_projects, tmp_path):
     mine.parent.mkdir()
     mine.write_text("")
     assert state.find_transcript("sess9") == mine
+
+
+def test_sig_key_folds_c7_into_c2():
+    assert state.sig_key("C7:rule-scope") == "C2:rule-scope"
+    assert state.sig_key("C2:rule-scope") == "C2:rule-scope"
+    assert state.sig_key("C1:x") == "C1:x"
+    assert state.sig_key("C17:x") == "C17:x"
+
+
+def test_decisions_by_key_last_wins_across_c2_c7_twins(tmp_projects):
+    state.append_decision("C2:x", "approved")
+    state.append_decision("C7:x", "rejected")
+    state.append_decision("C7:x", "edit-score", impact=2)
+    d = state.load_decisions_by_key()["C2:x"]
+    assert d["decision"] == "rejected" and d["sig"] == "C7:x"
+    assert set(state.load_decisions()) == {"C2:x", "C7:x"}

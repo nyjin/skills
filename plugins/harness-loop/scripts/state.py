@@ -211,6 +211,20 @@ def load_decisions() -> dict[str, dict]:
     return result
 
 
+def sig_key(sig: str) -> str:
+    """재발·결정 대조용 키. `C2:x` 와 `C7:x` 는 같은 문제라 `C7:` 을 `C2:` 로 접는다."""
+    return "C2:" + sig[3:] if sig.startswith("C7:") else sig
+
+
+def load_decisions_by_key() -> dict[str, dict]:
+    """sig_key 별 마지막 결정(edit-score 제외). C2·C7 쌍둥이 sig 의 결정을 합쳐 가장 나중 것을 쓴다. `sig` 에 원래 sig 를 둔다."""
+    result = {}
+    for r in _decision_records():
+        if r["decision"] != "edit-score":
+            result[sig_key(r["sig"])] = {"decision": r["decision"], "at": r["at"], "target": r.get("target"), "sig": r["sig"]}
+    return result
+
+
 def _atomic_write(path: Path, text: str) -> None:
     tmp = path.with_name(path.name + f".tmp{os.getpid()}")
     tmp.write_text(text, encoding="utf-8")

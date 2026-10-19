@@ -439,3 +439,22 @@ def test_merge_cli_exits_3_when_session_locked(tmp_projects, capsys, monkeypatch
     assert e.value.code == 3
     assert "잠겨" in capsys.readouterr().err
     assert state.load_items(hdir) == {} and (hdir / "lock").exists()
+
+
+def test_recurrence_counts_c2_c7_twins_as_one_sig(tmp_projects):
+    other_session(tmp_projects, "s1", items={"C2:uv-run": {"sig": "C2:uv-run", "status": "watch"}})
+    other_session(tmp_projects, "s2", items={"C7:uv-run": {"sig": "C7:uv-run", "status": "watch"}})
+    other_session(tmp_projects, "s3", signals=["C2:uv-run"])
+    other_session(tmp_projects, "s4", items={"C7:other": {"sig": "C7:other", "status": "watch"}})
+    assert judge.recurrence("C7:uv-run", "me") == 4
+    assert judge.recurrence("C2:uv-run", "me") == 4
+    assert judge.recurrence("C1:uv-run", "me") == 1
+
+
+def test_rejected_twin_sig_scores_rejected(tmp_projects):
+    cfg = state.load_config()
+    item = {"sig": "C7:uv-run", "sessions": 1, "impact": 3, "actionability": 3, "evidence": EV, "target": {"path": "/r/x.md"}}
+    state.append_decision("C2:uv-run", "rejected")
+    assert judge.score(item, cfg)[1] == "rejected"
+    state.append_decision("C7:uv-run", "approved")
+    assert judge.score({**item, "sig": "C2:uv-run"}, cfg)[1] == "propose"

@@ -74,7 +74,7 @@
   - `read_cursor(hdir) -> int`, `write_cursor(hdir, line: int) -> None`.
   - `acquire_lock(hdir, stale_sec=600) -> bool`, `release_lock(hdir) -> None` — `lock/` 디렉터리 생성의 원자성을 쓴다.
   - `load_items(hdir) -> dict[str, dict]`(sig → item), `save_items(hdir, items) -> None` — 임시 파일에 쓰고 `os.replace`.
-  - `append_decision(sig, decision, target=None, note=None, impact=None, actionability=None) -> None`(`impact`·`actionability` 는 주어졌을 때만 기록), `load_decisions() -> dict[str, dict]`(sig → edit-score 를 뺀 마지막 결정, `{"decision", "at", "target"}`).
+  - `append_decision(sig, decision, target=None, note=None, impact=None, actionability=None) -> None`(`impact`·`actionability` 는 주어졌을 때만 기록), `load_decisions() -> dict[str, dict]`(sig → edit-score 를 뺀 마지막 결정, `{"decision", "at", "target"}`), `sig_key(sig) -> str`(`C7:x` 를 `C2:x` 로 접는다. 재발성·결정 대조에만 쓴다), `load_decisions_by_key() -> dict[str, dict]`(sig_key → C2·C7 쌍둥이를 합친 마지막 결정, 원래 sig 를 `sig` 에 둔다).
   - `load_score_overrides() -> dict[str, dict]` — edit-score 기록에서 sig 별로 필드마다 마지막 `impact`·`actionability`.
   - `all_harness_dirs() -> list[Path]` — `projects_root()/*/*/harness`. 테스트에서는 `HARNESS_PROJECTS_ROOT` 로 루트를 바꾼다.
 
@@ -262,8 +262,8 @@ def test_eval_session_writes_skip(tmp_projects):
 - Consumes: `state.*`, `transcript.parse`, `apply_target.classify`(Task 6, 없으면 `owner` 는 `"unknown"`)
 - Produces (`judge.py`):
   - `digest(transcript: Path, new_signals: list[dict]) -> str` — judge 에게 줄 Markdown. 포함: `rubric.md`, 신호 표, 신호가 걸린 턴의 사람 발화(500자)·호출 요약(12개)·오류·`ai_tail`, 다른 세션의 살아 있는 sig 목록(`all_harness_dirs` 의 `action-items.json`), `decisions.jsonl` sig 목록, 출력 스키마.
-  - `recurrence(sig: str, this_session: str) -> int` — 이 세션을 포함해 sig 가 `signals.jsonl` 또는 `action-items.json` 에 나온 세션 수.
-  - `score(item: dict, cfg: dict) -> tuple[float, str]` — `item["sessions"]`(재발 세션 수)·`impact`·`actionability` 로 가중합과 상태를 낸다. 재발성 점수는 Global Constraints 구간. 대상 경로가 `~/.claude/CLAUDE.md` 이거나 `/memory/` 를 포함하면 `propose`·`watch` 에 `global_bump` 를 더한다. `duplicate_of_rule` 이 대상 파일(`target.path` 의 원문·`~` 펼침·realpath 중 하나를 부분 문자열로 포함)을 가리키고 `rule_unenforced` 가 거짓이면 `discarded`. 다른 범위의 규칙을 가리키면 보통대로 채점한다. `decisions` 의 마지막 결정이 `rejected` 면 `rejected`.
+  - `recurrence(sig: str, this_session: str) -> int` — 이 세션을 포함해 sig 가 `signals.jsonl` 또는 `action-items.json` 에 나온 세션 수. `state.sig_key` 로 비교하므로 `C2:x`·`C7:x` 는 같은 sig 로 센다.
+  - `score(item: dict, cfg: dict) -> tuple[float, str]` — `item["sessions"]`(재발 세션 수)·`impact`·`actionability` 로 가중합과 상태를 낸다. 재발성 점수는 Global Constraints 구간. 대상 경로가 `~/.claude/CLAUDE.md` 이거나 `/memory/` 를 포함하면 `propose`·`watch` 에 `global_bump` 를 더한다. `duplicate_of_rule` 이 대상 파일(`target.path` 의 원문·`~` 펼침·realpath 중 하나를 부분 문자열로 포함)을 가리키고 `rule_unenforced` 가 거짓이면 `discarded`. 다른 범위의 규칙을 가리키면 보통대로 채점한다. `decisions` 의 마지막 결정(`load_decisions_by_key`, C2·C7 쌍둥이 합침)이 `rejected` 면 `rejected`.
   - `merge(transcript: Path, judge_output: dict, mode: str) -> dict` — 스키마 검증 → 사용자 점수(`state.load_score_overrides()`)를 덮은 실효 `impact`·`actionability` 가 모두 1 인 항목은 버림(고칠 것 없음 하한. 사용자가 1/1 보다 높게 고친 sig 는 남는다) → 토픽(sig 의 첫 `:` 뒤)이 같은 C2·C7 항목 쌍은 출력 순서상 앞의 것만 남김 → 항목마다 `state.load_score_overrides()` 의 사용자 점수로 judge 의 `impact`·`actionability` 를 덮고 `sessions = recurrence(sig, 이 세션)`·`score`·`target.owner` 계산 → 기존 `action-items.json` 과 sig 로 병합(근거는 덧붙이고, `KEPT = approved|rejected|applied|regressed` 상태와 `regressed_after` 가 있는 `watch` 는 유지) → `runs/NNN-<mode>.json` 저장. 반환값은 병합된 items.
   - `rescore() -> int` — 모든 세션의 items 를 현재 `scoring.yaml` 로 다시 계산, 바뀐 항목 수를 돌려준다. 저장된 점수에 사용자 점수(`load_score_overrides`)를 덮어 쓰고, 상태는 `merge` 와 같은 규칙으로 유지한다.
   - CLI: `judge.py digest <transcript>`, `judge.py merge <transcript> --mode explicit < judge.json`(collect CLI 와 같이 세션 락을 잡고, 못 잡으면 종료 코드 3), `judge.py rescore`, `judge.py background <transcript> --mode <mode>`(Task 5, 종료 코드는 `background_status` 값: 0 판정했거나 할 일 없음, 1 실패, 2 하루 상한, 3 락이 잡혀 있음).
