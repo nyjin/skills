@@ -26,6 +26,7 @@ MODES = ("explicit", "session-end", "sweep")
 KEPT = {"approved", "rejected", "applied", "regressed"}
 LIVE = {"propose", "watch", "approved", "applied", "regressed"}
 JUDGE_TIMEOUT = 540
+JUDGE_MODEL = "opus"
 BG_OK, BG_FAILED, BG_CAP, BG_LOCKED = 0, 1, 2, 3
 C2_C7_RULE = "`C2:?` 후보마다 항목의 `condition` 을 C2(AI 가 원치 않는 일을 했다)와 C7(메모리·CLAUDE.md 에 있는 기존 규칙을 따르지 않았거나 잘못된 곳에 저장했다) 중 하나로 골라, 후보 하나에서 항목은 최대 하나만 내고 같은 근거로 C2 항목과 C7 항목을 함께 내지 않는다."
 DUP_RULE = "`duplicate_of_rule` 은 같은 규칙이 이미 대상 파일(`target.path`)에 있을 때만 그 파일 경로와 문구로 쓴다. 규칙이 다른 범위에만 있으면(다른 프로젝트 메모리, 프로젝트 메모리와 전역 CLAUDE.md 사이) 중복이 아니라 C7 개선 대상이므로 null 로 둔다."
@@ -420,7 +421,7 @@ def _judge_tmp_parent() -> str:
 
 def _invoke(path: Path, hdir: Path, mode: str, claude_bin: str) -> None:
     text = digest(path, pending_signals(hdir))
-    cmd = [claude_bin, "-p", "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence", "--tools", "", "--output-format", "json", "--json-schema", SCHEMA.read_text(encoding="utf-8")]
+    cmd = [claude_bin, "-p", "--model", JUDGE_MODEL, "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence", "--tools", "", "--output-format", "json", "--json-schema", SCHEMA.read_text(encoding="utf-8")]
     os.utime(hdir / "lock")
     cwd = tempfile.mkdtemp(prefix="harness-judge-", dir=_judge_tmp_parent())
     try:

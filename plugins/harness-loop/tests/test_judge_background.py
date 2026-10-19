@@ -82,7 +82,7 @@ def test_background_judge_merges_fake_output(tmp_projects, fake_claude_ok, tmp_p
     assert json.loads(runs[0].read_text())["signals_upto"] == len((hdir / "signals.jsonl").read_text().splitlines())
     assert not (hdir / "lock").exists()
     [call] = calls(fake_claude_ok)
-    assert call.startswith("1 -p --setting-sources project --strict-mcp-config --no-session-persistence --tools  --output-format json --json-schema {")
+    assert call.startswith("1 -p --model opus --setting-sources project --strict-mcp-config --no-session-persistence --tools  --output-format json --json-schema {")
     assert "harness-loop judge 입력" in (tmp_path / "fake-claude.stdin").read_text()
     [line] = run_lines()
     assert line["ok"] is True and line["mode"] == "session-end" and line["session"] == "basic" and line["transcript"] == str(t)
@@ -95,7 +95,7 @@ def test_background_judge_runs_isolated_from_user_settings(tmp_projects, tmp_pat
     assert judge.background(t, "session-end", claude_bin=exe) is True
     [call] = calls(exe)
     argv = call.split(" --json-schema ")[0].split(" ")
-    assert argv == ["1", "-p", "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence", "--tools", "", "--output-format", "json"]
+    assert argv == ["1", "-p", "--model", "opus", "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence", "--tools", "", "--output-format", "json"]
     cwd = Path((tmp_path / "cwd.txt").read_text().strip())
     assert cwd.name.startswith("harness-judge-")
     home = Path(os.environ["HOME"]).resolve()
