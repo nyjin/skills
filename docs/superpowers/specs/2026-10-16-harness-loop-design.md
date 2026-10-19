@@ -84,6 +84,8 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
               → 승인된 sig 가 그 뒤 세션에서 다시 나왔는지 확인 → 재발 시 "반영 실패"(regressed) 항목
                 (외부 플러그인 캐시 대상은 sig 마다 첫 재발만 regressed, 그 뒤 재발은 watch)
               → 보고하지 않은 action item 을 queue_limit 개까지 additionalContext 로 알림
+                (항목마다 `- [조건] 개선안 첫 줄 (날짜 프로젝트)`. regressed 는 `[조건·반영 실패]`,
+                 프로젝트는 세션 cwd 의 마지막 두 경로 요소)
 ```
 
 - judge는 명시 호출과 SessionEnd(그리고 그 보완인 SessionStart sweep)에서만 돈다. 하루 1회 배치는 없다.

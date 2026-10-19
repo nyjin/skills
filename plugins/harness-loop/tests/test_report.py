@@ -497,3 +497,16 @@ def test_regression_matches_c7_twin_of_approved_c2(tmp_projects):
     got = state.load_items(hdir_of(new))
     assert set(got) == {"C7:uv-run"} and got["C7:uv-run"]["status"] == "regressed"
     assert report.regressions() == []
+
+
+def test_session_start_text_marks_regressed_and_shows_session_cwd(tmp_projects):
+    when = datetime(2026, 10, 15, 12, 0).astimezone()
+    t = tmp_projects / "-Users-me-src-kurly-app" / "s1.jsonl"
+    t.parent.mkdir()
+    rows = [{"type": "permission-mode", "permissionMode": "default"}, {"type": "user", "cwd": "/Users/me/src/kurly-app", "message": {"role": "user", "content": "hi"}}]
+    t.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    os.utime(t, (when.timestamp(), when.timestamp()))
+    h = hdir_of(t)
+    lines = report.session_start_text([(h, item("C1:a", status="regressed", proposal="다시 고치기")), (h, item("C2:b", proposal="제안"))], 0).splitlines()
+    assert lines[1] == "- [C1·반영 실패] 다시 고치기 (2026-10-15 src/kurly-app)"
+    assert lines[2] == "- [C2] 제안 (2026-10-15 src/kurly-app)"

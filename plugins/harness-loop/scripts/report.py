@@ -186,10 +186,27 @@ def session_start_text(items: list[tuple[Path, dict]], hook_errors: int) -> str:
         stamp = (t if t.exists() else hdir).stat().st_mtime
         date = datetime.fromtimestamp(stamp).astimezone().date().isoformat()
         first = (str(it.get("proposal") or "").splitlines() or [""])[0][:80]
-        lines.append(f"- [{it.get('condition')}] {first} ({date} {hdir.parent.parent.name})")
+        mark = "·반영 실패" if it.get("status") == "regressed" else ""
+        lines.append(f"- [{it.get('condition')}{mark}] {first} ({date} {_project_label(t, hdir)})")
     if hook_errors > 0:
         lines.append(f"- {error_line}")
     return "\n".join(lines)
+
+
+def _project_label(t: Path, hdir: Path) -> str:
+    """알림에 보일 프로젝트: 기록에서 처음 나온 `cwd` 의 마지막 두 경로 요소, 없으면 프로젝트 디렉터리 이름."""
+    try:
+        with open(t, encoding="utf-8") as f:
+            for raw in f:
+                try:
+                    cwd = json.loads(raw).get("cwd")
+                except (ValueError, AttributeError):
+                    continue
+                if isinstance(cwd, str) and cwd.strip("/"):
+                    return "/".join(Path(cwd).parts[-2:]).lstrip("/")
+    except OSError:
+        pass
+    return hdir.parent.parent.name
 
 
 def mark_reported(pairs) -> None:

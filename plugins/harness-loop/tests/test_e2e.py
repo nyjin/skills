@@ -228,7 +228,7 @@ def test_spec9_flow(tmp_projects, monkeypatch, capsys, fake_claude, spawned):
     lines = context.splitlines()
     assert lines[0] == "harness-loop: 검토 대기 action item 1건 — /harness-loop:retro review"
     assert len(lines) - 1 == 1 <= state.load_config()["queue_limit"]
-    assert lines[1].startswith(f"- [C2] {X_PROPOSAL} (") and lines[1].endswith(" proj)")
+    assert lines[1].startswith(f"- [C2] {X_PROPOSAL} (") and lines[1].endswith(" tmp/proj)")
     assert items_of(s2)[X]["reported_at"]
     assert pending_sigs() == []
 
@@ -265,7 +265,7 @@ def test_spec9_flow(tmp_projects, monkeypatch, capsys, fake_claude, spawned):
     context = session_start(monkeypatch, capsys, "S7")
     lines = context.splitlines()
     assert lines[0] == "harness-loop: 검토 대기 action item 1건 — /harness-loop:retro review"
-    assert lines[1].startswith(f"- [C1] {Y_PROPOSAL} (")
+    assert lines[1].startswith(f"- [C1·반영 실패] {Y_PROPOSAL} (")
     regressed = items_of(s5)[Y]
     assert regressed["status"] == "regressed"
     assert regressed["regressed_after"] == approved_at.isoformat()
