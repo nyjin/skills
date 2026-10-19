@@ -128,14 +128,14 @@ def _error_line(text, tool=""):
 RESEND_MIN = 8
 
 
-def _resends_queued(turns, text) -> bool:
-    """사람 발화가 직전 2턴 안의 대기 입력(queued) 턴 텍스트(RESEND_MIN 자 이상)와 같거나, 그것으로 시작하고 바로 뒤가 공백·문장부호(단어 경계)면 다시 보낸 것이다."""
+def _resends_queued(turns, text):
+    """다시 보낸 대기 입력 턴(없으면 None). 사람 발화가 직전 2턴 안의 대기 입력(queued) 턴 텍스트(RESEND_MIN 자 이상)와 같거나, 그것으로 시작하고 바로 뒤가 공백·문장부호(단어 경계)면 다시 보낸 것이다."""
     def resends(q):
         if not q.queued or len(q.user.strip()) < RESEND_MIN or not text.startswith(q.user):
             return False
         rest = text[len(q.user):]
         return not rest or not rest[0].isalnum()
-    return any(resends(q) for q in turns[-2:])
+    return next((q for q in turns[-2:] if resends(q)), None)
 
 
 def _slash_skill(turn):
@@ -183,7 +183,13 @@ def parse(path: Path, start_line: int = 0) -> tuple[list[Turn], int]:
                     if turn:
                         turn.interrupted = True
                     continue
-                if _resends_queued(turns, text):
+                queued = _resends_queued(turns, text)
+                if queued:
+                    # 대기 입력 `/x` 를 슬래시 명령으로 다시 보낸 것이면 그 대기 턴을 슬래시 턴으로 보고 스킬 구간을 연다
+                    if slash is not None:
+                        queued.slash = True
+                        name = _slash_skill(queued)
+                        skill = name if name and ":" in name else None
                     continue
                 turns.append(Turn(len(turns) + 1, d.get("cwd"), lineno, text, slash=slash is not None))
                 # 플러그인 스킬 형식(`/플러그인:스킬`) 슬래시 명령은 그 자체로 스킬 구간을 연다(이름은 `/` 뺀 전체, Skill 호출이 남기는 것과 같다). `/model` 같은 내장 명령은 열지 않는다

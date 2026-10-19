@@ -286,3 +286,15 @@ def test_slash_skill_span_from_later_skill_call_and_not_for_builtin(tmp_path):
 def test_bash_traceback_rule_wins_over_error_word():
     tb2 = "Exit code 1\nTraceback (most recent call last):\n  File \"x.py\", line 3, in <module>\n    raise error(\"cannot open\")\nKeyError: 'a'"
     assert transcript._error_line(tb2, "Bash") == "KeyError: 'a'"
+
+
+def test_resent_slash_command_marks_queued_turn_slash_and_opens_skill(tmp_path):
+    read = {"type": "assistant", "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "r1", "name": "Read", "input": {"file_path": "/p/skills/retro/references/a.md"}}]}}
+    p = _rows_file(tmp_path, [
+        _u("빌드해줘"), _q("/harness-loop:retro review"), _say("빌드했습니다."),
+        _u("<command-message>retro</command-message>\n<command-name>/harness-loop:retro</command-name>\n<command-args>review</command-args>"),
+        read,
+    ])
+    turns, _ = transcript.parse(p)
+    assert [(t.user, t.queued, t.slash) for t in turns] == [("빌드해줘", False, False), ("/harness-loop:retro review", True, True)]
+    assert [c.skill for c in turns[1].calls] == ["harness-loop:retro"]

@@ -288,7 +288,7 @@ def _decide_locked(sig: str, decision: str, hdirs: list[Path], impact: int | Non
                 it["scores"] = scores
                 total, status = judge.score({**it, "sessions": it.get("sessions", 1), "impact": scores["impact"], "actionability": scores["actionability"]}, cfg)
                 it["score"] = total
-                if it.get("status") not in judge.KEPT:
+                if not judge.kept(it):
                     it["status"] = status
             else:
                 it["status"] = decision

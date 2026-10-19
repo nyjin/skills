@@ -188,8 +188,8 @@ def _plugin_cache(item: dict) -> bool:
 
 
 def regression_context() -> tuple[dict, dict, set]:
-    """재발 판정 재료 (decided, sources, regressed). decided: 마지막 결정이 승인·반영인 sig_key → 결정 시각. sources: sig_key → 승인·반영 항목. regressed: 이미 regressed 항목이 있는 sig_key."""
-    decided = {key: state.aware(d["at"]) for key, d in state.load_decisions_by_key().items() if d["decision"] in ("approved", "applied")}
+    """재발 판정 재료 (decided, sources, regressed). decided: 마지막 결정이 승인·반영인 sig_key → (결정 시각, 결정). sources: sig_key → 승인·반영 항목. regressed: 이미 regressed 항목이 있는 sig_key."""
+    decided = {key: (state.aware(d["at"]), d["decision"]) for key, d in state.load_decisions_by_key().items() if d["decision"] in ("approved", "applied")}
     sources, regressed = {}, set()
     if decided:
         for hdir in state.all_harness_dirs():
@@ -206,13 +206,24 @@ def regression(sig: str, status: str | None, started: datetime, ctx: tuple[dict,
     """승인·반영 뒤 시작한 세션에 sig 가 다시 나왔을 때의 (새 상태, 결정 시각). 해당 없으면 None. status 는 그 세션 항목의 현재 상태다. plugin_cache 대상은 sig 당 한 번만 regressed 이고 그 뒤 재발은 watch 다."""
     decided, sources, regressed = ctx
     key = state.sig_key(sig)
-    at = decided.get(key)
-    if at is None or started <= at:
+    if key not in decided or started <= decided[key][0]:
         return None
+    at = decided[key][0]
     once = _plugin_cache(sources.get(key, {})) and key in regressed
     if status in ({"regressed", "watch"} if once else {"regressed"}):
         return None
     return ("watch" if once else "regressed"), at
+
+
+def prior_decision(sig: str, started: datetime, ctx: tuple[dict, dict, set]) -> str | None:
+    """sig(쌍둥이 포함)의 마지막 결정이 승인·반영이고 세션이 그 결정 전에 시작했으면 그 결정(approved|applied). 아니면 None."""
+    entry = ctx[0].get(state.sig_key(sig))
+    return entry[1] if entry and started <= entry[0] else None
+
+
+def kept(item: dict) -> bool:
+    """병합·재채점·점수 수정이 상태를 바꾸지 않는 항목: KEPT 상태이거나 plugin_cache 재발로 watch 가 된 항목(regressed_after 있음)."""
+    return item.get("status") in KEPT or (item.get("status") == "watch" and bool(item.get("regressed_after")))
 
 
 def _validate(output) -> list[dict]:
@@ -310,6 +321,8 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
         regressed = regression(sig, old.get("status"), started, ctx)
         if regressed:
             fresh["status"], fresh["regressed_after"] = regressed[0], regressed[1].isoformat()
+        else:
+            fresh["status"] = prior_decision(sig, started, ctx) or fresh["status"]
         merged = {**old, **fresh}
         if regressed:
             merged.pop("reported_at", None)
@@ -325,7 +338,7 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
         for name, n in it["skills"].items():
             skills[name] = max(skills.get(name, 0), n)
         merged["skills"] = skills
-        if old.get("status") in KEPT or (old.get("status") == "watch" and old.get("regressed_after")):
+        if kept(old):
             merged["status"] = old["status"]
         items[sig] = merged
     state.save_items(hdir, items)
@@ -348,7 +361,7 @@ def rescore() -> int:
                 total, status = score({**it, "impact": scores["impact"], "actionability": scores["actionability"]}, cfg)
             except (KeyError, TypeError):
                 continue
-            if it.get("status") in KEPT or (it.get("status") == "watch" and it.get("regressed_after")):
+            if kept(it):
                 status = it["status"]
             if total != it.get("score") or status != it.get("status") or scores != stored:
                 it["score"], it["status"], it["scores"] = total, status, scores

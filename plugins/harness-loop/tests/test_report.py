@@ -553,3 +553,11 @@ def test_project_label_scans_only_first_50_lines(tmp_projects):
     rows = [{"type": "user", "message": {"role": "user", "content": "x"}}] * 50 + [{"type": "user", "cwd": "/a/b/c"}]
     t.write_text("".join(json.dumps(r) + "\n" for r in rows))
     assert report.session_start_text([(hdir_of(t), item("C1:a"))], 0).splitlines()[1].endswith(" -late-cwd)")
+
+
+def test_edit_score_keeps_plugin_cache_once_watch(tmp_projects):
+    t = transcript(tmp_projects, "s1")
+    put_items(t, item("C1:a", status="watch", regressed_after="2026-10-01T09:00:00+09:00", target={"path": "/c/SKILL.md", "owner": "plugin_cache"}))
+    report.decide("C1:a", "edit-score", impact=3, actionability=3)
+    got = state.load_items(hdir_of(t))["C1:a"]
+    assert got["status"] == "watch" and got["scores"]["impact"] == 3

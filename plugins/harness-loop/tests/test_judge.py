@@ -490,11 +490,21 @@ def test_merge_marks_approved_sig_recurring_after_decision_regressed(tmp_project
     assert report.regressions() == []
 
 
-def test_merge_before_decision_is_not_regressed(tmp_projects):
+def test_merge_before_decision_takes_approved_status(tmp_projects):
     at = approved_source(tmp_projects, "C1:app-not-installed")
     t = stamped(tmp_projects, "before", at - timedelta(hours=1))
     it = judge.merge(t, {"items": [out_item()]}, "explicit")["C1:app-not-installed"]
-    assert it["status"] == "propose" and "regressed_after" not in it
+    assert it["status"] == "approved" and "regressed_after" not in it
+
+
+def test_merge_before_applied_decision_takes_applied_status_for_twin(tmp_projects):
+    at = approved_source(tmp_projects, "C2:uv-run")
+    state.append_decision("C2:uv-run", "applied")
+    at = datetime.fromisoformat(state.load_decisions()["C2:uv-run"]["at"])
+    t = stamped(tmp_projects, "before", at - timedelta(hours=1))
+    it = judge.merge(t, {"items": [out_item("C7:uv-run")]}, "explicit")["C7:uv-run"]
+    assert it["status"] == "applied"
+    assert judge.merge(t, {"items": [out_item("C7:uv-run", impact=1, actionability=2)]}, "sweep")["C7:uv-run"]["status"] == "applied"
 
 
 def test_merge_regression_follows_plugin_cache_once_rule(tmp_projects):

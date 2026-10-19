@@ -367,3 +367,23 @@ def test_slash_skill_turn_enables_skill_preamble(tmp_path):
     p = tmp_path / "s.jsonl"
     p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
     assert "C3:skill-preamble:harness-loop:retro" in sigs_of(transcript.parse(p)[0])
+
+
+def test_resent_queued_slash_command_keeps_preamble_and_no_c8(tmp_path):
+    rows = [
+        {"type": "user", "cwd": "/tmp/proj", "message": {"role": "user", "content": "빌드해줘"}},
+        {"type": "attachment", "cwd": "/tmp/proj", "attachment": {"type": "queued_command", "commandMode": "prompt", "origin": {"kind": "human"}, "prompt": "/harness-loop:retro review"}},
+        {"type": "assistant", "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "text", "text": "빌드했습니다."}]}},
+        {"type": "user", "cwd": "/tmp/proj", "message": {"role": "user", "content": "<command-message>retro</command-message>\n<command-name>/harness-loop:retro</command-name>\n<command-args>review</command-args>"}},
+        {"type": "assistant", "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "r1", "name": "Read", "input": {"file_path": "/p/skills/retro/references/a.md"}}]}},
+    ]
+    p = tmp_path / "s.jsonl"
+    p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    got = sigs_of(transcript.parse(p)[0])
+    assert "C3:skill-preamble:harness-loop:retro" in got
+    assert not [x for x in got if x.startswith("C8")]
+
+
+def test_slash_turn_after_empty_turn_is_not_resend():
+    assert "C11:resend" not in sigs_of([T(1, "빌드해줘"), T(2, "/model", slash=True)])
+    assert "C11:resend" in sigs_of([T(1, "빌드해줘"), T(2, "빌드해줘")])
