@@ -7,6 +7,7 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -19,6 +20,7 @@ DEFAULTS = Path(__file__).resolve().parents[1] / "defaults"
 LOCK_TRIES = 10
 LOCK_SLEEP = 0.5
 LOCKED_EXIT = 3
+RUBRIC_VERSION = re.compile(r"<!--\s*rubric-version:\s*(\d+)\s*-->")
 
 DEFAULT_CONFIG = {
     "weights": {"recurrence": 0.4, "impact": 0.4, "actionability": 0.2},
@@ -29,6 +31,7 @@ DEFAULT_CONFIG = {
     "max_background_judges_per_day": 30,
     "eval_markers": ["트리거 측정 중"],
     "label_examples": 10,
+    "rubric_min_evidence": 3,
 }
 NEGATIVE_KINDS = ("not-defect", "trivial")
 REJECT_KINDS = NEGATIVE_KINDS + ("wont-fix",)
@@ -44,6 +47,12 @@ def data_dir() -> Path:
     if not (d / "installed_at").exists():
         (d / "installed_at").write_text(datetime.now().astimezone().isoformat())
     return d
+
+
+def rubric_version(text: str) -> int:
+    """rubric 본문의 `<!-- rubric-version: N -->` 값. 줄이 없으면 1."""
+    m = RUBRIC_VERSION.search(text)
+    return int(m.group(1)) if m else 1
 
 
 def load_config() -> dict:

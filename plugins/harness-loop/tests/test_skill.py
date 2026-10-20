@@ -6,7 +6,7 @@ import yaml
 PLUGIN = Path(__file__).resolve().parents[1]
 SKILL = PLUGIN / "skills/retro/SKILL.md"
 TRIGGERS = ("회고", "action item", "이 세션 돌아보기", "개선점 정리", "retro", "검토 대기")
-CONFIG_KEYS = ("weights", "propose", "watch", "global_bump", "queue_limit", "max_background_judges_per_day", "eval_markers", "label_examples")
+CONFIG_KEYS = ("weights", "propose", "watch", "global_bump", "queue_limit", "max_background_judges_per_day", "eval_markers", "label_examples", "rubric_min_evidence")
 
 
 def _parts():
@@ -98,3 +98,14 @@ def test_reject_decision_maps_reason_to_kind():
     for kind, question in (("not-defect", "실제로 잘못된 동작이었나"), ("trivial", "다시 생기면 고치고 싶나"), ("wont-fix", "고치고 싶지만 여기서는 안 하나")):
         assert any(question in l and f"`{kind}`" in l for l in decide.splitlines()), kind
     assert any("되묻는다" in l and "kind" in l for l in decide.splitlines())
+
+
+def test_rubric_mode_commands_and_hint():
+    text, front, body = _parts()
+    assert "rubric" in front["argument-hint"]
+    mode = body.split("## 채점 기준 보강", 1)[1].split("\n## ", 1)[0]
+    assert '"${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-candidates' in mode
+    assert re.search(r'"\$\{CLAUDE_PLUGIN_ROOT\}/scripts/report.py" rubric-apply --kind <kind> --rule "<규칙>" --evidence <sig> <sig> <sig>', mode)
+    assert "rubric_min_evidence" in mode
+    report_format = body.split("## 리포트 형식", 1)[1]
+    assert any("rubric-candidates" in l and "rubric_min_evidence" in l and "/harness-loop:retro rubric" in l for l in report_format.splitlines())

@@ -84,6 +84,8 @@ def test_background_judge_merges_fake_output(tmp_projects, fake_claude_ok, tmp_p
     [call] = calls(fake_claude_ok)
     assert call.startswith("1 -p --model opus --setting-sources project --strict-mcp-config --no-session-persistence --tools  --output-format json --json-schema {")
     assert "harness-loop judge 입력" in (tmp_path / "fake-claude.stdin").read_text()
+    run = json.loads(runs[0].read_text())
+    assert run["digest"] == (tmp_path / "fake-claude.stdin").read_text() and run["rubric_version"] == 1
     [line] = run_lines()
     assert line["ok"] is True and line["mode"] == "session-end" and line["session"] == "basic" and line["transcript"] == str(t)
     assert "error" not in line

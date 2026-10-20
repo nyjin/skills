@@ -19,6 +19,7 @@ REPORTABLE = {"propose", "regressed"}
 DECISIONS = ("approved", "rejected", "applied", "edit-score")
 OPEN_SESSION_SEC = 600
 PROJECT_SCAN_LINES = 50
+RUBRIC_SECTIONS = {"not-defect": "## 항목으로 만들지 않는 경우", "trivial": "## 영향 1 로 보는 경우"}
 
 
 def _now() -> datetime:
@@ -319,6 +320,84 @@ def list_items(scope: str) -> list[dict]:
     return out
 
 
+def _rubric_changes() -> list[dict]:
+    path = state.data_dir() / "rubric-changes.jsonl"
+    if not path.exists():
+        return []
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(r, dict):
+            out.append(r)
+    return out
+
+
+def rubric_candidates() -> dict:
+    """rubric-changes.jsonl 이 근거로 쓰지 않은 negative 라벨(not-defect·trivial)을 kind 별로 결정 시각 순으로 묶는다."""
+    cited = {state.sig_key(str(s)) for r in _rubric_changes() for s in (r.get("evidence") or [])}
+    stored = {}
+    for hdir in state.all_harness_dirs():
+        for sig, it in state.load_items(hdir).items():
+            stored.setdefault(state.sig_key(sig), (hdir.parent.name, it))
+    groups = {kind: [] for kind in state.NEGATIVE_KINDS}
+    for key, lab in sorted(state.labels().items(), key=lambda p: state.aware(p[1]["at"])):
+        if lab["label"] != "negative" or key in cited:
+            continue
+        session, it = stored.get(key, (None, {}))
+        quote = ((it.get("evidence") or [{}])[0]).get("quote")
+        groups[lab["kind"]].append({"sig": lab["sig"], "condition": it.get("condition") or lab["sig"].split(":", 1)[0], "kind": lab["kind"], "reason": lab["note"], "quote": quote, "session": session})
+    return {"rubric_min_evidence": state.load_config()["rubric_min_evidence"], "groups": groups}
+
+
+def _with_rule(text: str, kind: str, rule: str, version: int) -> str:
+    line = f"<!-- rubric-version: {version} -->"
+    m = state.RUBRIC_VERSION.search(text)
+    text = text[:m.start()] + line + text[m.end():] if m else f"{line}\n{text}"
+    lines = text.rstrip("\n").split("\n")
+    header = RUBRIC_SECTIONS[kind]
+    if header in lines:
+        end = lines.index(header) + 1
+        while end < len(lines) and not lines[end].startswith("#"):
+            end += 1
+        while not lines[end - 1].strip():
+            end -= 1
+        lines.insert(end, f"- {rule}")
+    else:
+        lines += ["", header, "", f"- {rule}"]
+    return "\n".join(lines) + "\n"
+
+
+def rubric_apply(kind: str, rule: str, evidence: list[str], out: Path | None = None) -> dict:
+    """kind 의 negative 라벨 근거가 rubric_min_evidence 개 이상이면 데이터 디렉터리 rubric.md 의 kind 절에 규칙을 더하고 버전을 올려 rubric-changes.jsonl 에 남긴다. out 이 있으면 바뀐 rubric 을 그 파일에만 쓴다."""
+    if kind not in RUBRIC_SECTIONS:
+        raise ValueError(f"kind 는 {'|'.join(RUBRIC_SECTIONS)} 중 하나다: {kind}")
+    rule = " ".join(rule.split())
+    if not rule:
+        raise ValueError("규칙 문장이 비었다.")
+    labels = state.labels()
+    bad = [s for s in evidence if (labels.get(state.sig_key(s)) or {}).get("label") != "negative" or labels[state.sig_key(s)]["kind"] != kind]
+    good = {state.sig_key(s) for s in evidence if s not in bad}
+    need = state.load_config()["rubric_min_evidence"]
+    if bad or len(good) < need:
+        detail = f" {kind} 거절 라벨이 아닌 sig: {', '.join(bad)}." if bad else ""
+        raise ValueError(f"근거가 모자라다: 서로 다른 {kind} 거절 라벨 sig 가 rubric_min_evidence({need})개 이상 필요한데 {len(good)}개다.{detail}")
+    path = state.data_dir() / "rubric.md"
+    text = path.read_text(encoding="utf-8")
+    version = state.rubric_version(text) + 1
+    new = _with_rule(text, kind, rule, version)
+    if out is not None:
+        Path(out).write_text(new, encoding="utf-8")
+        return {"version": version, "kind": kind, "rule": rule, "evidence": list(evidence), "path": str(out)}
+    state._atomic_write(path, new)
+    record = {"version": version, "at": _now().isoformat(), "kind": kind, "rule": rule, "evidence": list(evidence)}
+    with open(state.data_dir() / "rubric-changes.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return {**record, "path": str(path)}
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(prog="report.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -338,6 +417,12 @@ def main(argv=None) -> None:
     p.add_argument("--actionability", type=int, choices=(1, 2, 3))
     p.add_argument("--kind", choices=state.REJECT_KINDS)
     p.add_argument("--reason")
+    sub.add_parser("rubric-candidates")
+    p = sub.add_parser("rubric-apply")
+    p.add_argument("--kind", choices=tuple(RUBRIC_SECTIONS), required=True)
+    p.add_argument("--rule", required=True)
+    p.add_argument("--evidence", nargs="+", required=True)
+    p.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
     if args.cmd == "where":
         sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
@@ -352,7 +437,11 @@ def main(argv=None) -> None:
             print(t)
         return
     try:
-        if args.cmd == "list":
+        if args.cmd == "rubric-candidates":
+            result = rubric_candidates()
+        elif args.cmd == "rubric-apply":
+            result = rubric_apply(args.kind, args.rule, args.evidence, args.out)
+        elif args.cmd == "list":
             scope = f"session:{args.session}" if args.session else "all" if args.all else "pending"
             result = list_items(scope)
             if args.mark_reported:

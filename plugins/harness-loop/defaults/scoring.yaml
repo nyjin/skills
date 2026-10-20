@@ -6,3 +6,4 @@ queue_limit: 3
 max_background_judges_per_day: 30
 eval_markers: ["트리거 측정 중"]
 label_examples: 10
+rubric_min_evidence: 3

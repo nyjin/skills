@@ -14,8 +14,8 @@
 
 - 플러그인 이름 `harness-loop`, 스킬 이름 `retro`(호출 `/harness-loop:retro`, `review`, `backfill`), 위치 `~/src/skills/plugins/harness-loop/`, marketplace `source` 는 `./plugins/harness-loop`.
 - 세션 상태: `~/.claude/projects/<프로젝트>/<세션ID>/harness/`(`HARNESS_PROJECTS_ROOT` 가 있으면 그 루트 아래 같은 구조) 아래 `cursor`, `signals.jsonl`, `runs/NNN-<explicit|session-end|sweep>.json`, `action-items.json`, `lock/`, `skip`.
-- 공용 상태: `${CLAUDE_PLUGIN_DATA}` 아래 `scoring.yaml`, `rubric.md`, `decisions.jsonl`, 그리고 운영 파일 `installed_at`, `judge-runs.jsonl`, `hook-errors.log`, `hook-events.log`(락 경합으로 건너뛴 보고 쪽 쓰기). `CLAUDE_PLUGIN_DATA` 가 없으면 `~/.claude/plugins/data/harness-loop-local/` 를 쓴다.
-- `scoring.yaml` 기본값: `weights: {recurrence: 0.4, impact: 0.4, actionability: 0.2}`, `propose: 2.2`, `watch: 1.6`, `global_bump: 0.3`, `queue_limit: 3`, `max_background_judges_per_day: 30`, `eval_markers: ["트리거 측정 중"]`, `label_examples: 10`.
+- 공용 상태: `${CLAUDE_PLUGIN_DATA}` 아래 `scoring.yaml`, `rubric.md`(첫 줄 `<!-- rubric-version: N -->`), `decisions.jsonl`, `rubric-changes.jsonl`, 그리고 운영 파일 `installed_at`, `judge-runs.jsonl`, `hook-errors.log`, `hook-events.log`(락 경합으로 건너뛴 보고 쪽 쓰기). `CLAUDE_PLUGIN_DATA` 가 없으면 `~/.claude/plugins/data/harness-loop-local/` 를 쓴다.
+- `scoring.yaml` 기본값: `weights: {recurrence: 0.4, impact: 0.4, actionability: 0.2}`, `propose: 2.2`, `watch: 1.6`, `global_bump: 0.3`, `queue_limit: 3`, `max_background_judges_per_day: 30`, `eval_markers: ["트리거 측정 중"]`, `label_examples: 10`, `rubric_min_evidence: 3`.
 - 재발성 점수: 같은 sig 가 나온 서로 다른 세션 수 1 → 1점, 2~3 → 2점, 4 이상 → 3점.
 - 상태값: `propose|watch|discarded|approved|rejected|applied|regressed`.
 - 훅은 어떤 경우에도 종료 코드 0 이고, 오류는 `hook-errors.log` 에 한 줄씩 남긴다.
@@ -462,3 +462,17 @@ Step 1~2 의 모든 명령은 `HARNESS_PROJECTS_ROOT=<scratchpad>/projects CLAUD
 - SKILL.md: 리포트 표는 `propose`·`regressed` 만, 다른 상태는 `그 외 N건(…)` 한 줄. 거절 이유를 확인 질문 표로 `--kind` 에 맞추고, 모호할 때만 되묻는다.
 
 - [ ] **커밋** — `feat: harness-loop 사용자 판정 라벨과 digest 판정 예시`
+
+### Task 11: rubric 보강 제안 (판정 보정 1단계)
+
+**Files:**
+- Modify: `scripts/state.py`, `scripts/judge.py`, `scripts/report.py`, `defaults/rubric.md`, `defaults/scoring.yaml`, `skills/retro/SKILL.md`, 테스트
+
+**Interfaces:**
+- `state.rubric_version(text) -> int` — `<!-- rubric-version: N -->` 값, 없으면 1. `defaults/rubric.md` 는 1 로 시작한다.
+- `judge.merge(..., digest_text=None)` — run 파일에 `rubric_version` 과 `digest` 를 남긴다. 백그라운드는 `claude -p` 에 준 digest 를, 명시 호출은 병합 전 상태로 다시 만든 digest 를 쓴다.
+- `report.rubric_candidates() -> {"rubric_min_evidence": N, "groups": {"not-defect": [...], "trivial": [...]}}` — 항목마다 `sig`·`condition`·`kind`·`reason`·`quote`·`session`. CLI `report.py rubric-candidates`.
+- `report.rubric_apply(kind, rule, evidence, out=None)` — 근거 검증(서로 다른 그 kind 의 negative 라벨이 `rubric_min_evidence` 개 이상, 아니면 ValueError·CLI 종료 코드 1) → kind 절에 `- 규칙` 추가(절이 없으면 끝에 만든다) → 버전 +1 → 원자적 쓰기 → `rubric-changes.jsonl` 추가. `out` 이면 그 파일에만 쓴다. CLI `report.py rubric-apply --kind K --rule … --evidence SIG… [--out FILE]`.
+- SKILL.md `rubric` 모드와 리포트 끝 보강 후보 안내.
+
+- [ ] **커밋** — `feat: harness-loop rubric 보강 제안과 run digest 기록`

@@ -38,6 +38,7 @@ FOCUS_RULE = "항목 하나는 결함 하나다. 서로 다른 잘못을 한 항
 SOURCE_RULE = "지적 · 제안이 외부 도구(ocr 같은 리뷰 도구)나 사용자 결정에서 나왔으면 그것 자체를 결함으로 보지 않는다. 결함은 AI 가 그것을 받아 내린 판단(권고 · 해석 · 실행)에만 매기고, `target` 도 그 판단을 고칠 자리로 잡는다. 사용자가 정한 설계 방향은 근거로 쓰지 않는다."
 EXAMPLE_HOWTO = {"not-defect": "비슷한 경우 항목을 만들지 않는다.", "trivial": "비슷한 경우 영향 1 로 본다.", None: "비슷한 경우 항목으로 만든다."}
 EXAMPLE_QUOTE = 200
+RUBRIC_END = "\n\n## 신호\n\n| sig |"
 SIG_RULE = "`?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다."
 
 
@@ -156,6 +157,21 @@ def label_examples(limit: int) -> list[str]:
         quote = _cell(((it.get("evidence") or [{}])[0]).get("quote"))[:EXAMPLE_QUOTE]
         lines.append(f"- `{lab['sig']}` ({_cell(it.get('condition'))}, {kind or '보고 가치 있음'}) 근거: \"{quote}\" 사용자 이유: {_cell(lab['note']) or '없음'} → {EXAMPLE_HOWTO[kind]}")
     return lines
+
+
+def _rubric_bounds(text: str) -> tuple[int, int]:
+    """digest 안 rubric 의 (시작, 끝) 위치. rubric 은 머리 두 단락 뒤부터 신호 표 앞까지다. 찾지 못하면 ValueError."""
+    start = text.index("\n\n", text.index("\n\n") + 2) + 2
+    end = text.index(RUBRIC_END, start)
+    return start, end
+
+
+def _rubric_of(text: str) -> str:
+    try:
+        start, end = _rubric_bounds(text)
+    except ValueError:
+        return ""
+    return text[start:end]
 
 
 def recurrence(sig: str, this_session: str) -> int:
@@ -308,7 +324,8 @@ def _next_run(hdir: Path, mode: str) -> Path:
     return runs / f"{max(nums, default=0) + 1:03d}-{mode}.json"
 
 
-def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
+def merge(transcript_path: Path, judge_output: dict, mode: str, digest_text: str | None = None) -> dict:
+    """digest_text 는 judge 가 받은 digest. 없으면(명시 호출) 병합 전 상태로 같은 digest 를 다시 만든다. run 파일에 rubric 버전과 함께 남긴다."""
     if mode not in MODES:
         raise ValueError(f"mode 는 {'|'.join(MODES)} 중 하나다: {mode}")
     overrides = state.load_score_overrides()
@@ -321,6 +338,8 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
     path = Path(transcript_path)
     session = path.stem
     hdir = state.harness_dir(path)
+    if digest_text is None:
+        digest_text = digest(path, pending_signals(hdir))
     cfg = state.load_config()
     items = state.load_items(hdir)
     started = state.session_start(path)
@@ -369,7 +388,7 @@ def merge(transcript_path: Path, judge_output: dict, mode: str) -> dict:
             merged["status"] = old["status"]
         items[sig] = merged
     state.save_items(hdir, items)
-    run = {"mode": mode, "at": datetime.now().astimezone().isoformat(), "signals_upto": _signal_lines(hdir), "output": judge_output}
+    run = {"mode": mode, "at": datetime.now().astimezone().isoformat(), "signals_upto": _signal_lines(hdir), "rubric_version": state.rubric_version(_rubric_of(digest_text)), "digest": digest_text, "output": judge_output}
     _next_run(hdir, mode).write_text(json.dumps(run, ensure_ascii=False, indent=2), encoding="utf-8")
     return items
 
@@ -458,7 +477,7 @@ def _invoke(path: Path, hdir: Path, mode: str, claude_bin: str) -> None:
         shutil.rmtree(cwd, ignore_errors=True)
     if proc.returncode != 0:
         raise ValueError(f"exit {proc.returncode}: {' '.join(proc.stderr.split())[:200]}")
-    merge(path, _judge_output(proc.stdout), mode)
+    merge(path, _judge_output(proc.stdout), mode, text)
 
 
 def _log_error(path: Path, error: Exception) -> None:

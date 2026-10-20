@@ -131,3 +131,10 @@ def test_labels_use_last_non_edit_score_decision(tmp_projects):
     assert got["C2:twin"]["sig"] == "C7:twin" and got["C2:twin"]["at"]
     rec = [l for l in (state.data_dir() / "decisions.jsonl").read_text().splitlines() if "C1:nd" in l][0]
     assert '"kind": "not-defect"' in rec
+
+
+def test_rubric_version_line(tmp_projects):
+    assert state.rubric_version((state.DEFAULTS / "rubric.md").read_text()) == 1
+    assert (state.DEFAULTS / "rubric.md").read_text().startswith("<!-- rubric-version: 1 -->\n")
+    assert state.rubric_version("# 채점 기준\n") == 1
+    assert state.rubric_version("<!-- rubric-version: 7 -->\n# x\n") == 7

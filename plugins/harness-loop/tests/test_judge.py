@@ -644,3 +644,17 @@ def test_digest_label_examples_fill_with_remaining_and_instructions(tmp_projects
 def test_digest_label_examples_empty(tmp_projects):
     t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
     assert examples_section(judge.digest(t, [])).strip().endswith("- 없음")
+
+
+def test_merge_run_records_rubric_version_and_digest(tmp_projects):
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    hdir = state.harness_dir(t)
+    (hdir / "signals.jsonl").write_text(json.dumps({"sig": "C1:x", "condition": "C1", "turn": 1, "quote": "q"}) + "\n")
+    state.data_dir().joinpath("rubric.md").write_text("<!-- rubric-version: 4 -->\n# 채점 기준\n")
+    expected = judge.digest(t, judge.pending_signals(hdir))
+    judge.merge(t, {"items": [out_item()]}, "explicit")
+    run = json.loads((hdir / "runs" / "001-explicit.json").read_text())
+    assert run["rubric_version"] == 4 and run["digest"] == expected
+    judge.merge(t, {"items": []}, "explicit", digest_text="주어진 digest")
+    run = json.loads((hdir / "runs" / "002-explicit.json").read_text())
+    assert run["digest"] == "주어진 digest" and run["rubric_version"] == 1

@@ -52,7 +52,8 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 | 데이터 | 위치 | 수명 |
 |---|---|---|
 | 세션별 수집·판정 결과 | `~/.claude/projects/<프로젝트>/<세션ID>/harness/` (`HARNESS_PROJECTS_ROOT`가 있으면 그 아래 같은 구조) | 세션 기록과 같다 (`cleanupPeriodDays`) |
-| 설정 `scoring.yaml`, `rubric.md` | `${CLAUDE_PLUGIN_DATA}` (첫 실행 때 `defaults/`에서 복사) | 플러그인 데이터 |
+| 설정 `scoring.yaml`, `rubric.md` (`rubric.md` 첫 줄 `<!-- rubric-version: N -->`, 줄이 없으면 1) | `${CLAUDE_PLUGIN_DATA}` (첫 실행 때 `defaults/`에서 복사) | 플러그인 데이터 |
+| rubric 변경 기록 `rubric-changes.jsonl` (덧붙이기만, 줄마다 `version`·`at`·`kind`·`rule`·`evidence`) | `${CLAUDE_PLUGIN_DATA}` | 플러그인 데이터 |
 | 승인·거절·반영·점수 수정 기록 `decisions.jsonl` (줄마다 `sig`·`decision`·`at`·`target`·`note`(사용자 이유)·`kind`(거절 종류), 점수 수정은 `impact`·`actionability`) | `${CLAUDE_PLUGIN_DATA}` | 플러그인 데이터 |
 
 세션 디렉터리 구조:
@@ -61,7 +62,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 <세션ID>/harness/
 ├── cursor               # 마지막으로 처리한 jsonl 줄 번호
 ├── signals.jsonl        # collect 결과, 호출마다 덧붙인다
-├── runs/NNN-<explicit|session-end|sweep>.json
+├── runs/NNN-<explicit|session-end|sweep>.json   # judge 출력, signals_upto, rubric_version, judge 가 받은 digest 전문(명시 호출은 병합 전 상태로 다시 만든 digest)
 └── action-items.json    # sig 를 키로 합친 현재 상태 (보고·리뷰는 이 파일만 읽는다). 항목마다 reported_at 으로 보고 여부를 표시한다(보고는 sig 단위로 한 번)
 ```
 
@@ -152,6 +153,7 @@ global_bump: 0.3        # 전역 CLAUDE.md·메모리 대상이면 propose·watc
 queue_limit: 3
 max_background_judges_per_day: 30
 label_examples: 10     # digest 의 사용자 판정 예시 수
+rubric_min_evidence: 3 # rubric 규칙 하나에 필요한 거절 라벨 수
 ```
 
 - 통과 조건: 같은 규칙이 이미 대상 파일에 있으면 점수와 무관하게 폐기하되, 지켜지지 않은 기존 규칙이면 "규칙 강화" 항목으로 바꾼다(C7). 규칙이 다른 범위에만 있으면(다른 프로젝트 메모리, 프로젝트 메모리와 전역 CLAUDE.md 사이) 중복이 아니므로 보통대로 채점한다. 대상 파일인지는 `duplicate_of_rule` 에 대상 경로(원문, `~` 를 펼친 형태, realpath 중 하나)가 들어 있는지로 본다.
@@ -160,6 +162,7 @@ label_examples: 10     # digest 의 사용자 판정 예시 수
 - 사용자 판정은 라벨이 된다. 거절은 `--kind` 로 종류를 남긴다: `not-defect`(judge 오탐, 정상 동작이었다), `trivial`(결함이지만 고칠 가치가 작다), `wont-fix`(가치는 있지만 이 자리에서 고치지 않는다). 셋 다 지금의 거절과 같게 그 sig 를 다시 보고하지 않는다. `--kind` 없는 거절도 유효하다(종류 없음). 승인·거절·반영에는 `--reason` 으로 사용자 이유를 `note` 에 남길 수 있다.
 - sig_key 의 라벨은 마지막 결정(edit-score 제외)으로 정한다: 승인·반영은 positive, `not-defect`·`trivial` 거절은 negative, `wont-fix` 와 종류 없는 거절은 제외한다. 라벨은 `sha1(sig_key)` 첫 바이트가 128 미만이면 test, 아니면 train 으로 결정적으로 나눈다.
 - digest 의 "사용자 판정 예시" 절에 train 라벨을 최근 순으로 positive·negative 를 번갈아 `label_examples` 개까지 넣는다(한쪽이 모자라면 남은 쪽으로 채운다). 예시마다 sig, 조건, 거절 종류(positive 는 "보고 가치 있음"), 첫 근거 인용(200자까지), 사용자 이유, 그 판정이 뜻하는 지시(`not-defect` → 비슷한 경우 항목을 만들지 않는다, `trivial` → 비슷한 경우 영향 1, positive → 비슷한 경우 항목으로 만든다)를 쓴다. 항목은 어느 세션이든 그 sig_key 로 저장된 항목에서 가져오고, 없으면 건너뛴다.
+- rubric 보강: `report.py rubric-candidates` 는 `rubric-changes.jsonl` 이 근거로 쓰지 않은 negative 라벨을 kind 별로 낸다(sig, 조건, kind, 이유, 첫 인용, 세션, 그리고 `rubric_min_evidence`). `report.py rubric-apply --kind K --rule … --evidence SIG…` 는 서로 다른 K 거절 라벨이 `rubric_min_evidence` 개 이상일 때만(아니면 종료 코드 1) 데이터 디렉터리 `rubric.md` 의 "## 항목으로 만들지 않는 경우"(not-defect) 또는 "## 영향 1 로 보는 경우"(trivial) 절에 규칙을 더하고 버전을 올려 `rubric-changes.jsonl` 에 남긴다. `--out FILE` 이면 바뀐 rubric 을 그 파일에만 쓴다(후보 검증용). 스킬의 `rubric` 모드는 후보를 패턴으로 묶어(패턴마다 근거 `rubric_min_evidence` 개 이상) 초안을 보이고 사용자 승인 뒤 적용한다. 회고·검토 리포트 끝에는 후보가 충분한 kind 가 있을 때 한 줄로 알린다.
 - 회고 리포트의 표와 상세에는 `propose`·`regressed` 항목만 쓰고, 다른 상태는 `그 외 N건(watch a·discarded b·…)` 한 줄과 모두 보는 명령(`report.py list --session <id>`, 모든 상태를 낸다)으로 줄인다.
 - 사용자가 리뷰 중 점수를 고치면 `decisions.jsonl` 에 고친 `impact`·`actionability` 를 남긴다. 이 값은 sig 를 키로 모든 세션에 적용되고(그래서 `decide … edit-score` 는 `--session` 을 받지 않는다), 이후 병합·재채점에서 judge 점수보다 우선한다.
 
