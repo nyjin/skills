@@ -146,3 +146,16 @@ def test_exemplar_mermaid_renders(name, tmp_path):
         proc = subprocess.run(["bash", str(SKILL / "scripts/render-mermaid.sh"), str(src), str(tmp_path / f"{i}.svg")],
                               capture_output=True, text=True, timeout=300)
         assert proc.returncode == 0, f"{name} 블록 {i}: {proc.stderr}"
+
+
+def test_evidence_level_principle_is_wired():
+    style = (REFS / "style.md").read_text(encoding="utf-8")
+    assert "## P-4 " in style
+    for word in ("선언", "구현", "관측", "확인할 곳"):
+        assert word in style.split("## P-4 ")[1].split("\n## ")[0]
+    checklist = (REFS / "review-checklist.md").read_text(encoding="utf-8")
+    assert "P-4" in checklist.split("## O-2 ")[1].split("\n## ")[0]
+    skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+    assert "근거 수준" in next(l for l in skill.splitlines() if l.startswith("사실 검증:"))
+    examples = (REFS / "examples.md").read_text(encoding="utf-8")
+    assert "### P-4a " in examples
