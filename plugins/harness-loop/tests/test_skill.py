@@ -6,7 +6,7 @@ import yaml
 PLUGIN = Path(__file__).resolve().parents[1]
 SKILL = PLUGIN / "skills/retro/SKILL.md"
 TRIGGERS = ("회고", "action item", "이 세션 돌아보기", "개선점 정리", "retro", "검토 대기")
-CONFIG_KEYS = ("weights", "propose", "watch", "global_bump", "queue_limit", "max_background_judges_per_day", "eval_markers")
+CONFIG_KEYS = ("weights", "propose", "watch", "global_bump", "queue_limit", "max_background_judges_per_day", "eval_markers", "label_examples")
 
 
 def _parts():
@@ -81,3 +81,20 @@ def test_korean_rule_leads_procedure_and_report_format():
     assert any("한국어" in l for l in report_format.splitlines() if l.startswith("- "))
     rules = body.split("### 판정 JSON 작성 규칙", 1)[1].split("\n## ", 1)[0]
     assert any("proposal" in l and "한국어" in l for l in rules.splitlines())
+
+
+def test_report_shows_only_reportable_and_collapses_others():
+    _, _, body = _parts()
+    report_format = body.split("## 리포트 형식", 1)[1]
+    assert "`propose`·`regressed` 항목만" in report_format
+    assert "그 외 N건(watch a·discarded b·…)" in report_format and "list --session <세션ID>" in report_format
+
+
+def test_reject_decision_maps_reason_to_kind():
+    _, _, body = _parts()
+    decide = body.split("## 결정", 1)[1].split("\n## ", 1)[0]
+    assert re.search(r'decide "<sig>" rejected --kind <kind> --reason "<이유>"', decide)
+    assert 'decide "<sig>" approved --reason "<이유>"' in decide
+    for kind, question in (("not-defect", "실제로 잘못된 동작이었나"), ("trivial", "다시 생기면 고치고 싶나"), ("wont-fix", "고치고 싶지만 여기서는 안 하나")):
+        assert any(question in l and f"`{kind}`" in l for l in decide.splitlines()), kind
+    assert any("되묻는다" in l and "kind" in l for l in decide.splitlines())

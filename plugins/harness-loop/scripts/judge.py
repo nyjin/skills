@@ -5,6 +5,7 @@
 # ///
 """judge 입력(digest)을 만들고, judge 출력을 채점해 action-items.json 에 병합한다."""
 import argparse
+import itertools
 import json
 import os
 import re
@@ -35,6 +36,8 @@ LANG_RULE = "`proposal` 과 모든 설명은 한국어로 쓴다. 근거 인용(
 DECIDED_RULE = "후보가 위 결정된 sig(승인·거절·반영)와 같은 문제면 범위·문구·C2/C7 분류가 달라도 그 sig 를 그대로 재사용한다. 결정된 문제를 다른 말로 설명하려고 새 sig 를 만들지 않는다."
 FOCUS_RULE = "항목 하나는 결함 하나다. 서로 다른 잘못을 한 항목에 묶지 않는다. 결정된 sig 가 아닌 기존 sig 는 그 이름만 읽어도 이번 사례가 무엇인지 알 수 있을 때만 재사용하고, 아니면 사례를 그대로 말하는 새 sig 를 만든다. 사용자가 요청 해석을 한 번 바로잡고 곧바로 맞게 진행됐으면(틀린 산출물이 남지 않았으면) 대화 중 정상적인 조정이므로 항목을 내지 않는다."
 SOURCE_RULE = "지적 · 제안이 외부 도구(ocr 같은 리뷰 도구)나 사용자 결정에서 나왔으면 그것 자체를 결함으로 보지 않는다. 결함은 AI 가 그것을 받아 내린 판단(권고 · 해석 · 실행)에만 매기고, `target` 도 그 판단을 고칠 자리로 잡는다. 사용자가 정한 설계 방향은 근거로 쓰지 않는다."
+EXAMPLE_HOWTO = {"not-defect": "비슷한 경우 항목을 만들지 않는다.", "trivial": "비슷한 경우 영향 1 로 본다.", None: "비슷한 경우 항목으로 만든다."}
+EXAMPLE_QUOTE = 200
 SIG_RULE = "`?` 신호는 기존 sig 목록에서 주제가 같은 것을 재사용하고 없을 때만 `<조건>:<kebab-토픽>` 로 새로 만든다."
 
 
@@ -129,9 +132,30 @@ def digest(transcript_path: Path, new_signals: list[dict]) -> str:
     decisions = state.load_decisions()
     parts.append("## 결정된 sig\n\n" + ("\n".join(f"- {sig}: {d['decision']}" for sig, d in sorted(decisions.items())) or "- 없음") + f"\n\n{DECIDED_RULE}")
 
+    parts.append("## 사용자 판정 예시\n\n사용자가 앞선 항목에 내린 판정이다. 비슷한 사례는 줄 끝의 지시를 따른다.\n\n" + ("\n".join(label_examples(state.load_config()["label_examples"])) or "- 없음"))
+
     parts.append(f"## sig 규칙\n\n{SIG_RULE} `?` 가 아닌 신호는 sig 를 그대로 쓴다. {C2_C7_RULE} {ITEM_RULE} {FOCUS_RULE} {SOURCE_RULE} {DUP_RULE}\n\n## 출력 언어\n\n{LANG_RULE}")
     parts.append("## 출력 스키마\n\n```json\n" + SCHEMA.read_text(encoding="utf-8").strip() + "\n```")
     return "\n\n".join(parts) + "\n"
+
+
+def label_examples(limit: int) -> list[str]:
+    """train 분할의 positive·negative 라벨을 최근 순으로 번갈아 limit 개까지 digest 줄로 만든다. 한쪽이 모자라면 남은 쪽으로 채운다. 저장된 항목이 없는 라벨은 건너뛴다."""
+    stored = {}
+    for hdir in state.all_harness_dirs():
+        for sig, it in state.load_items(hdir).items():
+            stored.setdefault(state.sig_key(sig), it)
+    groups = {"positive": [], "negative": []}
+    for key, lab in sorted(state.labels().items(), key=lambda p: state.aware(p[1]["at"]), reverse=True):
+        if lab["label"] in groups and state.split(key) == "train" and key in stored:
+            groups[lab["label"]].append((lab, stored[key]))
+    picked = [p for pair in itertools.zip_longest(groups["positive"], groups["negative"]) for p in pair if p]
+    lines = []
+    for lab, it in picked[:max(0, limit)]:
+        kind = lab["kind"] if lab["label"] == "negative" else None
+        quote = _cell(((it.get("evidence") or [{}])[0]).get("quote"))[:EXAMPLE_QUOTE]
+        lines.append(f"- `{lab['sig']}` ({_cell(it.get('condition'))}, {kind or '보고 가치 있음'}) 근거: \"{quote}\" 사용자 이유: {_cell(lab['note']) or '없음'} → {EXAMPLE_HOWTO[kind]}")
+    return lines
 
 
 def recurrence(sig: str, this_session: str) -> int:

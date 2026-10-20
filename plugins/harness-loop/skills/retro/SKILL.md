@@ -44,7 +44,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/collect.py" "<transcript>"
 ```
 
-3. judge 입력(digest)을 파일로 만들고 Read 로 읽는다. digest 에는 채점 기준(`${CLAUDE_PLUGIN_DATA}/rubric.md`), 지난 판정 이후 신호, 신호가 걸린 턴, 살아 있는 sig, 결정된 sig, sig 규칙, 출력 스키마가 들어 있다.
+3. judge 입력(digest)을 파일로 만들고 Read 로 읽는다. digest 에는 채점 기준(`${CLAUDE_PLUGIN_DATA}/rubric.md`), 지난 판정 이후 신호, 신호가 걸린 턴, 살아 있는 sig, 결정된 sig, 사용자 판정 예시, sig 규칙, 출력 스키마가 들어 있다. 사용자 판정 예시의 지시도 따른다.
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" digest "<transcript>" > "<tmp>/harness-digest.md"
@@ -133,9 +133,20 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 
 | 입력 | 명령 |
 |---|---|
-| 승인 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" approved` |
-| 거절 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" rejected` |
+| 승인 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" approved --reason "<이유>"` (이유가 없으면 `--reason` 을 뺀다) |
+| 거절 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" rejected --kind <kind> --reason "<이유>"` (이유가 없으면 `--reason` 을 뺀다) |
 | 영향·해결 점수 수정 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" edit-score --impact <1~3> --actionability <1~3>` (바꾸는 쪽만 준다) |
+
+거절의 `<kind>` 는 사용자 이유를 아래 표에 맞춰 정한다. 사용자 이유 문장은 `--reason` 에 그대로 넘긴다.
+
+| 확인 질문 | 답 | kind |
+|---|---|---|
+| 실제로 잘못된 동작이었나 | 아니다(정상 동작을 결함으로 잡았다) | `not-defect` |
+| 다시 생기면 고치고 싶나 | 아니다(결함이지만 고칠 가치가 작다) | `trivial` |
+| 고치고 싶지만 여기서는 안 하나 | 그렇다(가치는 있지만 이 자리에서 고치지 않는다) | `wont-fix` |
+
+- 이유가 없거나 두 kind 에 걸치면 그 항목만 실행하지 않고 위 질문으로 되묻는다. 되물어도 답이 없으면 `--kind` 없이 거절한다.
+- 세 kind 모두 거절이라 그 sig 는 다시 보고되지 않는다.
 
 3. 점수를 고친 항목은 명령 출력의 `score`·`status` 로 바뀐 점수와 상태를 한 줄로 알린다. 고친 점수는 그 sig 가 있는 모든 세션에 적용되고, 이후 판정 병합과 재채점에서도 judge 점수 대신 쓰인다.
 4. 승인한 항목마다 반영 대상의 소유 환경을 판정한다. 출력 JSON 의 `kind`·`real_path`·`root`·`rules` 를 쓴다.
@@ -163,7 +174,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 
 ## 리포트 형식
 
-항목은 `score` 내림차순이고 1부터 번호를 붙인다. 표 한 줄과 그 아래 상세를 항목마다 쓴다.
+표와 상세에는 `propose`·`regressed` 항목만 쓴다. 항목은 `score` 내림차순이고 1부터 번호를 붙인다. 표 한 줄과 그 아래 상세를 항목마다 쓴다.
 
 | 번호 | 상태 | 조건 | sig | 점수(재발/영향/해결 → 합계) | 대상 | 소유 환경 |
 |---|---|---|---|---|---|---|
@@ -178,7 +189,9 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 - 근거: "<evidence[1].quote>" (있을 때만)
 ```
 
+- 다른 상태 항목은 상세 아래 한 줄 `그 외 N건(watch a·discarded b·…) — 모두 보기: report.py list --session <세션ID>` 로 줄인다. 다른 상태 항목이 없으면 이 줄을 쓰지 않는다.
+- 사용자가 모든 상태를 보겠다고 하면 다른 상태 항목도 같은 형식으로 쓴다.
 - `regressed` 항목은 상세 첫 줄에 `반영 실패: <regressed_after> 이후 재발` 을 쓴다.
 - review 모드는 상세에 `session`·`project` 를 한 줄 더 쓴다.
 - 리포트는 표 머리글·상세·안내 문장을 모두 한국어로 쓴다. 근거 인용만 원문 그대로 둔다.
-- 리포트 끝에 "결정은 자유롭게 입력하세요. 예: 1 승인, 2 거절, 3번 영향 3으로" 한 줄을 쓴다.
+- 리포트 끝에 "결정은 자유롭게 입력하세요. 이유를 함께 주면 판정 기준에 반영됩니다. 예: 1 승인, 2 거절(정상 동작이었음), 3번 영향 3으로" 한 줄을 쓴다.

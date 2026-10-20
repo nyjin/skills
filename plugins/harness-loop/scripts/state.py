@@ -4,6 +4,7 @@
 # dependencies = ["pyyaml>=6"]
 # ///
 """harness-loop 상태 저장소: 공용 데이터 디렉터리, 세션별 harness 디렉터리, 락, 결정 기록."""
+import hashlib
 import json
 import os
 import shutil
@@ -27,7 +28,10 @@ DEFAULT_CONFIG = {
     "queue_limit": 3,
     "max_background_judges_per_day": 30,
     "eval_markers": ["트리거 측정 중"],
+    "label_examples": 10,
 }
+NEGATIVE_KINDS = ("not-defect", "trivial")
+REJECT_KINDS = NEGATIVE_KINDS + ("wont-fix",)
 
 
 def data_dir() -> Path:
@@ -159,13 +163,14 @@ def save_items(hdir, items) -> None:
     _atomic_write(Path(hdir) / "action-items.json", json.dumps(items, ensure_ascii=False, indent=2))
 
 
-def append_decision(sig, decision, target=None, note=None, impact=None, actionability=None) -> None:
+def append_decision(sig, decision, target=None, note=None, impact=None, actionability=None, kind=None) -> None:
     record = {
         "sig": sig,
         "decision": decision,
         "at": datetime.now().astimezone().isoformat(),
         "target": target,
         "note": note,
+        "kind": kind,
     }
     for key, value in (("impact", impact), ("actionability", actionability)):
         if value is not None:
@@ -248,8 +253,27 @@ def load_decisions_by_key() -> dict[str, dict]:
     result = {}
     for r in _decision_records():
         if r["decision"] != "edit-score":
-            result[sig_key(r["sig"])] = {"decision": r["decision"], "at": r["at"], "target": r.get("target"), "sig": r["sig"]}
+            result[sig_key(r["sig"])] = {"decision": r["decision"], "at": r["at"], "target": r.get("target"), "sig": r["sig"], "kind": r.get("kind"), "note": r.get("note")}
     return result
+
+
+def labels() -> dict[str, dict]:
+    """sig_key 별 사용자 판정 라벨(마지막 결정, edit-score 제외). label: positive(approved·applied), negative(rejected 이고 kind 가 not-defect·trivial), excluded(wont-fix 나 kind 없는 rejected)."""
+    out = {}
+    for key, d in load_decisions_by_key().items():
+        if d["decision"] in ("approved", "applied"):
+            label = "positive"
+        elif d["decision"] == "rejected" and d.get("kind") in NEGATIVE_KINDS:
+            label = "negative"
+        else:
+            label = "excluded"
+        out[key] = {"label": label, "kind": d.get("kind"), "note": d.get("note"), "sig": d["sig"], "at": d["at"], "decision": d["decision"]}
+    return out
+
+
+def split(key: str) -> str:
+    """라벨 분할: sha1(sig_key) 첫 바이트가 128 미만이면 test, 아니면 train."""
+    return "test" if hashlib.sha1(key.encode("utf-8")).digest()[0] < 128 else "train"
 
 
 def _atomic_write(path: Path, text: str) -> None:

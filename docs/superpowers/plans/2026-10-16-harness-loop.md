@@ -15,7 +15,7 @@
 - 플러그인 이름 `harness-loop`, 스킬 이름 `retro`(호출 `/harness-loop:retro`, `review`, `backfill`), 위치 `~/src/skills/plugins/harness-loop/`, marketplace `source` 는 `./plugins/harness-loop`.
 - 세션 상태: `~/.claude/projects/<프로젝트>/<세션ID>/harness/`(`HARNESS_PROJECTS_ROOT` 가 있으면 그 루트 아래 같은 구조) 아래 `cursor`, `signals.jsonl`, `runs/NNN-<explicit|session-end|sweep>.json`, `action-items.json`, `lock/`, `skip`.
 - 공용 상태: `${CLAUDE_PLUGIN_DATA}` 아래 `scoring.yaml`, `rubric.md`, `decisions.jsonl`, 그리고 운영 파일 `installed_at`, `judge-runs.jsonl`, `hook-errors.log`, `hook-events.log`(락 경합으로 건너뛴 보고 쪽 쓰기). `CLAUDE_PLUGIN_DATA` 가 없으면 `~/.claude/plugins/data/harness-loop-local/` 를 쓴다.
-- `scoring.yaml` 기본값: `weights: {recurrence: 0.4, impact: 0.4, actionability: 0.2}`, `propose: 2.2`, `watch: 1.6`, `global_bump: 0.3`, `queue_limit: 3`, `max_background_judges_per_day: 30`, `eval_markers: ["트리거 측정 중"]`.
+- `scoring.yaml` 기본값: `weights: {recurrence: 0.4, impact: 0.4, actionability: 0.2}`, `propose: 2.2`, `watch: 1.6`, `global_bump: 0.3`, `queue_limit: 3`, `max_background_judges_per_day: 30`, `eval_markers: ["트리거 측정 중"]`, `label_examples: 10`.
 - 재발성 점수: 같은 sig 가 나온 서로 다른 세션 수 1 → 1점, 2~3 → 2점, 4 이상 → 3점.
 - 상태값: `propose|watch|discarded|approved|rejected|applied|regressed`.
 - 훅은 어떤 경우에도 종료 코드 0 이고, 오류는 `hook-errors.log` 에 한 줄씩 남긴다.
@@ -447,3 +447,18 @@ Step 1~2 의 모든 명령은 `HARNESS_PROJECTS_ROOT=<scratchpad>/projects CLAUD
 - [ ] **Step 4: 끝까지 한 번 돌리기** — 새 세션에서 짧은 작업 → `/harness-loop:retro` 두 번(두 번째는 새 턴만 처리되는지) → 세션 종료 → 새 세션 시작 때 알림이 뜨는지(기본 채점에서 한 세션에서만 나온 sig 는 `watch` 라 알리지 않으므로, 다른 세션에서도 나온 sig 로 확인한다) → `review` 에서 거절 1건 → 다음 판정에서 그 sig 가 올라오지 않는지 확인한다.
 - [ ] **Step 5: 기존 수집기 제거** — `~/.claude/bin/harness-collect.py` 삭제(사용자 확인 후).
 - [ ] **Step 6: 커밋** — `docs: harness-loop 실데이터 검증 결과와 설치 경로 반영`
+
+### Task 10: 사용자 판정 라벨 (판정 보정 0단계)
+
+**Files:**
+- Modify: `scripts/state.py`, `scripts/report.py`, `scripts/judge.py`, `defaults/scoring.yaml`, `skills/retro/SKILL.md`, `tests/test_state.py`, `tests/test_report.py`, `tests/test_judge.py`, `tests/test_skill.py`
+
+**Interfaces:**
+- `state.append_decision(..., kind=None)` — 결정 줄에 `kind` 를 남긴다. `note` 는 사용자 이유다. `load_decisions_by_key` 는 `kind`·`note` 도 돌려준다.
+- `state.labels() -> dict[sig_key, {label, kind, note, sig, at, decision}]` — 마지막 결정(edit-score 제외)이 승인·반영이면 positive, `not-defect`·`trivial` 거절이면 negative, `wont-fix`·종류 없는 거절이면 excluded.
+- `state.split(sig_key) -> "test"|"train"` — `sha1(sig_key)` 첫 바이트가 128 미만이면 test.
+- `report.py decide <sig> rejected [--kind not-defect|trivial|wont-fix] [--reason …]`, `decide <sig> approved|applied [--reason …]`. `--kind` 는 rejected 에만, `--reason` 은 edit-score 에 쓸 수 없다(ValueError, CLI 종료 코드 1).
+- `judge.label_examples(limit) -> list[str]` — digest "사용자 판정 예시" 절의 줄. train 라벨만, 최근 순으로 positive·negative 를 번갈아 `label_examples` 개까지, 저장된 항목이 없는 라벨은 건너뛴다.
+- SKILL.md: 리포트 표는 `propose`·`regressed` 만, 다른 상태는 `그 외 N건(…)` 한 줄. 거절 이유를 확인 질문 표로 `--kind` 에 맞추고, 모호할 때만 되묻는다.
+
+- [ ] **커밋** — `feat: harness-loop 사용자 판정 라벨과 digest 판정 예시`

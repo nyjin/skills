@@ -239,9 +239,13 @@ def _lock_all(hdirs: list[Path]) -> None:
         raise ValueError(f"세션 {names} 이 잠겨 있어(판정 중일 수 있다) 결정을 기록하지 않았다. 잠시 뒤 다시 실행한다.")
 
 
-def decide(sig: str, decision: str, session: str | None = None, impact: int | None = None, actionability: int | None = None) -> dict:
+def decide(sig: str, decision: str, session: str | None = None, impact: int | None = None, actionability: int | None = None, kind: str | None = None, reason: str | None = None) -> dict:
     if decision not in DECISIONS:
         raise ValueError(f"decision 은 {'|'.join(DECISIONS)} 중 하나다: {decision}")
+    if kind is not None and (decision != "rejected" or kind not in state.REJECT_KINDS):
+        raise ValueError(f"--kind 는 rejected 에만 쓰고 {'|'.join(state.REJECT_KINDS)} 중 하나다: {decision} {kind}")
+    if reason is not None and decision == "edit-score":
+        raise ValueError("--reason 은 approved|rejected|applied 에만 쓴다.")
     if decision == "edit-score" and session is not None:
         raise ValueError("edit-score 는 sig 단위로 모든 세션에 적용되므로 --session 과 함께 쓸 수 없다.")
     hdirs = [h for h in state.all_harness_dirs() if (session is None or h.parent.name == session) and _twins(state.load_items(h), sig)]
@@ -249,7 +253,7 @@ def decide(sig: str, decision: str, session: str | None = None, impact: int | No
         raise ValueError(f"sig 가 없다: {sig}" + (f" (세션 {session})" if session else ""))
     _lock_all(hdirs)
     try:
-        return _decide_locked(sig, decision, hdirs, impact, actionability)
+        return _decide_locked(sig, decision, hdirs, impact, actionability, kind, reason)
     finally:
         for hdir in hdirs:
             state.release_lock(hdir)
@@ -261,7 +265,7 @@ def _twins(items: dict, sig: str) -> list[str]:
     return [s for s in items if state.sig_key(s) == key]
 
 
-def _decide_locked(sig: str, decision: str, hdirs: list[Path], impact: int | None, actionability: int | None) -> dict:
+def _decide_locked(sig: str, decision: str, hdirs: list[Path], impact: int | None, actionability: int | None, kind: str | None = None, reason: str | None = None) -> dict:
     loaded = {hdir: state.load_items(hdir) for hdir in hdirs}
     matched = {hdir: _twins(items, sig) for hdir, items in loaded.items()}
     for hdir, sigs in matched.items():
@@ -295,7 +299,7 @@ def _decide_locked(sig: str, decision: str, hdirs: list[Path], impact: int | Non
             updated.append({"session": hdir.parent.name, **it})
     for hdir, items in loaded.items():
         state.save_items(hdir, items)
-    state.append_decision(sig, decision, target=(first.get("target") or {}).get("path"), impact=impact, actionability=actionability)
+    state.append_decision(sig, decision, target=(first.get("target") or {}).get("path"), note=reason, impact=impact, actionability=actionability, kind=kind)
     return {"sig": sig, "decision": decision, "items": updated}
 
 
@@ -332,6 +336,8 @@ def main(argv=None) -> None:
     p.add_argument("--session")
     p.add_argument("--impact", type=int, choices=(1, 2, 3))
     p.add_argument("--actionability", type=int, choices=(1, 2, 3))
+    p.add_argument("--kind", choices=state.REJECT_KINDS)
+    p.add_argument("--reason")
     args = parser.parse_args(argv)
     if args.cmd == "where":
         sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
@@ -352,7 +358,7 @@ def main(argv=None) -> None:
             if args.mark_reported:
                 mark_reported([(state.projects_root() / i["project"] / i["session"] / "harness", i) for i in result if i.get("status") in REPORTABLE])
         else:
-            result = decide(args.sig, args.decision, args.session, args.impact, args.actionability)
+            result = decide(args.sig, args.decision, args.session, args.impact, args.actionability, args.kind, args.reason)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         sys.exit(1)

@@ -53,7 +53,7 @@ Claude Code 세션에서 AI·도구·사용자 지침 처리 과정을 돌아보
 |---|---|---|
 | 세션별 수집·판정 결과 | `~/.claude/projects/<프로젝트>/<세션ID>/harness/` (`HARNESS_PROJECTS_ROOT`가 있으면 그 아래 같은 구조) | 세션 기록과 같다 (`cleanupPeriodDays`) |
 | 설정 `scoring.yaml`, `rubric.md` | `${CLAUDE_PLUGIN_DATA}` (첫 실행 때 `defaults/`에서 복사) | 플러그인 데이터 |
-| 승인·거절·반영·점수 수정 기록 `decisions.jsonl` | `${CLAUDE_PLUGIN_DATA}` | 플러그인 데이터 |
+| 승인·거절·반영·점수 수정 기록 `decisions.jsonl` (줄마다 `sig`·`decision`·`at`·`target`·`note`(사용자 이유)·`kind`(거절 종류), 점수 수정은 `impact`·`actionability`) | `${CLAUDE_PLUGIN_DATA}` | 플러그인 데이터 |
 
 세션 디렉터리 구조:
 
@@ -151,11 +151,16 @@ watch: 1.6
 global_bump: 0.3        # 전역 CLAUDE.md·메모리 대상이면 propose·watch 에 더한다
 queue_limit: 3
 max_background_judges_per_day: 30
+label_examples: 10     # digest 의 사용자 판정 예시 수
 ```
 
 - 통과 조건: 같은 규칙이 이미 대상 파일에 있으면 점수와 무관하게 폐기하되, 지켜지지 않은 기존 규칙이면 "규칙 강화" 항목으로 바꾼다(C7). 규칙이 다른 범위에만 있으면(다른 프로젝트 메모리, 프로젝트 메모리와 전역 CLAUDE.md 사이) 중복이 아니므로 보통대로 채점한다. 대상 파일인지는 `duplicate_of_rule` 에 대상 경로(원문, `~` 를 펼친 형태, realpath 중 하나)가 들어 있는지로 본다.
 - 항목마다 근거(세션 ID·턴·인용)가 최소 1개 있어야 한다. 없으면 judge 출력 검증에서 거부한다.
 - 기본값에서 한 세션에서만 나온 sig 는 영향·해결 가능성이 모두 3 일 때만 2.2 로 `propose` 가 된다. 이것은 전역 대상이 아닐 때만이다. 전역 대상(`~/.claude/CLAUDE.md`, 메모리)은 `global_bump` 만큼 기준이 올라 한 세션만으로는 `propose` 에 닿지 않고 재발이 있어야 한다. 그보다 낮으면 `watch` 에 머물고, 다른 세션에서 다시 나와 재발성이 오르면 `propose` 가 되어 보고된다.
+- 사용자 판정은 라벨이 된다. 거절은 `--kind` 로 종류를 남긴다: `not-defect`(judge 오탐, 정상 동작이었다), `trivial`(결함이지만 고칠 가치가 작다), `wont-fix`(가치는 있지만 이 자리에서 고치지 않는다). 셋 다 지금의 거절과 같게 그 sig 를 다시 보고하지 않는다. `--kind` 없는 거절도 유효하다(종류 없음). 승인·거절·반영에는 `--reason` 으로 사용자 이유를 `note` 에 남길 수 있다.
+- sig_key 의 라벨은 마지막 결정(edit-score 제외)으로 정한다: 승인·반영은 positive, `not-defect`·`trivial` 거절은 negative, `wont-fix` 와 종류 없는 거절은 제외한다. 라벨은 `sha1(sig_key)` 첫 바이트가 128 미만이면 test, 아니면 train 으로 결정적으로 나눈다.
+- digest 의 "사용자 판정 예시" 절에 train 라벨을 최근 순으로 positive·negative 를 번갈아 `label_examples` 개까지 넣는다(한쪽이 모자라면 남은 쪽으로 채운다). 예시마다 sig, 조건, 거절 종류(positive 는 "보고 가치 있음"), 첫 근거 인용(200자까지), 사용자 이유, 그 판정이 뜻하는 지시(`not-defect` → 비슷한 경우 항목을 만들지 않는다, `trivial` → 비슷한 경우 영향 1, positive → 비슷한 경우 항목으로 만든다)를 쓴다. 항목은 어느 세션이든 그 sig_key 로 저장된 항목에서 가져오고, 없으면 건너뛴다.
+- 회고 리포트의 표와 상세에는 `propose`·`regressed` 항목만 쓰고, 다른 상태는 `그 외 N건(watch a·discarded b·…)` 한 줄과 모두 보는 명령(`report.py list --session <id>`, 모든 상태를 낸다)으로 줄인다.
 - 사용자가 리뷰 중 점수를 고치면 `decisions.jsonl` 에 고친 `impact`·`actionability` 를 남긴다. 이 값은 sig 를 키로 모든 세션에 적용되고(그래서 `decide … edit-score` 는 `--session` 을 받지 않는다), 이후 병합·재채점에서 judge 점수보다 우선한다.
 
 ## 7. action item

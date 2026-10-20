@@ -575,3 +575,72 @@ def test_merge_twin_after_regression_keeps_one_regressed_item(tmp_projects):
     assert list(items) == ["C2:uv-run"] and items["C2:uv-run"]["status"] == "regressed"
     import report
     assert [i["sig"] for _, i in report.pending(5)] == ["C2:uv-run"]
+
+
+def split_sigs(n, which, prefix="C1:ex"):
+    out, i = [], 0
+    while len(out) < n:
+        sig = f"{prefix}{i}"
+        if state.split(sig) == which:
+            out.append(sig)
+        i += 1
+    return out
+
+
+def write_decisions(*records):
+    with open(state.data_dir() / "decisions.jsonl", "a", encoding="utf-8") as f:
+        for n, (sig, decision, kind, note) in enumerate(records):
+            f.write(json.dumps({"sig": sig, "decision": decision, "at": f"2026-10-01T09:00:{n:02d}+09:00", "target": None, "note": note, "kind": kind}, ensure_ascii=False) + "\n")
+
+
+def examples_section(md):
+    return md.split("## 사용자 판정 예시", 1)[1].split("\n## ", 1)[0]
+
+
+def test_digest_shows_balanced_train_label_examples(tmp_projects):
+    pos = split_sigs(3, "train", "C1:pos")
+    neg = split_sigs(5, "train", "C1:neg")
+    [test_neg] = split_sigs(1, "test", "C1:hold")
+    [wont] = split_sigs(1, "train", "C1:wont")
+    [orphan] = split_sigs(1, "train", "C1:orphan")
+    long_quote = "가" * 300
+    items = {s: {"sig": s, "condition": "C1", "status": "rejected", "evidence": [{"session": "o", "turn": 1, "quote": f"인용 {s}"}]} for s in pos + neg + [test_neg, wont]}
+    items[neg[0]]["evidence"] = [{"session": "o", "turn": 1, "quote": long_quote}]
+    other_session(tmp_projects, "o", items=items)
+    write_decisions(
+        *[(s, "approved", None, f"이유 {s}") for s in pos],
+        (neg[0], "rejected", "not-defect", "정상 동작"),
+        (neg[1], "rejected", "trivial", None),
+        *[(s, "rejected", "not-defect", None) for s in neg[2:]],
+        (test_neg, "rejected", "not-defect", None),
+        (wont, "rejected", "wont-fix", None),
+        (orphan, "rejected", "not-defect", None),
+    )
+    state.data_dir().joinpath("scoring.yaml").write_text("label_examples: 6\n")
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    section = examples_section(judge.digest(t, []))
+    lines = [l for l in section.splitlines() if l.startswith("- ")]
+    order = [l.split("`")[1] for l in lines]
+    assert order == [pos[2], neg[4], pos[1], neg[3], pos[0], neg[2]]
+    assert test_neg not in section and wont not in section and orphan not in section
+    by_sig = dict(zip(order, lines))
+    assert "(C1, 보고 가치 있음)" in by_sig[pos[2]] and f"이유 {pos[2]}" in by_sig[pos[2]] and "비슷한 경우 항목으로 만든다" in by_sig[pos[2]]
+    assert "(C1, not-defect)" in by_sig[neg[4]] and "비슷한 경우 항목을 만들지 않는다" in by_sig[neg[4]]
+
+
+def test_digest_label_examples_fill_with_remaining_and_instructions(tmp_projects):
+    neg = split_sigs(3, "train", "C1:neg")
+    items = {s: {"sig": s, "condition": "C2", "status": "rejected", "evidence": [{"session": "o", "turn": 1, "quote": "가" * 300}]} for s in neg}
+    other_session(tmp_projects, "o", items=items)
+    write_decisions((neg[0], "rejected", "trivial", "사소하다"), (neg[1], "rejected", "not-defect", None), (neg[2], "rejected", "not-defect", None))
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    section = examples_section(judge.digest(t, []))
+    lines = [l for l in section.splitlines() if l.startswith("- ")]
+    assert [l.split("`")[1] for l in lines] == [neg[2], neg[1], neg[0]]
+    assert "(C2, trivial)" in lines[2] and "사소하다" in lines[2] and "비슷한 경우 영향 1 로 본다" in lines[2]
+    assert '"' + "가" * 200 + '"' in lines[0] and "가" * 201 not in lines[0]
+
+
+def test_digest_label_examples_empty(tmp_projects):
+    t = copy_fixture(tmp_projects, "basic.jsonl", "sess-a")
+    assert examples_section(judge.digest(t, [])).strip().endswith("- 없음")

@@ -103,3 +103,31 @@ def test_session_start_skips_malformed_timestamp(tmp_path):
     t = tmp_path / "s.jsonl"
     t.write_text('{"timestamp": "not-a-date"}\n{"timestamp": "2026-10-01T09:00:00+09:00"}\n')
     assert state.session_start(t).isoformat() == "2026-10-01T09:00:00+09:00"
+
+
+def test_split_by_sha1_first_byte():
+    assert state.split("C1:a") == "train"   # sha1 첫 바이트 173
+    assert state.split("C1:c") == "test"    # 84
+    assert state.split("C2:x") == state.split("C2:x")
+
+
+def test_labels_use_last_non_edit_score_decision(tmp_projects):
+    state.append_decision("C1:pos", "approved", note="좋다")
+    state.append_decision("C1:nd", "rejected", kind="not-defect", note="정상 동작")
+    state.append_decision("C1:tr", "rejected", kind="trivial")
+    state.append_decision("C1:wf", "rejected", kind="wont-fix")
+    state.append_decision("C1:legacy", "rejected")
+    state.append_decision("C1:flip", "rejected", kind="not-defect")
+    state.append_decision("C1:flip", "applied")
+    state.append_decision("C1:flip", "edit-score", impact=1)
+    state.append_decision("C7:twin", "rejected", kind="trivial")
+    got = state.labels()
+    assert {k: v["label"] for k, v in got.items()} == {
+        "C1:pos": "positive", "C1:nd": "negative", "C1:tr": "negative", "C1:wf": "excluded",
+        "C1:legacy": "excluded", "C1:flip": "positive", "C2:twin": "negative",
+    }
+    assert got["C1:nd"]["kind"] == "not-defect" and got["C1:nd"]["note"] == "정상 동작"
+    assert got["C1:pos"]["kind"] is None and got["C1:pos"]["note"] == "좋다"
+    assert got["C2:twin"]["sig"] == "C7:twin" and got["C2:twin"]["at"]
+    rec = [l for l in (state.data_dir() / "decisions.jsonl").read_text().splitlines() if "C1:nd" in l][0]
+    assert '"kind": "not-defect"' in rec

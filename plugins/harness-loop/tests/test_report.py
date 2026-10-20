@@ -561,3 +561,49 @@ def test_edit_score_keeps_plugin_cache_once_watch(tmp_projects):
     report.decide("C1:a", "edit-score", impact=3, actionability=3)
     got = state.load_items(hdir_of(t))["C1:a"]
     assert got["status"] == "watch" and got["scores"]["impact"] == 3
+
+
+def decision_records():
+    return [json.loads(l) for l in (state.data_dir() / "decisions.jsonl").read_text().splitlines()]
+
+
+def test_decide_rejected_records_kind_and_reason(tmp_projects, capsys):
+    t = transcript(tmp_projects, "s1")
+    put_items(t, item("C1:a"), item("C1:b"), item("C1:c"))
+    report.main(["decide", "C1:a", "rejected", "--kind", "not-defect", "--reason", "정상 동작이었다"])
+    report.decide("C1:b", "rejected")
+    report.main(["decide", "C1:c", "approved", "--reason", "꼭 고치고 싶다"])
+    capsys.readouterr()
+    recs = decision_records()
+    assert [(r["sig"], r["decision"], r["kind"], r["note"]) for r in recs] == [
+        ("C1:a", "rejected", "not-defect", "정상 동작이었다"),
+        ("C1:b", "rejected", None, None),
+        ("C1:c", "approved", None, "꼭 고치고 싶다"),
+    ]
+    items = state.load_items(hdir_of(t))
+    assert items["C1:a"]["status"] == "rejected" and items["C1:c"]["status"] == "approved"
+    assert state.labels()["C1:a"]["label"] == "negative"
+
+
+@pytest.mark.parametrize("kind", ["trivial", "wont-fix"])
+def test_decide_rejected_kinds_keep_rejection(tmp_projects, kind):
+    t = transcript(tmp_projects, "s1")
+    put_items(t, item("C1:app"))
+    report.decide("C1:app", "rejected", kind=kind)
+    t2 = transcript(tmp_projects, "s2")
+    out = {"items": [{"sig": "C1:app", "condition": "C1", "impact": 3, "actionability": 3, "evidence": [{"session": "s2", "turn": 1, "quote": "q"}], "target": {"path": "/r/skills/x/SKILL.md"}, "proposal": "p", "duplicate_of_rule": None, "rule_unenforced": False, "skills": {}}]}
+    judge.merge(t2, out, "explicit")
+    assert state.load_items(hdir_of(t2))["C1:app"]["status"] == "rejected"
+
+
+def test_decide_kind_only_with_rejected_and_reason_not_with_edit_score(tmp_projects, capsys):
+    t = transcript(tmp_projects, "s1")
+    put_items(t, item("C1:a"))
+    with pytest.raises(ValueError, match="--kind"):
+        report.decide("C1:a", "approved", kind="trivial")
+    with pytest.raises(ValueError, match="--reason"):
+        report.decide("C1:a", "edit-score", impact=1, reason="x")
+    with pytest.raises(SystemExit) as e:
+        report.main(["decide", "C1:a", "rejected", "--kind", "nope"])
+    assert e.value.code == 2
+    assert not (state.data_dir() / "decisions.jsonl").exists()
