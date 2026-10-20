@@ -101,6 +101,7 @@ TEMPLATE_SECTIONS = {
     "runbook.md": ["개요", "언제 쓰는가", "사전 확인", "절차", "롤백", "확인 방법", "연락처"],
     "postmortem.md": ["요약", "영향", "타임라인", "원인", "대응", "재발 방지 조치", "교훈"],
     "non-technical.md": ["왜", "무엇이 바뀌나", "영향", "할 일", "결정할 것"],
+    "investigation.md": ["결정적인 곳", "값이 흘러가는 길", "데이터 확인", "주의할 점"],
 }
 
 
@@ -159,3 +160,17 @@ def test_evidence_level_principle_is_wired():
     assert "근거 수준" in next(l for l in skill.splitlines() if l.startswith("사실 검증:"))
     examples = (REFS / "examples.md").read_text(encoding="utf-8")
     assert "### P-4a " in examples
+
+
+def test_doc_type_table_files_exist():
+    text = (REFS / "doc-types.md").read_text(encoding="utf-8")
+    paths = re.findall(r"`((?:templates|exemplars)/[\w-]+\.md)`", text)
+    assert "templates/investigation.md" in paths
+    missing = [p for p in paths if not (REFS / p).exists()]
+    assert not missing, missing
+
+
+def test_investigation_template_sections_in_order():
+    t = (REFS / "templates/investigation.md").read_text(encoding="utf-8")
+    heads = re.findall(r"^## (.+)$", t, re.M)
+    assert heads == ["결정적인 곳", "값이 흘러가는 길", "데이터 확인", "주의할 점"]
