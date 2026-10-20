@@ -174,3 +174,12 @@ def test_investigation_template_sections_in_order():
     t = (REFS / "templates/investigation.md").read_text(encoding="utf-8")
     heads = re.findall(r"^## (.+)$", t, re.M)
     assert heads == ["결정적인 곳", "값이 흘러가는 길", "데이터 확인", "주의할 점"]
+
+
+def test_rewrite_without_history_principle():
+    s = (REFS / "structure.md").read_text(encoding="utf-8")
+    body = s.split("## E-13 ")[1].split("\n## ")[0]
+    for word in ("포스트모템", "ADR", "작성 보고", "결정 대기"):
+        assert word in body
+    assert "E-13" in (REFS / "review-checklist.md").read_text(encoding="utf-8").split("## O-5 ")[1]
+    assert "E-13" in (SKILL / "SKILL.md").read_text(encoding="utf-8").split("## 개선 모드")[1]
