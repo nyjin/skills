@@ -183,3 +183,17 @@ def test_rewrite_without_history_principle():
         assert word in body
     assert "E-13" in (REFS / "review-checklist.md").read_text(encoding="utf-8").split("## O-5 ")[1]
     assert "E-13" in (SKILL / "SKILL.md").read_text(encoding="utf-8").split("## 개선 모드")[1]
+
+
+def test_common_checklist_exempts_investigation_links():
+    o5 = (REFS / "review-checklist.md").read_text(encoding="utf-8").split("## O-5 ")[1].split("\n## ")[0]
+    line = next(l for l in o5.splitlines() if "소스 파일 링크" in l)
+    assert "코드 조사 보고" in line
+    skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+    assert "코드 조사 보고" in next(l for l in skill.splitlines() if "`file-link`(소스 파일 링크)도 모두 고친다" in l)
+
+
+def test_investigation_required_elements_do_not_mandate_marking():
+    d2 = (REFS / "doc-types.md").read_text(encoding="utf-8").split("## D-2 ")[1].split("\n## ")[0]
+    row = next(l for l in d2.splitlines() if l.startswith("| 코드 조사 보고"))
+    assert "넘지 않는" in row

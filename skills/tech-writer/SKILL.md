@@ -112,7 +112,7 @@ Skill 도구로 korean-proofreader를 부르면 교정 지침이 로드될 뿐 �
 
 네 가지를 모두, 순서대로 한다. 초안을 쓴 직후의 작성자는 자기 글을 의도대로 읽기 때문에, 검증을 건너뛴 문서는 독자가 막히는 곳을 그대로 안고 나간다. 시간이 부족해도 생략하지 말고 범위를 줄인다(예: 되말하기를 핵심 절만).
 
-1. 기계 검사: `uv run ${CLAUDE_SKILL_DIR}/scripts/lint_doc.py <문서>`(코드 조사 보고는 `--type investigation`을 붙인다) — error는 반드시 고친다. warn 가운데 `unlinked-ref`(링크 없는 참조 번호), `code-location`(경로·라인 근거), `file-link`(소스 파일 링크)도 모두 고친다. AI slop 경고는 5번 점검에서 다룬다. 개선 모드의 원본 파일에서 답을 기다리는 결정에 걸린 것만 남기고, 보고에 그 이유를 적는다.
+1. 기계 검사: `uv run ${CLAUDE_SKILL_DIR}/scripts/lint_doc.py <문서>`(코드 조사 보고는 `--type investigation`을 붙인다) — error는 반드시 고친다. warn 가운데 `unlinked-ref`(링크 없는 참조 번호), `code-location`(경로·라인 근거), `file-link`(소스 파일 링크)도 모두 고친다(코드 조사 보고는 E-11 예외). AI slop 경고는 5번 점검에서 다룬다. 개선 모드의 원본 파일에서 답을 기다리는 결정에 걸린 것만 남기고, 보고에 그 이유를 적는다.
    이어서 `uv run ${CLAUDE_SKILL_DIR}/scripts/redundancy.py <문서>`로 반복 노출을 잰다(E-12). 강한 반복(repeated-claim), 퍼진 식별자(identifier-spread), 코드·그림 옮김(code-transcribed, diagram-transcribed)은 목록의 정의 자리와 할 일대로 고치고 다시 잰다. 비슷한 주장(similar-claim)은 읽어 보고 반복이면 고친다. 남긴 항목은 보고에 이유를 적는다.
 2. 사실 검증: 명령·경로·API·설정 키·수치를 재료와 대조한다. 값의 의미는 근거 수준(P-4)까지 확인하고, 수준이 바뀐 결론은 보고에 남긴다.
 3. 되말하기: 서브에이전트에게 독자 역할을 주고 3줄 요약과 막힌 곳을 받아 고친다(프롬프트는 O-3). 서브에이전트를 띄울 수 없는 환경이면(이 스킬 자체가 서브에이전트 안에서 실행 중일 때 등) O-3의 "직접 수행" 방법으로 대신한다.
