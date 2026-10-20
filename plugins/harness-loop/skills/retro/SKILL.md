@@ -129,14 +129,14 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 
 ## 채점 기준 보강 (rubric)
 
-1. 규칙 근거 후보(사용자가 `not-defect`·`trivial` 로 거절했고 아직 규칙 근거로 쓰지 않은 항목)를 kind 별로 읽는다.
+1. 규칙 근거 후보(사용자가 `not-defect`·`trivial` 로 거절했고 아직 규칙 근거로 쓰지 않은 train 분할 항목)를 kind 별로 읽는다.
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-candidates
 ```
 
 2. `groups` 에 항목 수가 출력의 `rubric_min_evidence` 이상인 kind 가 없으면 "규칙 후보 없음(kind 별 건수)" 한 줄을 쓰고 멈춘다.
-3. kind 별로 항목의 `condition`·`quote`·`reason` 을 읽어 같은 판단으로 묶이는 패턴을 찾는다. 패턴마다 서로 다른 sig 를 `rubric_min_evidence` 개 이상 근거로 들고, 근거가 모자란 패턴은 버린다. 한 sig 는 한 패턴에만 쓴다.
+3. kind 별로 항목의 `condition`·`quote`·`reason` 을 읽어 같은 판단으로 묶이는 패턴을 찾는다. 패턴마다 서로 다른 sig 를 `rubric_min_evidence` 개 이상 근거로 들고, 근거가 모자란 패턴은 버린다. 한 sig 는 한 패턴에만 쓴다. 근거 sig 는 이 출력에 있는 것만 쓴다(test 분할 라벨은 재판정 검증용이라 `rubric-apply` 가 종료 코드 1 로 거부한다).
 4. 패턴마다 규칙 초안을 한 문장으로 쓴다. `not-defect` 는 "…이면 항목을 만들지 않는다", `trivial` 은 "…이면 영향을 1 로 본다" 형식이다. 특정 세션·파일 이름 대신 다시 나올 상황으로 쓴다.
 5. 초안을 아래 표로 보이고 턴을 끝낸다. 남은 패턴이 없으면 "근거가 충분한 패턴 없음" 한 줄만 쓴다.
 

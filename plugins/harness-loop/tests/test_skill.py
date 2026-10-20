@@ -118,3 +118,9 @@ def test_rubric_mode_replays_before_apply():
     assert '"${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" replay --rubric "<tmp>/harness-rubric-candidate.md" > "<tmp>/harness-replay.json"' in mode
     assert "replay_min_labels" in mode and "0.05" in mode
     assert mode.index("judge.py\" replay") < mode.index("rubric-apply --kind <kind> --rule \"<규칙>\" --evidence <sig> <sig> <sig>\n")
+
+
+def test_rubric_mode_uses_train_split_evidence_only():
+    _, _, body = _parts()
+    mode = body.split("## 채점 기준 보강", 1)[1].split("\n## ", 1)[0]
+    assert "train 분할" in mode and "test 분할" in mode

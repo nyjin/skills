@@ -471,8 +471,8 @@ Step 1~2 의 모든 명령은 `HARNESS_PROJECTS_ROOT=<scratchpad>/projects CLAUD
 **Interfaces:**
 - `state.rubric_version(text) -> int` — `<!-- rubric-version: N -->` 값, 없으면 1. `defaults/rubric.md` 는 1 로 시작한다.
 - `judge.merge(..., digest_text=None)` — run 파일에 `rubric_version` 과 `digest` 를 남긴다. 백그라운드는 `claude -p` 에 준 digest 를, 명시 호출은 병합 전 상태로 다시 만든 digest 를 쓴다.
-- `report.rubric_candidates() -> {"rubric_min_evidence": N, "groups": {"not-defect": [...], "trivial": [...]}}` — 항목마다 `sig`·`condition`·`kind`·`reason`·`quote`·`session`. CLI `report.py rubric-candidates`.
-- `report.rubric_apply(kind, rule, evidence, out=None)` — 근거 검증(서로 다른 그 kind 의 negative 라벨이 `rubric_min_evidence` 개 이상, 아니면 ValueError·CLI 종료 코드 1) → kind 절에 `- 규칙` 추가(절이 없으면 끝에 만든다) → 버전 +1 → 원자적 쓰기 → `rubric-changes.jsonl` 추가. `out` 이면 그 파일에만 쓴다. CLI `report.py rubric-apply --kind K --rule … --evidence SIG… [--out FILE]`.
+- `report.rubric_candidates() -> {"rubric_min_evidence": N, "groups": {"not-defect": [...], "trivial": [...]}}` — train 분할 라벨만. 항목마다 `sig`·`condition`·`kind`·`reason`·`quote`·`session`. CLI `report.py rubric-candidates`.
+- `report.rubric_apply(kind, rule, evidence, out=None)` — 근거 검증(test 분할 sig 가 있으면 그 sig 를 밝힌 ValueError·CLI 종료 코드 1, 서로 다른 그 kind 의 negative 라벨이 `rubric_min_evidence` 개 이상, 아니면 ValueError·CLI 종료 코드 1) → kind 절에 `- 규칙` 추가(절이 없으면 끝에 만든다) → 버전 +1 → 원자적 쓰기 → `rubric-changes.jsonl` 추가. `out` 이면 그 파일에만 쓴다. CLI `report.py rubric-apply --kind K --rule … --evidence SIG… [--out FILE]`.
 - SKILL.md `rubric` 모드와 리포트 끝 보강 후보 안내.
 
 - [ ] **커밋** — `feat: harness-loop rubric 보강 제안과 run digest 기록`

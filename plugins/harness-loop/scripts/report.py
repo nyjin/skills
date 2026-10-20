@@ -336,7 +336,7 @@ def _rubric_changes() -> list[dict]:
 
 
 def rubric_candidates() -> dict:
-    """rubric-changes.jsonl 이 근거로 쓰지 않은 negative 라벨(not-defect·trivial)을 kind 별로 결정 시각 순으로 묶는다."""
+    """rubric-changes.jsonl 이 근거로 쓰지 않은 train 분할 negative 라벨(not-defect·trivial)을 kind 별로 결정 시각 순으로 묶는다. test 분할은 재판정 검증용으로 남긴다."""
     cited = {state.sig_key(str(s)) for r in _rubric_changes() for s in (r.get("evidence") or [])}
     stored = {}
     for hdir in state.all_harness_dirs():
@@ -344,7 +344,7 @@ def rubric_candidates() -> dict:
             stored.setdefault(state.sig_key(sig), (hdir.parent.name, it))
     groups = {kind: [] for kind in state.NEGATIVE_KINDS}
     for key, lab in sorted(state.labels().items(), key=lambda p: state.aware(p[1]["at"])):
-        if lab["label"] != "negative" or key in cited:
+        if lab["label"] != "negative" or key in cited or state.split(key) != "train":
             continue
         session, it = stored.get(key, (None, {}))
         quote = ((it.get("evidence") or [{}])[0]).get("quote")
@@ -371,13 +371,16 @@ def _with_rule(text: str, kind: str, rule: str, version: int) -> str:
 
 
 def rubric_apply(kind: str, rule: str, evidence: list[str], out: Path | None = None) -> dict:
-    """kind 의 negative 라벨 근거가 rubric_min_evidence 개 이상이면 데이터 디렉터리 rubric.md 의 kind 절에 규칙을 더하고 버전을 올려 rubric-changes.jsonl 에 남긴다. out 이 있으면 바뀐 rubric 을 그 파일에만 쓴다."""
+    """근거가 모두 train 분할이고 kind 의 negative 라벨 근거가 rubric_min_evidence 개 이상이면 데이터 디렉터리 rubric.md 의 kind 절에 규칙을 더하고 버전을 올려 rubric-changes.jsonl 에 남긴다. out 이 있으면 바뀐 rubric 을 그 파일에만 쓴다."""
     if kind not in RUBRIC_SECTIONS:
         raise ValueError(f"kind 는 {'|'.join(RUBRIC_SECTIONS)} 중 하나다: {kind}")
     rule = " ".join(rule.split())
     if not rule:
         raise ValueError("규칙 문장이 비었다.")
     labels = state.labels()
+    held = [s for s in evidence if state.split(state.sig_key(s)) == "test"]
+    if held:
+        raise ValueError(f"근거에 test 분할 라벨을 쓸 수 없다(재판정 검증용으로 남긴다): {', '.join(held)}. rubric-candidates 의 sig 만 쓴다.")
     bad = [s for s in evidence if (labels.get(state.sig_key(s)) or {}).get("label") != "negative" or labels[state.sig_key(s)]["kind"] != kind]
     good = {state.sig_key(s) for s in evidence if s not in bad}
     need = state.load_config()["rubric_min_evidence"]
