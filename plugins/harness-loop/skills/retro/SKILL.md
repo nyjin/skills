@@ -28,7 +28,7 @@ argument-hint: "[review | backfill [--days N] | rubric]"
 | 없음 | "이 세션 회고해줘", "action item 정리해줘" | 현재 세션 회고 |
 | `review` | SessionStart 알림을 보고 "검토할게" | 쌓인 항목 검토 |
 | `backfill [--days N]` | 없음 | 지난 기록 처리 |
-| `rubric` | 리포트 끝 보강 후보 안내를 보고 "보강할게" | 채점 기준 보강 |
+| `rubric` | 리포트 끝의 보강 후보 안내를 보고 "보강할게" | 채점 기준 보강 |
 | 없음 | 리포트 뒤 "1 승인, 2 거절", "2번 영향 3으로" 같은 입력 | 결정 |
 
 ## 현재 세션 회고
@@ -79,8 +79,8 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 - `sig` 는 digest 의 "sig 규칙" 절을 따른다. `?` 를 그대로 쓰지 않는다.
 - 만들 항목이 digest 의 "결정된 sig" 와 같은 문제를 다루면, 범위·문구·C2/C7 분류가 달라도 새 sig 를 만들지 않고 그 sig 를 재사용한다.
 - 항목 하나는 결함 하나다. 서로 다른 잘못을 한 항목에 묶지 않는다. 결정된 sig 가 아닌 기존 sig 는 그 이름만 읽어도 이번 사례가 무엇인지 알 수 있을 때만 재사용하고, 아니면 사례를 그대로 말하는 새 sig 를 만든다.
-- 사용자가 요청 해석을 한 번 바로잡고 곧바로 맞게 진행됐으면(틀린 산출물이 남지 않았으면) 대화 중 정상적인 조정이므로 항목을 만들지 않는다.
-- 지적 · 제안이 외부 도구(ocr 같은 리뷰 도구)나 사용자 결정에서 나왔으면 그것 자체를 결함으로 보지 않는다. 결함은 AI 가 그것을 받아 내린 판단(권고 · 해석 · 실행)에만 매기고, `target` 도 그 판단을 고칠 자리로 잡는다. 사용자가 정한 설계 방향은 근거로 쓰지 않는다.
+- 사용자가 요청 해석을 한 번 바로잡고 곧바로 맞게 진행됐으면(틀린 산출물이 남지 않았으면) 대화 중의 정상적인 조정이므로 항목을 만들지 않는다.
+- 지적·제안이 외부 도구(ocr 같은 리뷰 도구)나 사용자 결정에서 나왔으면 그것 자체를 결함으로 보지 않는다. 결함은 AI 가 그것을 받아 내린 판단(권고·해석·실행)에만 매기고, `target` 도 그 판단을 고칠 자리로 잡는다. 사용자가 정한 설계 방향은 근거로 쓰지 않는다.
 - `C2:?` 신호는 `condition` 을 C2(AI 가 원치 않는 일을 했다)와 C7(기존 메모리·CLAUDE.md 규칙을 따르지 않았거나 잘못된 곳에 저장했다) 중 하나로 고른다. 신호 하나에서 항목은 하나만 만들고, 같은 근거로 C2 항목과 C7 항목을 함께 만들지 않는다.
 - `impact`·`actionability` 는 digest 의 채점 기준표로 1~3 을 준다. 재발성은 쓰지 않는다.
 - `evidence` 는 항목마다 1개 이상이고, `session` 은 `<세션ID>`, `turn` 은 digest 의 턴 번호, `quote` 는 원문 인용이다.
@@ -135,7 +135,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-candidates
 ```
 
-2. `groups` 에 항목 수가 출력의 `rubric_min_evidence` 이상인 kind 가 없으면 "규칙 후보 없음(kind 별 건수)" 한 줄을 쓰고 멈춘다.
+2. `groups` 에서 항목 수가 출력의 `rubric_min_evidence` 이상인 kind 가 없으면 "규칙 후보 없음(kind 별 건수)" 한 줄을 쓰고 멈춘다.
 3. kind 별로 항목의 `condition`·`quote`·`reason` 을 읽어 같은 판단으로 묶이는 패턴을 찾는다. 패턴마다 서로 다른 sig 를 `rubric_min_evidence` 개 이상 근거로 들고, 근거가 모자란 패턴은 버린다. 한 sig 는 한 패턴에만 쓴다. 근거 sig 는 이 출력에 있는 것만 쓴다(test 분할 라벨과 이미 규칙 근거로 쓴 sig 는 `rubric-apply` 가 종료 코드 1 로 거부한다).
 4. 패턴마다 규칙 초안을 한 문장으로 쓴다. `not-defect` 는 "…이면 항목을 만들지 않는다", `trivial` 은 "…이면 영향을 1 로 본다" 형식이다. 특정 세션·파일 이름 대신 다시 나올 상황으로 쓴다.
 5. 초안을 아래 표로 보이고 턴을 끝낸다. 남은 패턴이 없으면 "근거가 충분한 패턴 없음" 한 줄만 쓴다.
@@ -144,13 +144,13 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 |---|---|---|---|
 | 1 | `not-defect` | 규칙 문장 | `sig`, `sig`, `sig` |
 
-6. 사용자가 승인한 패턴마다 6~9단계를 차례로 한다. 문구를 고쳐 달라고 하면 고친 문구를 쓴다. 먼저 후보 rubric 을 파일로 만든다.
+6. 사용자가 승인한 패턴마다 6~9단계를 차례로 진행한다. 문구를 고쳐 달라고 하면 고친 문구를 쓴다. 먼저 후보 rubric 을 파일로 만든다.
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-apply --kind <kind> --rule "<규칙>" --evidence <sig> <sig> <sig> --out "<tmp>/harness-rubric-candidate.md"
 ```
 
-7. 저장된 판정을 지금 rubric 과 후보 rubric 으로 다시 판정한다. 오래 걸리므로 Bash 를 백그라운드로 실행하고 끝나면 결과 파일을 Read 로 읽는다.
+7. 저장된 판정을 현재 rubric 과 후보 rubric 으로 다시 판정한다. 오래 걸리므로 Bash 를 백그라운드로 실행하고, 끝나면 결과 파일을 Read 로 읽는다.
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" replay --rubric "<tmp>/harness-rubric-candidate.md" > "<tmp>/harness-replay.json"
@@ -162,10 +162,10 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 |---|---|
 | `eligible` 이 false | 라벨 수(`labels`)가 `replay_min_labels` 보다 적어 재판정을 건너뛰었다고 알리고 적용한다 |
 | `candidate` 의 `tpr` 이나 `tnr` 이 `current` 보다 0.05 넘게 낮다 | 적용하지 않는다. 두 rubric 의 `n_pos`·`n_neg`·`tpr`·`tnr` 을 보인다 |
-| `tpr`·`tnr` 이 null 이다(재판정한 항목이 없거나 모두 실패) | 숫자와 `errors` 를 보이고 적용 여부를 사용자에게 묻는다 |
+| `tpr`·`tnr` 이 null 이다(재판정한 항목이 없거나 모두 실패했다) | 숫자와 `errors` 를 보이고 적용 여부를 사용자에게 묻는다 |
 | 그 밖 | 두 rubric 의 숫자를 한 줄로 보이고 적용한다 |
 
-9. 적용은 아래 명령이다.
+9. 아래 명령으로 적용한다.
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-apply --kind <kind> --rule "<규칙>" --evidence <sig> <sig> <sig>
@@ -184,7 +184,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 | 거절 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" rejected --kind <kind> --reason "<이유>"` (이유가 없으면 `--reason` 을 뺀다) |
 | 영향·해결 점수 수정 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" edit-score --impact <1~3> --actionability <1~3>` (바꾸는 쪽만 준다) |
 
-거절의 `<kind>` 는 사용자 이유를 아래 표에 맞춰 정한다. 사용자 이유 문장은 `--reason` 에 그대로 넘긴다.
+거절의 `<kind>` 는 사용자 이유를 아래 표에 비춰 정한다. 사용자 이유 문장은 `--reason` 에 그대로 넘긴다.
 
 | 확인 질문 | 답 | kind |
 |---|---|---|
@@ -193,7 +193,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 | 고치고 싶지만 여기서는 안 하나 | 그렇다(가치는 있지만 이 자리에서 고치지 않는다) | `wont-fix` |
 
 - 이유가 없거나 두 kind 에 걸치면 그 항목만 실행하지 않고 위 질문으로 되묻는다. 되물어도 답이 없으면 `--kind` 없이 거절한다.
-- 세 kind 모두 거절이라 그 sig 는 다시 보고되지 않는다.
+- 세 kind 모두 거절이므로 그 sig 는 다시 보고되지 않는다.
 
 3. 점수를 고친 항목은 명령 출력의 `score`·`status` 로 바뀐 점수와 상태를 한 줄로 알린다. 고친 점수는 그 sig 가 있는 모든 세션에 적용되고, 이후 판정 병합과 재채점에서도 judge 점수 대신 쓰인다.
 4. 승인한 항목마다 반영 대상의 소유 환경을 판정한다. 출력 JSON 의 `kind`·`real_path`·`root`·`rules` 를 쓴다.
@@ -236,10 +236,10 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 - 근거: "<evidence[1].quote>" (있을 때만)
 ```
 
-- 다른 상태 항목은 상세 아래 한 줄 `그 외 N건(watch a·discarded b·…) — 모두 보기: report.py list --session <세션ID>` 로 줄인다. 다른 상태 항목이 없으면 이 줄을 쓰지 않는다.
+- 다른 상태 항목은 상세 아래에 `그 외 N건(watch a·discarded b·…) — 모두 보기: report.py list --session <세션ID>` 한 줄로 줄인다. 다른 상태 항목이 없으면 이 줄을 쓰지 않는다.
 - 사용자가 모든 상태를 보겠다고 하면 다른 상태 항목도 같은 형식으로 쓴다.
 - `regressed` 항목은 상세 첫 줄에 `반영 실패: <regressed_after> 이후 재발` 을 쓴다.
 - review 모드는 상세에 `session`·`project` 를 한 줄 더 쓴다.
 - 리포트는 표 머리글·상세·안내 문장을 모두 한국어로 쓴다. 근거 인용만 원문 그대로 둔다.
-- 리포트를 쓰기 전에 `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-candidates` 를 실행한다. `groups` 에 항목 수가 출력의 `rubric_min_evidence` 이상인 kind 가 있으면 리포트 끝 안내 줄 앞에 "채점 기준 보강 후보 있음(<kind> N건) — /harness-loop:retro rubric" 한 줄을 쓴다.
+- 리포트를 쓰기 전에 `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-candidates` 를 실행한다. `groups` 에서 항목 수가 출력의 `rubric_min_evidence` 이상인 kind 가 있으면 리포트 끝 안내 줄 앞에 "채점 기준 보강 후보 있음(<kind> N건) — /harness-loop:retro rubric" 한 줄을 쓴다.
 - 리포트 끝에 "결정은 자유롭게 입력하세요. 이유를 함께 주면 판정 기준에 반영됩니다. 예: 1 승인, 2 거절(정상 동작이었음), 3번 영향 3으로" 한 줄을 쓴다.
