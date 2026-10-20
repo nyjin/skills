@@ -144,13 +144,34 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 |---|---|---|---|
 | 1 | `not-defect` | 규칙 문장 | `sig`, `sig`, `sig` |
 
-6. 사용자가 승인한 패턴마다 적용한다. 문구를 고쳐 달라고 하면 고친 문구로 적용한다.
+6. 사용자가 승인한 패턴마다 6~9단계를 차례로 한다. 문구를 고쳐 달라고 하면 고친 문구를 쓴다. 먼저 후보 rubric 을 파일로 만든다.
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-apply --kind <kind> --rule "<규칙>" --evidence <sig> <sig> <sig> --out "<tmp>/harness-rubric-candidate.md"
+```
+
+7. 저장된 판정을 지금 rubric 과 후보 rubric 으로 다시 판정한다. 오래 걸리므로 Bash 를 백그라운드로 실행하고 끝나면 결과 파일을 Read 로 읽는다.
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" replay --rubric "<tmp>/harness-rubric-candidate.md" > "<tmp>/harness-replay.json"
+```
+
+8. 결과에 따라 적용 여부를 정한다.
+
+| 결과 | 처리 |
+|---|---|
+| `eligible` 이 false | 라벨 수(`labels`)가 `replay_min_labels` 보다 적어 재판정을 건너뛰었다고 알리고 적용한다 |
+| `candidate` 의 `tpr` 이나 `tnr` 이 `current` 보다 0.05 넘게 낮다 | 적용하지 않는다. 두 rubric 의 `n_pos`·`n_neg`·`tpr`·`tnr` 을 보인다 |
+| `tpr`·`tnr` 이 null 이다(재판정한 항목이 없거나 모두 실패) | 숫자와 `errors` 를 보이고 적용 여부를 사용자에게 묻는다 |
+| 그 밖 | 두 rubric 의 숫자를 한 줄로 보이고 적용한다 |
+
+9. 적용은 아래 명령이다.
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-apply --kind <kind> --rule "<규칙>" --evidence <sig> <sig> <sig>
 ```
 
-7. 패턴마다 "rubric 버전 <version>: <규칙>" 한 줄로 보고한다. 적용한 규칙은 `${CLAUDE_PLUGIN_DATA}/rubric.md` 에 남고 다음 판정부터 digest 에 들어간다.
+10. 패턴마다 "rubric 버전 <version>: <규칙>" 또는 적용하지 않은 이유를 한 줄로 보고한다. 적용한 규칙은 `${CLAUDE_PLUGIN_DATA}/rubric.md` 에 남고 다음 판정부터 digest 에 들어간다.
 
 ## 결정
 

@@ -6,7 +6,7 @@ import yaml
 PLUGIN = Path(__file__).resolve().parents[1]
 SKILL = PLUGIN / "skills/retro/SKILL.md"
 TRIGGERS = ("회고", "action item", "이 세션 돌아보기", "개선점 정리", "retro", "검토 대기")
-CONFIG_KEYS = ("weights", "propose", "watch", "global_bump", "queue_limit", "max_background_judges_per_day", "eval_markers", "label_examples", "rubric_min_evidence")
+CONFIG_KEYS = ("weights", "propose", "watch", "global_bump", "queue_limit", "max_background_judges_per_day", "eval_markers", "label_examples", "rubric_min_evidence", "replay_min_labels")
 
 
 def _parts():
@@ -109,3 +109,12 @@ def test_rubric_mode_commands_and_hint():
     assert "rubric_min_evidence" in mode
     report_format = body.split("## 리포트 형식", 1)[1]
     assert any("rubric-candidates" in l and "rubric_min_evidence" in l and "/harness-loop:retro rubric" in l for l in report_format.splitlines())
+
+
+def test_rubric_mode_replays_before_apply():
+    _, _, body = _parts()
+    mode = body.split("## 채점 기준 보강", 1)[1].split("\n## ", 1)[0]
+    assert '--out "<tmp>/harness-rubric-candidate.md"' in mode
+    assert '"${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" replay --rubric "<tmp>/harness-rubric-candidate.md" > "<tmp>/harness-replay.json"' in mode
+    assert "replay_min_labels" in mode and "0.05" in mode
+    assert mode.index("judge.py\" replay") < mode.index("rubric-apply --kind <kind> --rule \"<규칙>\" --evidence <sig> <sig> <sig>\n")

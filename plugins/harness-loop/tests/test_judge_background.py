@@ -341,3 +341,86 @@ def test_background_cli_exit_codes(tmp_projects, fake_claude_ok, fake_claude_fai
     t2 = copy_fixture(tmp_projects, "partial.jsonl")
     assert cli_exit(t2, fake_claude_ok, monkeypatch) == 2
     assert len(calls(fake_claude_ok)) == 1
+
+
+def replay_item(sig):
+    return {**ITEM, "sig": sig, "evidence": [{"session": "basic", "turn": 1, "quote": f"인용 {sig}"}]}
+
+
+def snapshot(*roots):
+    return {str(p): p.read_bytes() for root in roots for p in sorted(Path(root).rglob("*")) if p.is_file()}
+
+
+@pytest.fixture
+def replay_world(tmp_projects, tmp_path):
+    """test 분할 positive C1:c·negative C1:e, train 분할 negative C1:a. 저장된 run 의 digest rubric 은 OLD-RUBRIC, 지금 rubric 은 NOW-RUBRIC."""
+    assert [state.split(s) for s in ("C1:c", "C1:e", "C1:a")] == ["test", "test", "train"]
+    t = copy_fixture(tmp_projects, "basic.jsonl")
+    hdir = state.harness_dir(t)
+    signals = [{"sig": s, "condition": "C1", "turn": 1, "line": 2, "skill": None, "quote": f"인용 {s}", "needs_judge": False} for s in ("C1:c", "C1:e", "C1:a")]
+    (hdir / "signals.jsonl").write_text("".join(json.dumps(s) + "\n" for s in signals))
+    state.data_dir().joinpath("rubric.md").write_text("OLD-RUBRIC\n")
+    text = judge.digest(t, signals)
+    judge.merge(t, {"items": [replay_item("C1:c"), replay_item("C1:e"), replay_item("C1:a")]}, "sweep", text)
+    state.append_decision("C1:c", "approved")
+    state.append_decision("C1:e", "rejected", kind="not-defect")
+    state.append_decision("C1:a", "rejected", kind="trivial")
+    state.data_dir().joinpath("rubric.md").write_text("<!-- rubric-version: 3 -->\nNOW-RUBRIC\n")
+    state.data_dir().joinpath("scoring.yaml").write_text("replay_min_labels: 3\n")
+    cand = tmp_path / "candidate.md"
+    cand.write_text("<!-- rubric-version: 4 -->\nNOW-RUBRIC\n\n## 항목으로 만들지 않는 경우\n\n- CANDIDATE-RULE\n")
+    both = json.dumps({"items": [replay_item("C1:c"), replay_item("C1:e")]})
+    only_pos = json.dumps({"items": [replay_item("C1:c")]})
+    body = (
+        f'cat "{tmp_path}/fake-replay.stdin" >> "{tmp_path}/stdins.txt"; printf "\\n=====\\n" >> "{tmp_path}/stdins.txt"\n'
+        f'if grep -q CANDIDATE-RULE "{tmp_path}/fake-replay.stdin"; then\n'
+        + reply(result="", structured_output=json.loads(only_pos)) + "\nelse\n"
+        + reply(result="", structured_output=json.loads(both)) + "\nfi"
+    )
+    exe = make_fake(tmp_path, "fake-replay", body)
+    return {"t": t, "cand": cand, "exe": exe, "tmp": tmp_path}
+
+
+def test_replay_compares_current_and_candidate_on_test_split(replay_world, tmp_projects):
+    w = replay_world
+    before = snapshot(tmp_projects, state.data_dir())
+    got = judge.replay(w["cand"], claude_bin=w["exe"])
+    assert snapshot(tmp_projects, state.data_dir()) == before   # items·runs·judge-runs.jsonl 모두 그대로
+    assert not (state.data_dir() / "judge-runs.jsonl").exists()
+    assert got["eligible"] is True and got["labels"] == 3
+    assert got["current"] == {"n_pos": 1, "n_neg": 1, "tpr": 1.0, "tnr": 0.0}
+    assert got["candidate"] == {"n_pos": 1, "n_neg": 1, "tpr": 1.0, "tnr": 1.0}
+    assert {(i["sig"], i["label"], i["current"], i["candidate"]) for i in got["items"]} == {("C1:c", "positive", True, True), ("C1:e", "negative", True, False)}
+    assert got["errors"] == []
+    calls_made = calls(w["exe"])
+    assert len(calls_made) == 2 and all(c.startswith("1 -p --model opus --setting-sources project --strict-mcp-config --no-session-persistence --tools  --output-format json --json-schema {") for c in calls_made)
+    stdins = (w["tmp"] / "stdins.txt").read_text().split("\n=====\n")[:2]
+    assert "OLD-RUBRIC" not in "".join(stdins)
+    assert ["CANDIDATE-RULE" in s for s in stdins].count(True) == 1 and all("NOW-RUBRIC" in s for s in stdins)
+    assert all("| C1:c | C1 | 1 |" in s for s in stdins)
+
+
+def test_replay_limit_and_cli(replay_world, capsys, monkeypatch):
+    w = replay_world
+    got = judge.replay(w["cand"], limit=1, claude_bin=w["exe"])
+    assert len(got["items"]) == 1
+    monkeypatch.setattr(judge, "replay", lambda rubric, limit=None, claude_bin="claude": {"rubric": str(rubric), "limit": limit})
+    judge.main(["replay", "--rubric", str(w["cand"]), "--limit", "5"])
+    assert json.loads(capsys.readouterr().out) == {"rubric": str(w["cand"]), "limit": 5}
+
+
+def test_replay_ineligible_below_min_labels(replay_world):
+    w = replay_world
+    state.data_dir().joinpath("scoring.yaml").write_text("")
+    got = judge.replay(w["cand"], claude_bin=w["exe"])
+    assert got == {"eligible": False, "labels": 3, "replay_min_labels": 100}
+    assert calls(w["exe"]) == []
+
+
+def test_replay_judge_failure_is_reported_not_scored(replay_world, tmp_path):
+    w = replay_world
+    exe = make_fake(tmp_path, "fake-replay-fail", "echo boom >&2\nexit 1")
+    got = judge.replay(w["cand"], claude_bin=exe)
+    assert got["current"] == {"n_pos": 0, "n_neg": 0, "tpr": None, "tnr": None}
+    assert all(i["current"] is None and i["candidate"] is None for i in got["items"])
+    assert len(got["errors"]) == 2 and "boom" in got["errors"][0]["error"]

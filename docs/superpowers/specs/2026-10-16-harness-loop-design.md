@@ -154,6 +154,7 @@ queue_limit: 3
 max_background_judges_per_day: 30
 label_examples: 10     # digest 의 사용자 판정 예시 수
 rubric_min_evidence: 3 # rubric 규칙 하나에 필요한 거절 라벨 수
+replay_min_labels: 100 # 재판정 검증을 돌릴 최소 라벨 수(positive·negative, 두 분할 합)
 ```
 
 - 통과 조건: 같은 규칙이 이미 대상 파일에 있으면 점수와 무관하게 폐기하되, 지켜지지 않은 기존 규칙이면 "규칙 강화" 항목으로 바꾼다(C7). 규칙이 다른 범위에만 있으면(다른 프로젝트 메모리, 프로젝트 메모리와 전역 CLAUDE.md 사이) 중복이 아니므로 보통대로 채점한다. 대상 파일인지는 `duplicate_of_rule` 에 대상 경로(원문, `~` 를 펼친 형태, realpath 중 하나)가 들어 있는지로 본다.
@@ -163,6 +164,7 @@ rubric_min_evidence: 3 # rubric 규칙 하나에 필요한 거절 라벨 수
 - sig_key 의 라벨은 마지막 결정(edit-score 제외)으로 정한다: 승인·반영은 positive, `not-defect`·`trivial` 거절은 negative, `wont-fix` 와 종류 없는 거절은 제외한다. 라벨은 `sha1(sig_key)` 첫 바이트가 128 미만이면 test, 아니면 train 으로 결정적으로 나눈다.
 - digest 의 "사용자 판정 예시" 절에 train 라벨을 최근 순으로 positive·negative 를 번갈아 `label_examples` 개까지 넣는다(한쪽이 모자라면 남은 쪽으로 채운다). 예시마다 sig, 조건, 거절 종류(positive 는 "보고 가치 있음"), 첫 근거 인용(200자까지), 사용자 이유, 그 판정이 뜻하는 지시(`not-defect` → 비슷한 경우 항목을 만들지 않는다, `trivial` → 비슷한 경우 영향 1, positive → 비슷한 경우 항목으로 만든다)를 쓴다. 항목은 어느 세션이든 그 sig_key 로 저장된 항목에서 가져오고, 없으면 건너뛴다.
 - rubric 보강: `report.py rubric-candidates` 는 `rubric-changes.jsonl` 이 근거로 쓰지 않은 negative 라벨을 kind 별로 낸다(sig, 조건, kind, 이유, 첫 인용, 세션, 그리고 `rubric_min_evidence`). `report.py rubric-apply --kind K --rule … --evidence SIG…` 는 서로 다른 K 거절 라벨이 `rubric_min_evidence` 개 이상일 때만(아니면 종료 코드 1) 데이터 디렉터리 `rubric.md` 의 "## 항목으로 만들지 않는 경우"(not-defect) 또는 "## 영향 1 로 보는 경우"(trivial) 절에 규칙을 더하고 버전을 올려 `rubric-changes.jsonl` 에 남긴다. `--out FILE` 이면 바뀐 rubric 을 그 파일에만 쓴다(후보 검증용). 스킬의 `rubric` 모드는 후보를 패턴으로 묶어(패턴마다 근거 `rubric_min_evidence` 개 이상) 초안을 보이고 사용자 승인 뒤 적용한다. 회고·검토 리포트 끝에는 후보가 충분한 kind 가 있을 때 한 줄로 알린다.
+- 재판정 검증: `judge.py replay --rubric <file> [--limit N]` 은 test 분할의 positive·negative 라벨마다 그 sig_key 를 출력에 내거나 신호 표에 담은 저장된 run(가장 나중 것)을 찾아, run digest 의 rubric 부분을 지금 데이터 디렉터리 rubric 과 후보 rubric 으로 각각 바꿔 백그라운드 judge 와 같은 명령·격리로 다시 판정한다. run 하나는 rubric 마다 한 번만 부른다. 출력은 지금 채점 기준(가중치·기준값·재발성·전역 가산·중복 규칙·1/1 하한)으로 채점하되 사용자 결정과 점수 수정은 보지 않는다(라벨이 답을 흘리지 않게). 같은 sig_key 항목이 `propose`·`regressed` 면 positive 로 예측한다. 결과는 rubric 별 `n_pos`·`n_neg`·`tpr`·`tnr` 과 항목별 예측, 판정 실패(`errors`)다. 아무것도 쓰지 않고 하루 상한(`judge-runs.jsonl`)에도 세지 않는다. positive·negative 라벨이 `replay_min_labels` 보다 적으면 판정하지 않고 `eligible: false` 를 낸다. 스킬은 eligible 이고 후보의 TPR 이나 TNR 이 지금보다 0.05 넘게 떨어지면 규칙을 적용하지 않고 숫자를 보인다.
 - 회고 리포트의 표와 상세에는 `propose`·`regressed` 항목만 쓰고, 다른 상태는 `그 외 N건(watch a·discarded b·…)` 한 줄과 모두 보는 명령(`report.py list --session <id>`, 모든 상태를 낸다)으로 줄인다.
 - 사용자가 리뷰 중 점수를 고치면 `decisions.jsonl` 에 고친 `impact`·`actionability` 를 남긴다. 이 값은 sig 를 키로 모든 세션에 적용되고(그래서 `decide … edit-score` 는 `--session` 을 받지 않는다), 이후 병합·재채점에서 judge 점수보다 우선한다.
 

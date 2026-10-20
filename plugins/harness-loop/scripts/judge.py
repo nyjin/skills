@@ -209,10 +209,11 @@ def _duplicate_in_target(item: dict) -> bool:
     return any(f in dup for f in forms)
 
 
-def score(item: dict, cfg: dict) -> tuple[float, str]:
+def score(item: dict, cfg: dict, decided: bool = True) -> tuple[float, str]:
+    """가중합과 상태. decided 가 거짓이면 사용자 결정(거절)을 보지 않는다(replay 용)."""
     w = cfg["weights"]
     total = round(w["recurrence"] * _recurrence_score(item["sessions"]) + w["impact"] * item["impact"] + w["actionability"] * item["actionability"], 6)
-    decision = state.load_decisions_by_key().get(state.sig_key(item["sig"]))
+    decision = state.load_decisions_by_key().get(state.sig_key(item["sig"])) if decided else None
     if decision and decision["decision"] == "rejected":
         return total, "rejected"
     if _duplicate_in_target(item) and not item.get("rule_unenforced"):
@@ -466,8 +467,13 @@ def _judge_tmp_parent() -> str:
 
 def _invoke(path: Path, hdir: Path, mode: str, claude_bin: str) -> None:
     text = digest(path, pending_signals(hdir))
-    cmd = [claude_bin, "-p", "--model", JUDGE_MODEL, "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence", "--tools", "", "--output-format", "json", "--json-schema", SCHEMA.read_text(encoding="utf-8")]
     os.utime(hdir / "lock")
+    merge(path, _run_claude(text, claude_bin), mode, text)
+
+
+def _run_claude(text: str, claude_bin: str) -> dict:
+    """digest 를 격리된 claude -p 로 판정해 출력 JSON 을 돌려준다. 실패하면 ValueError."""
+    cmd = [claude_bin, "-p", "--model", JUDGE_MODEL, "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence", "--tools", "", "--output-format", "json", "--json-schema", SCHEMA.read_text(encoding="utf-8")]
     cwd = tempfile.mkdtemp(prefix="harness-judge-", dir=_judge_tmp_parent())
     try:
         proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=JUDGE_TIMEOUT, cwd=cwd, env={**os.environ, "HARNESS_RETRO": "1"})
@@ -477,7 +483,77 @@ def _invoke(path: Path, hdir: Path, mode: str, claude_bin: str) -> None:
         shutil.rmtree(cwd, ignore_errors=True)
     if proc.returncode != 0:
         raise ValueError(f"exit {proc.returncode}: {' '.join(proc.stderr.split())[:200]}")
-    merge(path, _judge_output(proc.stdout), mode, text)
+    return _judge_output(proc.stdout)
+
+
+def _replay_positive(output: dict, key: str, session: str, cfg: dict) -> bool:
+    """judge 출력에 sig_key 가 key 인 항목이 propose·regressed 로 채점되면 True. 사용자 결정·점수 수정은 보지 않는다(라벨이 답을 흘리지 않게)."""
+    items = _drop_c2_c7_twins([it for it in _validate(output) if not (it["impact"] == 1 and it["actionability"] == 1)])
+    return any(score({**it, "sessions": recurrence(it["sig"], session)}, cfg, decided=False)[1] in ("propose", "regressed") for it in items if state.sig_key(it["sig"]) == key)
+
+
+def _stored_runs() -> list[tuple[str, Path, dict]]:
+    out = []
+    for hdir in state.all_harness_dirs():
+        for path in sorted((hdir / "runs").glob("*.json")) if (hdir / "runs").is_dir() else []:
+            try:
+                run = json.loads(path.read_text(encoding="utf-8"))
+                _rubric_bounds(run["digest"])
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            out.append((hdir.parent.name, path, run))
+    return out
+
+
+def _run_mentions(run: dict, key: str, sig: str) -> bool:
+    items = (run.get("output") or {}).get("items") if isinstance(run.get("output"), dict) else None
+    if any(isinstance(it, dict) and state.sig_key(str(it.get("sig"))) == key for it in items or []):
+        return True
+    return f"| {_cell(sig)} |" in run["digest"] or f"| {_cell(key)} |" in run["digest"]
+
+
+def _rate(preds: list[tuple[str, bool | None]], label: str, want: bool) -> tuple[int, float | None]:
+    got = [p for lab, p in preds if lab == label and p is not None]
+    return len(got), (round(sum(1 for p in got if p == want) / len(got), 6) if got else None)
+
+
+def replay(rubric_path: Path, limit: int | None = None, claude_bin: str = "claude") -> dict:
+    """test 분할 라벨을 저장된 run digest 로 다시 판정해 지금 rubric 과 후보 rubric 의 TPR·TNR 을 낸다. 아무것도 쓰지 않고 하루 상한에도 세지 않는다."""
+    cfg = state.load_config()
+    labeled = {k: v for k, v in state.labels().items() if v["label"] in ("positive", "negative")}
+    if len(labeled) < cfg["replay_min_labels"]:
+        return {"eligible": False, "labels": len(labeled), "replay_min_labels": cfg["replay_min_labels"]}
+    rubrics = {"current": state.data_dir().joinpath("rubric.md").read_text(encoding="utf-8").strip(), "candidate": Path(rubric_path).read_text(encoding="utf-8").strip()}
+    runs = _stored_runs()
+    chosen = []
+    for key, lab in sorted(labeled.items(), key=lambda p: state.aware(p[1]["at"]), reverse=True):
+        found = [r for r in runs if _run_mentions(r[2], key, lab["sig"])] if state.split(key) == "test" else []
+        if found:
+            chosen.append((key, lab, found[-1]))
+    chosen = chosen[:limit] if limit is not None else chosen
+    by_run = {}   # run 파일 → (세션, run, 그 run 으로 판정할 sig_key 들). run 하나는 rubric 마다 한 번만 판정한다
+    for key, _, (session, path, run) in chosen:
+        by_run.setdefault(path, (session, run, []))[2].append(key)
+    preds = {name: {} for name in rubrics}
+    errors = []
+    for path, (session, run, keys) in by_run.items():
+        start, end = _rubric_bounds(run["digest"])
+        for name, text in rubrics.items():
+            try:
+                output = _run_claude(run["digest"][:start] + text + run["digest"][end:], claude_bin)
+                for key in keys:
+                    preds[name][key] = _replay_positive(output, key, session, cfg)
+            except Exception as e:
+                errors.append({"run": str(path), "rubric": name, "error": " ".join(str(e).split())[:300]})
+    result = {"eligible": True, "labels": len(labeled)}
+    for name in rubrics:
+        pairs = [(lab["label"], preds[name].get(key)) for key, lab, _ in chosen]
+        n_pos, tpr = _rate(pairs, "positive", True)
+        n_neg, tnr = _rate(pairs, "negative", False)
+        result[name] = {"n_pos": n_pos, "n_neg": n_neg, "tpr": tpr, "tnr": tnr}
+    result["items"] = [{"sig": lab["sig"], "label": lab["label"], "kind": lab["kind"], "session": r[0], "run": str(r[1]), "current": preds["current"].get(key), "candidate": preds["candidate"].get(key)} for key, lab, r in chosen]
+    result["errors"] = errors
+    return result
 
 
 def _log_error(path: Path, error: Exception) -> None:
@@ -553,6 +629,9 @@ def main(argv=None) -> None:
     p = sub.add_parser("background")
     p.add_argument("transcript", type=Path)
     p.add_argument("--mode", choices=MODES, required=True)
+    p = sub.add_parser("replay")
+    p.add_argument("--rubric", type=Path, required=True)
+    p.add_argument("--limit", type=int)
     args = parser.parse_args(argv)
     if args.cmd == "digest":
         print(digest(args.transcript, pending_signals(state.harness_dir(args.transcript))), end="")
@@ -564,6 +643,13 @@ def main(argv=None) -> None:
             state.release_lock(hdir)
     elif args.cmd == "background":
         sys.exit(background_status(args.transcript, args.mode))
+    elif args.cmd == "replay":
+        try:
+            result = replay(args.rubric, args.limit)
+        except OSError as e:
+            print(f"rubric 파일을 읽지 못했다: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         print(rescore())
 

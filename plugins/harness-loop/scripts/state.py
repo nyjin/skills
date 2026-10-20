@@ -32,6 +32,7 @@ DEFAULT_CONFIG = {
     "eval_markers": ["트리거 측정 중"],
     "label_examples": 10,
     "rubric_min_evidence": 3,
+    "replay_min_labels": 100,
 }
 NEGATIVE_KINDS = ("not-defect", "trivial")
 REJECT_KINDS = NEGATIVE_KINDS + ("wont-fix",)
