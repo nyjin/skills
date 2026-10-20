@@ -381,6 +381,10 @@ def rubric_apply(kind: str, rule: str, evidence: list[str], out: Path | None = N
     held = [s for s in evidence if state.split(state.sig_key(s)) == "test"]
     if held:
         raise ValueError(f"근거에 test 분할 라벨을 쓸 수 없다(재판정 검증용으로 남긴다): {', '.join(held)}. rubric-candidates 의 sig 만 쓴다.")
+    cited = {state.sig_key(str(s)) for r in _rubric_changes() for s in (r.get("evidence") or [])}
+    used = [s for s in evidence if state.sig_key(s) in cited]
+    if used:
+        raise ValueError(f"이미 rubric 규칙 근거로 쓴 sig 다: {', '.join(used)}. rubric-candidates 의 sig 만 쓴다.")
     bad = [s for s in evidence if (labels.get(state.sig_key(s)) or {}).get("label") != "negative" or labels[state.sig_key(s)]["kind"] != kind]
     good = {state.sig_key(s) for s in evidence if s not in bad}
     need = state.load_config()["rubric_min_evidence"]

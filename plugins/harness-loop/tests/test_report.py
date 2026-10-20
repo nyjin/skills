@@ -647,7 +647,8 @@ def test_rubric_apply_appends_rule_bumps_version_and_logs(tmp_projects, capsys):
     text = rubric.read_text()
     assert text.startswith("<!-- rubric-version: 2 -->\n# 채점 기준\n\n본문\n")
     assert "\n## 항목으로 만들지 않는 경우\n\n- 도구가 낸 경고만으로는 항목을 만들지 않는다.\n" in text
-    report.main(["rubric-apply", "--kind", "not-defect", "--rule", "둘째 규칙", "--evidence", "C1:n7", "C1:n1", "C1:n6"])
+    state.data_dir().joinpath("scoring.yaml").write_text("rubric_min_evidence: 1\n")
+    report.main(["rubric-apply", "--kind", "not-defect", "--rule", "둘째 규칙", "--evidence", "C1:n7"])
     capsys.readouterr()
     text = rubric.read_text()
     assert text.startswith("<!-- rubric-version: 3 -->\n")
@@ -655,7 +656,7 @@ def test_rubric_apply_appends_rule_bumps_version_and_logs(tmp_projects, capsys):
     changes = [json.loads(l) for l in (state.data_dir() / "rubric-changes.jsonl").read_text().splitlines()]
     assert [(c["version"], c["kind"], c["rule"], c["evidence"]) for c in changes] == [
         (2, "not-defect", "도구가 낸 경고만으로는 항목을 만들지 않는다.", ["C1:n1", "C1:n6", "C2:n4"]),
-        (3, "not-defect", "둘째 규칙", ["C1:n7", "C1:n1", "C1:n6"]),
+        (3, "not-defect", "둘째 규칙", ["C1:n7"]),
     ]
     assert all(c["at"] for c in changes)
     assert report.rubric_candidates()["groups"]["not-defect"] == []
@@ -700,3 +701,19 @@ def test_rubric_apply_rejects_test_split_evidence(tmp_projects, capsys):
         report.main(["rubric-apply", "--kind", "not-defect", "--rule", "r", "--evidence", "C1:n1", "C1:n6", "C7:n4", "C1:n2"])
     assert ex.value.code == 1 and "C1:n2" in capsys.readouterr().err
     assert rubric.read_text() == before and not (state.data_dir() / "rubric-changes.jsonl").exists()
+
+
+def test_rubric_apply_rejects_already_cited_evidence(tmp_projects, capsys):
+    label_setup(tmp_projects)
+    report.rubric_apply("not-defect", "첫 규칙", ["C1:n1", "C1:n6", "C7:n4"])
+    rubric = state.data_dir() / "rubric.md"
+    before = rubric.read_text()
+    state.data_dir().joinpath("scoring.yaml").write_text("rubric_min_evidence: 1\n")
+    with pytest.raises(ValueError, match="이미") as e:
+        report.rubric_apply("not-defect", "둘째", ["C1:n7", "C2:n4"])
+    assert "C2:n4" in str(e.value) and "C1:n7" not in str(e.value)
+    with pytest.raises(SystemExit) as ex:
+        report.main(["rubric-apply", "--kind", "not-defect", "--rule", "r", "--evidence", "C1:n1"])
+    assert ex.value.code == 1 and "C1:n1" in capsys.readouterr().err
+    assert rubric.read_text() == before
+    assert len((state.data_dir() / "rubric-changes.jsonl").read_text().splitlines()) == 1

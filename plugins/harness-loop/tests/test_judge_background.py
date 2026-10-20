@@ -353,18 +353,24 @@ def snapshot(*roots):
 
 @pytest.fixture
 def replay_world(tmp_projects, tmp_path):
-    """test 분할 positive C1:c·negative C1:e, train 분할 negative C1:a. 저장된 run 의 digest rubric 은 OLD-RUBRIC, 지금 rubric 은 NOW-RUBRIC."""
-    assert [state.split(s) for s in ("C1:c", "C1:e", "C1:a")] == ["test", "test", "train"]
+    """test 분할 positive C1:c·negative C1:e, train 분할 negative C1:a. 결정 전 run 001 의 digest rubric 은 OLD-RUBRIC 이고 살아 있는·결정된 sig 절에 세 sig 가 있다.
+    결정 뒤 run 002 도 세 sig 와 C1:f(test 분할, 결정 전 run 없음)를 담는다. 지금 rubric 은 NOW-RUBRIC."""
+    assert [state.split(s) for s in ("C1:c", "C1:e", "C1:a", "C1:f")] == ["test", "test", "train", "test"]
     t = copy_fixture(tmp_projects, "basic.jsonl")
     hdir = state.harness_dir(t)
     signals = [{"sig": s, "condition": "C1", "turn": 1, "line": 2, "skill": None, "quote": f"인용 {s}", "needs_judge": False} for s in ("C1:c", "C1:e", "C1:a")]
     (hdir / "signals.jsonl").write_text("".join(json.dumps(s) + "\n" for s in signals))
     state.data_dir().joinpath("rubric.md").write_text("OLD-RUBRIC\n")
     text = judge.digest(t, signals)
+    text = text.replace("## 살아 있는 sig\n\n- 없음", "## 살아 있는 sig\n\n- C1:a (watch)\n- C1:c (approved)\n- C1:e (propose, 이 세션)")
+    text = text.replace("## 결정된 sig\n\n- 없음", "## 결정된 sig\n\n- C1:a: rejected\n- C1:c: approved\n- C1:e: rejected")
     judge.merge(t, {"items": [replay_item("C1:c"), replay_item("C1:e"), replay_item("C1:a")]}, "sweep", text)
     state.append_decision("C1:c", "approved")
     state.append_decision("C1:e", "rejected", kind="not-defect")
     state.append_decision("C1:a", "rejected", kind="trivial")
+    state.append_decision("C1:f", "approved")
+    later = signals + [{"sig": "C1:f", "condition": "C1", "turn": 1, "line": 2, "skill": None, "quote": "인용 C1:f", "needs_judge": False}]
+    judge.merge(t, {"items": [replay_item(s) for s in ("C1:c", "C1:e", "C1:a", "C1:f")]}, "sweep", judge.digest(t, later))
     state.data_dir().joinpath("rubric.md").write_text("<!-- rubric-version: 3 -->\nNOW-RUBRIC\n")
     state.data_dir().joinpath("scoring.yaml").write_text("replay_min_labels: 3\n")
     cand = tmp_path / "candidate.md"
@@ -387,7 +393,7 @@ def test_replay_compares_current_and_candidate_on_test_split(replay_world, tmp_p
     got = judge.replay(w["cand"], claude_bin=w["exe"])
     assert snapshot(tmp_projects, state.data_dir()) == before   # items·runs·judge-runs.jsonl 모두 그대로
     assert not (state.data_dir() / "judge-runs.jsonl").exists()
-    assert got["eligible"] is True and got["labels"] == 3
+    assert got["eligible"] is True and got["labels"] == 4
     assert got["current"] == {"n_pos": 1, "n_neg": 1, "tpr": 1.0, "tnr": 0.0}
     assert got["candidate"] == {"n_pos": 1, "n_neg": 1, "tpr": 1.0, "tnr": 1.0}
     assert {(i["sig"], i["label"], i["current"], i["candidate"]) for i in got["items"]} == {("C1:c", "positive", True, True), ("C1:e", "negative", True, False)}
@@ -398,6 +404,25 @@ def test_replay_compares_current_and_candidate_on_test_split(replay_world, tmp_p
     assert "OLD-RUBRIC" not in "".join(stdins)
     assert ["CANDIDATE-RULE" in s for s in stdins].count(True) == 1 and all("NOW-RUBRIC" in s for s in stdins)
     assert all("| C1:c | C1 | 1 |" in s for s in stdins)
+    assert all(i["run"].endswith("001-sweep.json") for i in got["items"])   # 결정 뒤 run 002 는 쓰지 않는다
+    for s in stdins:
+        assert "- C1:a (watch)" in s and "- C1:a: rejected" in s   # 판정하지 않는 sig 는 남긴다
+        for sig in ("C1:c", "C1:e"):
+            assert f"- {sig} (" not in s and f"- {sig}: " not in s
+
+
+def test_replay_strips_decided_twins():
+    text = "- C7:x (approved)\n- C2:x: rejected\n- C2:y: approved"
+    digest = f"# h\n\n세션 `s`.\n\nR\n\n## 신호\n\n| sig |\n\n## 살아 있는 sig\n\n- C7:x (approved)\n- C2:y (watch)\n\n## 결정된 sig\n\n- C2:x: rejected\n- C1:Error: boom: approved\n- C2:y: approved\n\n규칙\n\n## sig 규칙\n\n- C2:x 는 그대로"
+    got = judge._strip_labels(digest, {"C2:x", "C1:Error: boom"})
+    assert "C7:x (approved)" not in got and "C2:x: rejected" not in got and "C1:Error: boom" not in got
+    assert "- C2:y (watch)" in got and "- C2:y: approved" in got and "- C2:x 는 그대로" in got and "규칙" in got
+
+
+def test_run_mentions_falls_back_to_signal_table():
+    run = {"output": {"items": []}, "digest": "x\n\n| sig | 조건 |\n|---|---|\n| C1:c | C1 |"}
+    assert judge._run_mentions(run, "C1:c", "C1:c") is True
+    assert judge._run_mentions(run, "C1:e", "C1:e") is False
 
 
 def test_replay_limit_and_cli(replay_world, capsys, monkeypatch):
@@ -407,13 +432,17 @@ def test_replay_limit_and_cli(replay_world, capsys, monkeypatch):
     monkeypatch.setattr(judge, "replay", lambda rubric, limit=None, claude_bin="claude": {"rubric": str(rubric), "limit": limit})
     judge.main(["replay", "--rubric", str(w["cand"]), "--limit", "5"])
     assert json.loads(capsys.readouterr().out) == {"rubric": str(w["cand"]), "limit": 5}
+    for bad in ("0", "-1"):
+        with pytest.raises(SystemExit) as e:
+            judge.main(["replay", "--rubric", str(w["cand"]), "--limit", bad])
+        assert e.value.code == 2
 
 
 def test_replay_ineligible_below_min_labels(replay_world):
     w = replay_world
     state.data_dir().joinpath("scoring.yaml").write_text("")
     got = judge.replay(w["cand"], claude_bin=w["exe"])
-    assert got == {"eligible": False, "labels": 3, "replay_min_labels": 100}
+    assert got == {"eligible": False, "labels": 4, "replay_min_labels": 100}
     assert calls(w["exe"]) == []
 
 

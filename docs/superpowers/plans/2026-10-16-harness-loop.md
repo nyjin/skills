@@ -472,7 +472,7 @@ Step 1~2 의 모든 명령은 `HARNESS_PROJECTS_ROOT=<scratchpad>/projects CLAUD
 - `state.rubric_version(text) -> int` — `<!-- rubric-version: N -->` 값, 없으면 1. `defaults/rubric.md` 는 1 로 시작한다.
 - `judge.merge(..., digest_text=None)` — run 파일에 `rubric_version` 과 `digest` 를 남긴다. 백그라운드는 `claude -p` 에 준 digest 를, 명시 호출은 병합 전 상태로 다시 만든 digest 를 쓴다.
 - `report.rubric_candidates() -> {"rubric_min_evidence": N, "groups": {"not-defect": [...], "trivial": [...]}}` — train 분할 라벨만. 항목마다 `sig`·`condition`·`kind`·`reason`·`quote`·`session`. CLI `report.py rubric-candidates`.
-- `report.rubric_apply(kind, rule, evidence, out=None)` — 근거 검증(test 분할 sig 가 있으면 그 sig 를 밝힌 ValueError·CLI 종료 코드 1, 서로 다른 그 kind 의 negative 라벨이 `rubric_min_evidence` 개 이상, 아니면 ValueError·CLI 종료 코드 1) → kind 절에 `- 규칙` 추가(절이 없으면 끝에 만든다) → 버전 +1 → 원자적 쓰기 → `rubric-changes.jsonl` 추가. `out` 이면 그 파일에만 쓴다. CLI `report.py rubric-apply --kind K --rule … --evidence SIG… [--out FILE]`.
+- `report.rubric_apply(kind, rule, evidence, out=None)` — 근거 검증(test 분할 sig 나 `rubric-changes.jsonl` 에 이미 근거로 남은 sig 가 있으면 그 sig 를 밝힌 ValueError·CLI 종료 코드 1, 서로 다른 그 kind 의 negative 라벨이 `rubric_min_evidence` 개 이상, 아니면 ValueError·CLI 종료 코드 1) → kind 절에 `- 규칙` 추가(절이 없으면 끝에 만든다) → 버전 +1 → 원자적 쓰기 → `rubric-changes.jsonl` 추가. `out` 이면 그 파일에만 쓴다. CLI `report.py rubric-apply --kind K --rule … --evidence SIG… [--out FILE]`.
 - SKILL.md `rubric` 모드와 리포트 끝 보강 후보 안내.
 
 - [ ] **커밋** — `feat: harness-loop rubric 보강 제안과 run digest 기록`
@@ -485,8 +485,8 @@ Step 1~2 의 모든 명령은 `HARNESS_PROJECTS_ROOT=<scratchpad>/projects CLAUD
 **Interfaces:**
 - `judge._run_claude(text, claude_bin) -> dict` — 백그라운드 judge 와 같은 `claude -p` 명령·격리 cwd 로 digest 하나를 판정한다. `_invoke` 와 `replay` 가 같이 쓴다.
 - `judge.score(item, cfg, decided=True)` — `decided=False` 면 사용자 거절을 보지 않는다.
-- `judge.replay(rubric_path, limit=None, claude_bin="claude") -> dict` — positive·negative 라벨 수가 `replay_min_labels` 미만이면 `{"eligible": false, "labels", "replay_min_labels"}`. 아니면 test 분할 라벨(최근 순, `limit` 개까지)마다 저장된 run(출력에 그 sig_key 가 있거나 digest 신호 표에 그 sig 가 있는 가장 나중 run)의 digest rubric 을 지금 rubric·후보 rubric 으로 바꿔 판정하고, 사용자 결정·점수 수정 없이 채점해 `propose`·`regressed` 면 positive 로 예측한다. 결과 `{"eligible": true, "labels", "current": {n_pos, n_neg, tpr, tnr}, "candidate": {...}, "items": [...], "errors": [...]}`. 아무것도 쓰지 않는다.
-- CLI `judge.py replay --rubric <file> [--limit N]`.
+- `judge.replay(rubric_path, limit=None, claude_bin="claude") -> dict` — positive·negative 라벨 수가 `replay_min_labels` 미만이면 `{"eligible": false, "labels", "replay_min_labels"}`. 아니면 test 분할 라벨(최근 순, `limit` 개까지)마다 저장된 run(출력에 그 sig_key 가 있거나 digest 신호 표에 그 sig 가 있고, `at` 이 라벨 결정 시각보다 앞선 가장 나중 run. 없으면 건너뛴다)의 digest 에서 "살아 있는 sig"·"결정된 sig" 절의 판정 대상 sig_key(쌍둥이 포함) 줄을 지우고(`_strip_labels`) rubric 을 지금 rubric·후보 rubric 으로 바꿔 판정하고, 사용자 결정·점수 수정 없이 채점해 `propose` 면 positive 로 예측한다. 결과 `{"eligible": true, "labels", "current": {n_pos, n_neg, tpr, tnr}, "candidate": {...}, "items": [...], "errors": [...]}`. 아무것도 쓰지 않는다.
+- CLI `judge.py replay --rubric <file> [--limit N]`(`N` 은 1 이상).
 - SKILL.md `rubric` 모드: 승인한 패턴마다 `rubric-apply … --out` → `judge.py replay`(백그라운드) → 적합하지 않으면 건너뛰었다고 알리고 적용, 후보의 TPR·TNR 이 0.05 넘게 떨어지면 적용하지 않는다 → `rubric-apply`.
 
 - [ ] **커밋** — `feat: harness-loop rubric 후보 재판정 검증`

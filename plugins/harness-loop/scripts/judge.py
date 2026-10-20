@@ -487,9 +487,23 @@ def _run_claude(text: str, claude_bin: str) -> dict:
 
 
 def _replay_positive(output: dict, key: str, session: str, cfg: dict) -> bool:
-    """judge 출력에 sig_key 가 key 인 항목이 propose·regressed 로 채점되면 True. 사용자 결정·점수 수정은 보지 않는다(라벨이 답을 흘리지 않게)."""
+    """judge 출력에 sig_key 가 key 인 항목이 propose 로 채점되면 True. 사용자 결정·점수 수정은 보지 않는다(라벨이 답을 흘리지 않게). 그래서 regressed 는 나오지 않는다."""
     items = _drop_c2_c7_twins([it for it in _validate(output) if not (it["impact"] == 1 and it["actionability"] == 1)])
-    return any(score({**it, "sessions": recurrence(it["sig"], session)}, cfg, decided=False)[1] in ("propose", "regressed") for it in items if state.sig_key(it["sig"]) == key)
+    return any(score({**it, "sessions": recurrence(it["sig"], session)}, cfg, decided=False)[1] == "propose" for it in items if state.sig_key(it["sig"]) == key)
+
+
+def _strip_labels(text: str, keys: set[str]) -> str:
+    """digest 의 "살아 있는 sig"·"결정된 sig" 절에서 sig_key 가 keys 에 드는 줄(C2·C7 쌍둥이 포함)을 지운다. 판정할 sig 의 상태·결정이 judge 에 흘러가지 않게 한다."""
+    out, section = [], None
+    for line in text.split("\n"):
+        if line.startswith("## "):
+            section = line[3:]
+        if line.startswith("- ") and section in ("살아 있는 sig", "결정된 sig"):
+            sig = line[2:].rsplit(" (", 1)[0] if section == "살아 있는 sig" else line[2:].rsplit(": ", 1)[0]
+            if state.sig_key(sig) in keys:
+                continue
+        out.append(line)
+    return "\n".join(out)
 
 
 def _stored_runs() -> list[tuple[str, Path, dict]]:
@@ -499,6 +513,7 @@ def _stored_runs() -> list[tuple[str, Path, dict]]:
             try:
                 run = json.loads(path.read_text(encoding="utf-8"))
                 _rubric_bounds(run["digest"])
+                run["at"] = state.aware(run["at"])
             except (OSError, ValueError, KeyError, TypeError):
                 continue
             out.append((hdir.parent.name, path, run))
@@ -527,9 +542,10 @@ def replay(rubric_path: Path, limit: int | None = None, claude_bin: str = "claud
     runs = _stored_runs()
     chosen = []
     for key, lab in sorted(labeled.items(), key=lambda p: state.aware(p[1]["at"]), reverse=True):
-        found = [r for r in runs if _run_mentions(r[2], key, lab["sig"])] if state.split(key) == "test" else []
-        if found:
-            chosen.append((key, lab, found[-1]))
+        decided = state.aware(lab["at"])
+        found = [r for r in runs if r[2]["at"] < decided and _run_mentions(r[2], key, lab["sig"])] if state.split(key) == "test" else []
+        if found:   # 결정 전 run 중 가장 나중 것. 결정 뒤 run 은 결정 정보를 담을 수 있어 쓰지 않는다
+            chosen.append((key, lab, max(found, key=lambda r: r[2]["at"])))
     chosen = chosen[:limit] if limit is not None else chosen
     by_run = {}   # run 파일 → (세션, run, 그 run 으로 판정할 sig_key 들). run 하나는 rubric 마다 한 번만 판정한다
     for key, _, (session, path, run) in chosen:
@@ -537,10 +553,11 @@ def replay(rubric_path: Path, limit: int | None = None, claude_bin: str = "claud
     preds = {name: {} for name in rubrics}
     errors = []
     for path, (session, run, keys) in by_run.items():
-        start, end = _rubric_bounds(run["digest"])
+        stored = _strip_labels(run["digest"], set(keys))
+        start, end = _rubric_bounds(stored)
         for name, text in rubrics.items():
             try:
-                output = _run_claude(run["digest"][:start] + text + run["digest"][end:], claude_bin)
+                output = _run_claude(stored[:start] + text + stored[end:], claude_bin)
                 for key in keys:
                     preds[name][key] = _replay_positive(output, key, session, cfg)
             except Exception as e:
@@ -617,6 +634,13 @@ def spawn_background(transcript_path: Path, mode: str) -> None:
     )
 
 
+def _positive_int(text: str) -> int:
+    n = int(text)
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"1 이상이어야 한다: {text}")
+    return n
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(prog="judge.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -631,7 +655,7 @@ def main(argv=None) -> None:
     p.add_argument("--mode", choices=MODES, required=True)
     p = sub.add_parser("replay")
     p.add_argument("--rubric", type=Path, required=True)
-    p.add_argument("--limit", type=int)
+    p.add_argument("--limit", type=_positive_int)
     args = parser.parse_args(argv)
     if args.cmd == "digest":
         print(digest(args.transcript, pending_signals(state.harness_dir(args.transcript))), end="")
