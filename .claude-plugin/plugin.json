@@ -3,7 +3,7 @@
   "name": "tech-writing",
   "displayName": "Tech Writing",
   "description": "독자에 맞춰 한국어 기술 문서를 구성·작성·개선한다. 문서 유형별 구조, 기술 문서 문장 규칙, mermaid·archify 시각화, korean-proofreader 교정, 독자 되말하기 검증까지 한 흐름으로 처리한다.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": { "name": "yeonjin.roh" },
   "license": "MIT",
   "keywords": ["technical-writing", "documentation", "korean", "기술 문서", "테크니컬 라이팅"]
