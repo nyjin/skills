@@ -16,11 +16,11 @@
 - 모든 경로는 `plugins/harness-loop/` 기준. 스크립트는 기존처럼 `#!/usr/bin/env python3` 와 PEP 723 블록(`requires-python = ">=3.11"`, `dependencies = ["pyyaml>=6"]`)으로 시작하고 `uv run --script` 로 실행한다(사용자 결정).
 - 세션 상태: `<projects_root>/<프로젝트>/<세션ID>/harness/` 아래 `evidence.jsonl`, `evidence.cursor`, `skill-state.json`, `scripts/<sha1>.txt`, `skip`. `projects_root` 는 `HARNESS_PROJECTS_ROOT`, 없으면 `~/.claude/projects`.
 - 공용 상태: `${CLAUDE_PLUGIN_DATA}`(없으면 `~/.claude/plugins/data/harness-loop-local/`) 아래 `config.yaml`, `rubric.md`(첫 줄 `<!-- rubric-version: N -->`), `observations.jsonl`, `groups.json`, `decisions.jsonl`, `rubric-changes.jsonl`, `skill-snapshots/<blob해시>`, `replay/<묶음 id>/input.json`, `notice-day`, `hook-errors.log`, `installed_at`. 이 데이터는 저장소에 넣지 않는다.
-- `config.yaml` 기본값(YAML 매핑): `{"eval_markers": ["트리거 측정 중"], "window_days": 30, "script_min_count": 3, "script_min_sessions": 2, "correction_min_count": 2, "guideline_min_sessions": 2, "repeat_edit_min": 3, "label_examples": 10, "rubric_min_evidence": 3, "replay_min_labels": 30, "judge_batch": 40}`. 옛 `scoring.yaml` 은 읽지 않는다.
+- `config.yaml` 기본값(YAML 매핑): `{"eval_markers": ["트리거 측정 중"], "window_days": 30, "script_min_count": 3, "script_min_sessions": 2, "correction_min_count": 2, "guideline_min_sessions": 2, "repeat_edit_min": 3, "label_examples": 10, "rubric_min_evidence": 3, "replay_min_labels": 30, "judge_batch": 40}`.
 - 관찰 종류: `correction`(교정), `repeat`(반복 실행), `failure`(실패·이탈), `approval_question`(승인용 질문).
 - 결정 대상 종류: `script`(스크립트화), `skill_supplement`(스킬 보완), `guideline_supplement`(지침 보완), `fix`(지침·스크립트 수정), `rework`(수정 방식 재검토). `rework` 하위 종류: `recurrence`, `verified_recurrence`, `repeat_edit`.
 - 결정: `proceed`(진행), `ticket`(티켓), `reject` + `kind` ∈ `not-defect`·`trivial`·`wont-fix`. 라벨: proceed·ticket → positive, not-defect·trivial → negative, wont-fix → excluded. 분할: `sha1(묶음 id)` 첫 바이트 < 128 이면 test, 아니면 train.
-- 옛 `decisions.jsonl` 줄(`sig` 키, `group` 키 없음)은 읽을 때 무시한다.
+- 재구성(사용자 결정): 옛 파일·데이터와의 호환 코드를 두지 않는다. 옛 형식 읽기·이전·무시 처리·백업 사본을 만들지 않고, 옛 데이터는 병합 때 지운다(Task 13 Step 4).
 - 훅은 어떤 경우에도 종료 코드 0, stdout 은 SessionStart 알림 외에 아무것도 쓰지 않는다. 오류는 `hook-errors.log` 한 줄. 훅 안에서 LLM·네트워크 호출 금지.
 - 가드: `HARNESS_RETRO=1` 이거나 훅 입력에 `agent_id` 가 있으면 아무것도 하지 않는다. 세션 `harness/skip` 이 있으면 기록하지 않는다. 프롬프트에 `eval_markers` 중 하나가 있으면 `skip` 을 만들고 그 뒤 기록하지 않는다. `HERDR_PW_WORKER` 세션은 기록하되 SessionStart 알림을 내지 않는다.
 - 승인용 질문 제외 대상: 되돌리기 어렵거나 외부로 나가는 동작 앞의 확인(push, 삭제, 메시지 전송, 티켓 생성, 배포). 이 규칙은 `defaults/rubric.md` 에 둔다.
@@ -75,12 +75,12 @@
 **Interfaces:**
 - Produces:
   - `DEFAULT_CONFIG: dict` (Global Constraints 의 값)
-  - `data_dir() -> Path` — 없으면 만들고 `config.yaml`·`rubric.md` 를 `defaults/` 에서 처음 한 번 복사, `installed_at` 기록. 이미 있는 `rubric.md` 에 `## 관찰로 보지 않는 경우` 가 없으면(옛 채점 기준) `rubric-old.md` 로 이름을 바꾸고 새 기본값을 복사한다. 옛 운영 파일(`scoring.yaml`, `judge-runs.jsonl`, `hook-errors.seen`)은 읽지 않고 그대로 둔다
+  - `data_dir() -> Path` — 없으면 만들고 `config.yaml`·`rubric.md` 를 `defaults/` 에서 처음 한 번 복사, `installed_at` 기록
   - `load_config() -> dict` — `config.yaml` 을 `DEFAULT_CONFIG` 위에 덮음. 깨진 YAML·매핑 아님 → 기본값 + `hook-errors.log` 한 줄. 옛 `scoring.yaml` 은 읽지 않는다
   - `projects_root() -> Path`, `harness_path(transcript) -> Path`(만들지 않음), `harness_dir(transcript) -> Path`(만듦), `all_harness_dirs() -> list[Path]`
   - `now() -> str`(로컬 시간대 ISO), `aware(text) -> datetime`
   - `atomic_write(path, text) -> None`, `append_line(path, obj: dict) -> None`(한 번의 `os.write` 로 `O_APPEND`)
-  - `acquire_lock(dir, stale_sec=600) -> bool`, `release_lock(dir) -> None`, `LOCKED_EXIT = 3` (동작은 옛 `state.py` 와 같음)
+  - `acquire_lock(dir, stale_sec=600) -> bool`, `release_lock(dir) -> None`, `LOCKED_EXIT = 3` (stale 락 회수 포함)
   - `log_error(where: str, error: BaseException) -> None`(절대 예외를 내지 않음)
 
 - [ ] **Step 1: 실패하는 테스트 작성** — `tests/test_paths.py`
@@ -95,14 +95,6 @@ def test_data_dir_copies_defaults_once(tmp_path):
     assert paths.load_config()["window_days"] == 7
     assert paths.load_config()["script_min_count"] == 3
 
-def test_old_rubric_replaced_once():
-    paths = load_script("paths")
-    d = Path(os.environ["CLAUDE_PLUGIN_DATA"]); d.mkdir(parents=True)
-    (d / "rubric.md").write_text("<!-- rubric-version: 1 -->\n# 채점 기준\n")
-    paths.data_dir()
-    assert "## 관찰로 보지 않는 경우" in (d / "rubric.md").read_text()
-    assert "# 채점 기준" in (d / "rubric-old.md").read_text()
-
 def test_broken_config_falls_back_and_logs():
     paths = load_script("paths")
     (paths.data_dir() / "config.yaml").write_text("[1,")
@@ -116,7 +108,7 @@ def test_append_line_writes_one_json_per_line(tmp_path):
     paths.append_line(p, {"b": 2})
     assert [json.loads(l) for l in p.read_text().splitlines()] == [{"a": "줄\n바꿈"}, {"b": 2}]
 
-def test_lock_is_exclusive_and_stale_lock_reclaimed(tmp_path): ...  # 옛 test_state 의 같은 이름 테스트를 paths 로 옮김
+def test_lock_is_exclusive_and_stale_lock_reclaimed(tmp_path): ...  # mkdir 락 배타, 600초 지난 락 회수
 ```
 
 - [ ] **Step 2: 실패 확인** — `uv run pytest plugins/harness-loop/tests/test_paths.py -q` → FAIL(`paths` 없음)
@@ -458,7 +450,7 @@ def test_inconsistent_finding_and_target_dropped(obs_factory): ...
 - Consumes: `groups.load`, `observe.observations`, `versions.blob_hash`, `versions.history`, `apply_target.classify`, `paths.*`
 - Produces:
   - `record(group_id, choice, *, kind=None, reason=None, baseline_hash=None, ticket=None) -> dict` — `choice` ∈ `proceed`·`ticket`·`reject`. `reject` 는 `kind` 필수. `proceed` 는 `baseline_hash` 가 없으면 `blob_hash(target_path)`. 대상이 플러그인 캐시면 `proceed` 를 `ValueError`. `decisions.jsonl` 에 `{"group", "decision", "kind", "note", "baseline_hash", "ticket", "at", "rubric_version"}` 덧붙이고, 같은 호출에서 `archive(group_id)`
-  - `last_decisions() -> dict[str, dict]` — 묶음별 마지막 결정(`group` 키 없는 옛 줄 무시)
+  - `last_decisions() -> dict[str, dict]` — 묶음별 마지막 결정
   - `labels() -> dict[str, dict]` — `{"label": positive|negative|excluded, "kind", "note", "at"}`
   - `split(group_id) -> str`
   - `precision() -> dict` — `{"positive", "negative", "precision": float | None}`
@@ -472,7 +464,6 @@ def test_reject_requires_kind(group): ...
 def test_proceed_records_baseline_hash_and_archives(group_in_repo): ...
 def test_plugin_cache_target_cannot_proceed(group_in_cache): ...
 def test_labels_and_precision(groups3): ...  # proceed·ticket·reject(trivial)·reject(wont-fix) → positive 2, negative 1, precision 2/3
-def test_old_sig_lines_ignored(): ...
 def test_archive_contains_no_decision_and_file_versions(group_in_repo): ...
 def test_ticket_file_embeds_contents_not_paths(group_with_script): ...  # 스크립트 원문 문자열이 파일 본문에 있음
 def test_gate_reflects_decisions(group): ...  # reject 뒤 gate 의 dropped 에 rejected
@@ -629,6 +620,6 @@ SKILL.md 가 정할 것(규칙·표·명령만):
 - [ ] **Step 1: 고정 기록 조각 확인(성공 기준 2)** — 대안 없는 진행 확인 → `approval_question` 참 + `report`, push 확인 → rubric 제외로 거짓, 도구 거절 후 교정 → `after_rejection`, 같은 heredoc 3회 2세션 → `script` 보고, git 안 스킬 수정 후 재발 → `rework/recurrence`, 같은 곳 3회 수정 → `rework/repeat_edit`. 판정은 테스트가 쓴 서브에이전트 출력 JSON 으로 고정한다. `uv run pytest plugins/harness-loop/tests -q` → PASS
 - [ ] **Step 2: 훅 시간(성공 기준 3)** — `uv run pytest plugins/harness-loop/tests/test_hook.py -m slow -q` → PASS, 측정한 p95 값을 실측 절에 적음
 - [ ] **Step 3: 2026-10-19 회고 세션 재현(성공 기준 1)** — 격리 디렉터리(`HARNESS_PROJECTS_ROOT=<scratch>/projects`, `CLAUDE_PLUGIN_DATA=<scratch>/data`)에 그 13세션 기록만 복사하고 `retro.py backfill` → `--plugin-dir` 로 이 플러그인을 띄운 대화형 세션에서 같은 환경 변수로 `/harness-loop:retro`. 확인: "메모리에만 있다 → 전역으로" 류와 응답 품질 지적이 `report` 에 없음, ADR 번호·테스트 재요구·run_eval 충돌·inline-helper 가 `report` 또는 `held` 에 있음. 세션 목록과 옛 항목은 실제 `${CLAUDE_PLUGIN_DATA}` 의 2026-10-19 18:01~18:03 run·`decisions.jsonl` 에서 읽기만 한다. 결과 표(항목, 기대, 실제)를 실측 절에 적음
-- [ ] **Step 4: 병합과 실설치 확인** — `feat/harness-loop-redesign` 을 `feat/harness-loop` 로 병합(이 worktree 에서 `git merge --ff-only` 또는 일반 병합)한 뒤, 사용자 설치 환경에서 `/reload-plugins` 뒤 새 세션 하나: 프롬프트·Bash·스킬 호출 뒤 세션 `harness/evidence.jsonl` 에 레코드가 생기고, 다음 세션 SessionStart 에 알림 문구가 한 번 나오는지 확인. 옛 `scoring.yaml` 이 남아 있어도 동작에 영향이 없고, 옛 `rubric.md` 가 `rubric-old.md` 로 바뀌고 새 기본값이 복사됐는지 확인
+- [ ] **Step 4: 병합·옛 데이터 삭제·실설치 확인** — Step 3 이 끝난 뒤(Step 3 이 옛 run 을 참고 목록으로 읽음) `feat/harness-loop-redesign` 을 `feat/harness-loop` 로 병합한다. 사용자에게 삭제 대상을 보여 확인받은 뒤 옛 데이터를 지운다: `~/.claude/plugins/data/harness-loop-tech-writing/` 안의 모든 파일, `~/.claude/projects/*/*/harness/` 디렉터리 전체. 그 뒤 `/reload-plugins` 하고 새 세션 하나에서 프롬프트·Bash·스킬 호출 뒤 세션 `harness/evidence.jsonl` 에 레코드가 생기고, 다음 세션 SessionStart 에 알림 문구가 한 번 나오는지 확인
 - [ ] **Step 5: 정밀도 기준선 기록** — `retro.py metrics` 출력(처음에는 라벨 0)을 실측 절에 적음. 재현율 표본 확인 절차(한 달에 한 번, 무작위 `held`·`dropped`·참 관찰 아닌 근거 20건을 사람이 보고 놓친 결정 대상을 센다)를 실측 절에 적음
 - [ ] **Step 6: 커밋** — `docs: harness-loop retro 재설계 실측 결과`
