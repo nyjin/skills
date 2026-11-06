@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import hook
+import observe
 import paths
 
 PLUGIN = Path(__file__).resolve().parents[1]
@@ -39,12 +40,23 @@ def start(source="startup"):
     return json.dumps({"hook_event_name": "SessionStart", "source": source, "session_id": "s", "transcript_path": "/x"})
 
 
+def ev(i, kind="prompt"):
+    return json.dumps({"id": i, "kind": kind, "at": "2026-11-01T10:00:00+09:00"}) + "\n"
+
+
+def bump(path):
+    """mtime 을 커서보다 확실히 뒤로 민다."""
+    t = time.time() + 5
+    os.utime(path, (t, t))
+
+
 @pytest.fixture
 def evidence_pending(tmp_projects):
     h = tmp_projects / "-p" / "sess1" / "harness"
     h.mkdir(parents=True)
-    (h / "evidence.jsonl").write_text('{"id":"a"}\n{"id":"b"}\n{"id":"c"}\n')
     (h / "evidence.cursor").write_text("1")
+    (h / "evidence.jsonl").write_text(ev("a") + ev("b") + ev("c", "failure"))
+    bump(h / "evidence.jsonl")
     return h
 
 
@@ -72,10 +84,35 @@ def test_worker_session_records_but_no_notice(session, evidence_pending, monkeyp
 def test_pending_count_subtracts_cursor_and_skips_skip(evidence_pending, tmp_projects):
     other = tmp_projects / "-p" / "sess2" / "harness"
     other.mkdir(parents=True)
-    (other / "evidence.jsonl").write_text('{"id":"x"}\n')
-    assert hook.pending_count() == 3
+    (other / "evidence.jsonl").write_text(ev("x"))
+    assert observe.pending_count(skip_unchanged=True) == 3
     (other / "skip").touch()
-    assert hook.pending_count() == 2
+    assert observe.pending_count(skip_unchanged=True) == 2
+
+
+def test_hook_and_observe_count_only_judgeable_kinds(evidence_pending):
+    with open(evidence_pending / "evidence.jsonl", "a") as f:
+        f.write(ev("d", "skill_start") + ev("e", "skill_edit"))
+    bump(evidence_pending / "evidence.jsonl")
+    assert observe.pending_count(skip_unchanged=True) == observe.pending_count() == len(observe.pending(10)) == 2
+
+
+def test_trailing_non_judgeable_lines_advance_cursor(tmp_projects):
+    h = tmp_projects / "-p" / "sess3" / "harness"
+    h.mkdir(parents=True)
+    (h / "evidence.cursor").write_text("1")
+    (h / "evidence.jsonl").write_text(ev("a") + ev("b", "skill_start") + ev("c", "skill_edit") + '{"id":"partial"')
+    bump(h / "evidence.jsonl")
+    assert observe.pending_count(skip_unchanged=True) == 0
+    assert (h / "evidence.cursor").read_text() == "3"
+    assert observe.pending(10) == []
+
+
+def test_hook_skips_session_unchanged_since_cursor(evidence_pending):
+    t = (evidence_pending / "evidence.jsonl").stat().st_mtime + 5
+    os.utime(evidence_pending / "evidence.cursor", (t, t))
+    assert observe.pending_count(skip_unchanged=True) == 0
+    assert observe.pending_count() == 2
 
 
 def test_session_start_notice_once_per_day(evidence_pending):
@@ -107,7 +144,8 @@ def test_new_hook_errors_alone_trigger_notice(tmp_projects):
     d = paths.data_dir()
     (d / "hook-errors.log").write_text("a\n")
     text = json.loads(hook.run(start()))["hookSpecificOutput"]["additionalContext"]
-    assert text == "harness-loop: 판정하지 않은 근거 0건이 있습니다. /harness-loop:retro 로 확인하세요. (훅 오류 1건, hook-errors.log)"
+    assert text == "harness-loop: 훅 오류 1건이 있습니다 (hook-errors.log)."
+    assert (d / "hook-errors.seen").read_text() == "1"
 
 
 def subprocess_env(tmp_path):

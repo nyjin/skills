@@ -152,21 +152,38 @@ def project_of(cwd: str) -> str:
     return "/".join(Path(cwd).parts[-2:]) if cwd else ""
 
 
-def _judgeable() -> list[dict]:
-    """skip 아닌 세션들의 커서 뒤 판정 대상 근거, 시각순."""
+def _unchanged(hdir) -> bool:
+    """마지막 커서 기록 뒤 evidence.jsonl 이 바뀌지 않았는지."""
+    try:
+        return (hdir / "evidence.jsonl").stat().st_mtime_ns <= (hdir / "evidence.cursor").stat().st_mtime_ns
+    except OSError:
+        return False
+
+
+def _session_judgeable(hdir) -> list[dict]:
+    """커서 뒤 판정 대상 근거. 하나도 없으면 커서를 마지막 완전한 줄 뒤로 옮겨 판정할 것 없는 줄이 남지 않게 한다."""
+    rows = _rows(hdir / "evidence.jsonl")
+    cur = _cursor(hdir)
+    recs = [r for r in rows[cur:] if r and r.get("kind") in JUDGEABLE and r.get("at")]
+    end = len(rows) - 1  # split("\n") 의 마지막 조각은 개행으로 끝나지 않은 줄(또는 빈 문자열)
+    if not recs and end > cur:
+        paths.atomic_write(hdir / "evidence.cursor", str(end))
+    return recs
+
+
+def _judgeable(skip_unchanged: bool = False) -> list[dict]:
+    """skip 아닌 세션들의 커서 뒤 판정 대상 근거, 시각순. skip_unchanged 면 커서 기록 뒤 바뀌지 않은 세션은 읽지 않는다(훅용)."""
     recs = []
     for hdir in paths.all_harness_dirs():
-        if (hdir / "skip").exists():
+        if (hdir / "skip").exists() or (skip_unchanged and _unchanged(hdir)):
             continue
-        for rec in _rows(hdir / "evidence.jsonl")[_cursor(hdir):]:
-            if rec and rec.get("kind") in JUDGEABLE and rec.get("at"):
-                recs.append(rec)
+        recs += _session_judgeable(hdir)
     recs.sort(key=lambda r: paths.aware(r["at"]))
     return recs
 
 
-def pending_count() -> int:
-    return len(_judgeable())
+def pending_count(skip_unchanged: bool = False) -> int:
+    return len(_judgeable(skip_unchanged))
 
 
 def pending(limit: int) -> list[dict]:

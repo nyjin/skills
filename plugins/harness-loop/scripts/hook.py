@@ -13,9 +13,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import evidence
+import observe
 import paths
 
 NOTICE = "harness-loop: 판정하지 않은 근거 {n}건이 있습니다. /harness-loop:retro 로 확인하세요."
+ERRORS_ONLY = "harness-loop: 훅 오류 {m}건이 있습니다 (hook-errors.log)."
 
 
 def _lines(path: Path) -> int:
@@ -23,19 +25,6 @@ def _lines(path: Path) -> int:
         return path.read_bytes().count(b"\n")
     except OSError:
         return 0
-
-
-def pending_count() -> int:
-    total = 0
-    for hdir in paths.all_harness_dirs():
-        if (hdir / "skip").exists():
-            continue
-        try:
-            cursor = int((hdir / "evidence.cursor").read_text().strip())
-        except (OSError, ValueError):
-            cursor = 0
-        total += max(0, _lines(hdir / "evidence.jsonl") - cursor)
-    return total
 
 
 def session_start_text() -> str | None:
@@ -56,12 +45,16 @@ def session_start_text() -> str | None:
         seen = errors
         paths.atomic_write(d / "hook-errors.seen", str(errors))
     new_errors = errors - seen
-    n = pending_count()
+    n = observe.pending_count(skip_unchanged=True)
     if n <= 0 and new_errors <= 0:
         return None
-    text = NOTICE.format(n=n)
+    if n <= 0:
+        text = ERRORS_ONLY.format(m=new_errors)
+    else:
+        text = NOTICE.format(n=n)
+        if new_errors > 0:
+            text += f" (훅 오류 {new_errors}건, hook-errors.log)"
     if new_errors > 0:
-        text += f" (훅 오류 {new_errors}건, hook-errors.log)"
         paths.atomic_write(d / "hook-errors.seen", str(errors))
     paths.atomic_write(day_file, today)
     return text
