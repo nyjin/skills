@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "harness-loop",
   "displayName": "Harness Loop",
-  "description": "세션에서 하네스 결함 신호를 모아 점수를 매기고, 반복되는 문제를 스킬·규칙 개선안으로 제안한다.",
-  "version": "0.1.0",
+  "description": "세션 근거를 모아 사용자가 결정할 스킬·지침·스크립트 개선만 보고한다.",
+  "version": "0.2.0",
   "author": { "name": "yeonjin.roh" },
   "license": "MIT",
   "keywords": ["harness", "retro", "skills"]

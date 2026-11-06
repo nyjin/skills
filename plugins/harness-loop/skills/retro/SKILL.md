@@ -1,7 +1,7 @@
 ---
 name: retro
-description: Claude Code 세션에서 하네스 결함 신호를 모아 채점하고, 스킬·규칙·스크립트 개선안(action item)을 보고·결정·반영하는 회고 스킬. "이 세션 회고해줘", "action item 정리해줘", "이 세션 돌아보기", "개선점 정리", "retro", "검토 대기 항목 보여줘", "검토할게"처럼 요청하거나 SessionStart 의 harness-loop 검토 대기 알림에 답할 때 쓴다. 인자 review 는 쌓인 항목 검토, backfill [--days N] 은 설치 전 기록 처리, rubric 은 사용자 거절 판정으로 채점 기준 보강이다.
-argument-hint: "[review | backfill [--days N] | rubric]"
+description: 훅이 남긴 세션 근거를 판정·묶고 실제 파일로 검증해, 사용자가 결정할 스킬·지침·스크립트 개선(결정 대상)만 보고하고 진행·티켓·거절 결정을 처리하는 회고 스킬. "회고해줘", "이 세션 회고", "retro", "개선점 정리", "이 세션 돌아보기"처럼 요청하거나, SessionStart 의 "판정하지 않은 근거 N건" 알림에 답하거나, 보고 뒤 "1 진행, 2 티켓, 3 거절 사소함"처럼 결정을 입력하거나, 보고 끝의 rubric 보강 후보 안내에 답할 때 쓴다. 인자 backfill [--days N] 은 훅 설치 전 기록을 근거로 만든 뒤 회고한다.
+argument-hint: "[backfill [--days N]]"
 ---
 
 # harness-loop 회고 (retro)
@@ -10,236 +10,320 @@ argument-hint: "[review | backfill [--days N] | rubric]"
 
 ## 공통 규칙
 
-- 리포트, 판정 JSON 의 `proposal`, 사용자에게 하는 모든 말은 한국어로 쓴다. 대화나 기록이 영어여도 영어로 답하지 않는다. 원문 인용만 원문 그대로 둔다.
-- 명령은 모두 아래 형식 그대로 Bash 로 실행한다. 앞의 `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}"` 를 빼지 않는다.
-- `${CLAUDE_PLUGIN_DATA}` 자리가 빈 값이나 글자 그대로 남아 있으면 아무 명령도 실행하지 않고 사용자에게 그 사실을 알린다.
+- 사용자에게 하는 말, 보고, 서브에이전트가 쓰는 `reason`·`problem`·`proposal` 은 한국어로 쓴다. 대화나 기록이 영어여도 같다. 원문 인용만 원문 그대로 둔다.
+- 명령은 모두 아래 형식으로 Bash 에서 실행한다. 앞의 `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}"` 를 빼지 않고, 다른 환경 변수를 덧붙이지 않는다.
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" <하위 명령> …
+```
+
+- `${CLAUDE_PLUGIN_DATA}` 나 `${CLAUDE_PLUGIN_ROOT}` 자리가 빈 값이거나 글자 그대로 남아 있으면 아무 명령도 실행하지 않고 사용자에게 그 사실을 알린다.
 - 명령에는 `uv` 가 필요하다. 없으면 설치를 안내하고 멈춘다.
-- `<transcript>` 는 세션 기록 jsonl 의 절대 경로, `<세션ID>` 는 그 파일 이름에서 `.jsonl` 을 뺀 값이다.
-- 임시 파일은 작업용 임시 디렉터리(scratchpad)에 쓴다. 아래에서는 `<tmp>` 로 적는다.
-- 사용자 결정은 자유 입력으로만 받는다. 선택지 질문 도구는 쓰지 않는다.
-- 리포트를 출력하면 그 턴을 끝내고 사용자 입력을 기다린다. 현재 세션 회고는 보고 기록(7단계)까지 마친 뒤 다른 출력 없이 턴을 끝낸다.
-- 스크립트가 0 이 아닌 코드로 끝나면 stderr 를 그대로 보여 주고 그 모드를 멈춘다. 단, `judge.py merge` 가 검증 오류로 끝나면 JSON 을 고쳐 다시 실행한다. backfill 의 `judge.py background` 종료 코드는 그 절의 규칙을 따른다.
-- `collect.py` 나 `judge.py merge` 가 종료 코드 3 으로 끝나면 그 세션은 백그라운드에서 판정 중이다. 사용자에게 이를 알리고, 잠시 뒤 다시 회고하라고 안내한 뒤 멈춘다.
+- 임시 파일은 작업용 임시 디렉터리(scratchpad)에 쓴다. 아래에서는 `<tmp>` 로 적는다. `<tmp>` 는 절대 경로로 바꿔 쓴다.
+- 하위 명령은 stdout 에 JSON 한 덩어리를 쓴다. 큰 출력(`context`·`gate`·`replay-inputs`)은 파일로 받아 Read 로 읽는다.
+- 종료 코드별 처리는 아래 표를 따른다.
+
+| 종료 코드 | 처리 |
+|---|---|
+| 0 | 다음 단계로 간다 |
+| 1, `observe`·`groups`·`replay-score` | 검증 오류다. stderr 를 붙여 그 결과 파일을 쓴 서브에이전트에게 고치게 하고 다시 실행한다. 두 번 고쳐도 실패하면 stderr 를 보이고 그 모드를 멈춘다 |
+| 1, 그 밖 | stderr 를 그대로 보이고 그 모드를 멈춘다 |
+| 3 | 다른 retro 작업이 공용 데이터 락을 쥐고 있다. 사용자에게 알리고 잠시 뒤 다시 실행하라고 안내한 뒤 멈춘다 |
+
+- 결정은 자유 입력으로만 받는다. 선택지 질문 도구는 쓰지 않는다.
+- 승인만 받는 질문("이대로 진행할까요?")을 하지 않는다. 확인을 받는 곳은 티켓 등록 전 미리보기와 rubric 적용으로 빠지는 양성 묶음, 둘뿐이다.
+- 보고·미리보기·후보 표를 보인 뒤에는 그 턴을 끝내고 사용자 입력을 기다린다.
+
+### 서브에이전트
+
+- 판정 서브에이전트는 Agent 도구를 `subagent_type: "general-purpose"`, `model: "opus"` 로 부른다.
+- 프롬프트에는 파일 경로만 넣고 파일 내용은 넣지 않는다. `${CLAUDE_PLUGIN_ROOT}`·`${CLAUDE_PLUGIN_DATA}`·`<tmp>` 를 포함한 경로는 모두 절대 경로로 바꿔 넣는다.
+- 서브에이전트는 결과 JSON 을 지정 파일에 Write 로 쓰고, 마지막 답은 지정한 한 줄만 쓴다.
+- 고칠 때는 SendMessage 로 같은 서브에이전트에게 stderr 를 보낸다. SendMessage 를 쓸 수 없으면 같은 프롬프트 끝에 stderr 를 붙여 새로 부른다.
 
 ## 모드
 
 | 인자 | 다른 진입 | 모드 |
 |---|---|---|
-| 없음 | "이 세션 회고해줘", "action item 정리해줘" | 현재 세션 회고 |
-| `review` | SessionStart 알림을 보고 "검토할게" | 쌓인 항목 검토 |
-| `backfill [--days N]` | 없음 | 지난 기록 처리 |
-| `rubric` | 리포트 끝의 보강 후보 안내를 보고 "보강할게" | 채점 기준 보강 |
-| 없음 | 리포트 뒤 "1 승인, 2 거절", "2번 영향 3으로" 같은 입력 | 결정 |
+| 없음 | "회고해줘", "개선점 정리", SessionStart 알림에 답함 | 기본 |
+| `backfill [--days N]` | 없음 | 백필 후 기본 |
+| 없음 | 보고 뒤 "1 진행, 2 티켓, 3 거절 사소함" 같은 입력 | 결정 |
+| 없음 | 보고 끝 rubric 보강 후보 안내에 "보강할게" 같은 답 | rubric 갱신 |
 
-## 현재 세션 회고
+## 기본 모드
 
-1. 현재 세션 기록 경로를 얻는다. 출력 한 줄이 `<transcript>` 다.
-
-```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" where
-```
-
-2. 새 턴의 신호를 모은다.
+1. 판정하지 않은 근거를 묶음으로 받는다. `<n>` 은 1부터 묶음마다 1씩 늘린다.
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/collect.py" "<transcript>"
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" pending --out "<tmp>/harness-pending-<n>.json"
 ```
 
-3. judge 입력(digest)을 파일로 만들고 Read 로 읽는다. digest 에는 채점 기준(`${CLAUDE_PLUGIN_DATA}/rubric.md`), 지난 판정 이후 신호, 신호가 걸린 턴, 살아 있는 sig, 결정된 sig, 사용자 판정 예시, sig 규칙, 출력 스키마가 들어 있다. 사용자 판정 예시의 지시도 따른다.
+2. 출력의 `count` 가 0 이면 5단계로 간다. 아니면 "관찰 판정 프롬프트"로 서브에이전트를 부른다. `<근거 파일>` 은 출력의 `file`, `<결과 파일>` 은 `<tmp>/harness-observe-<n>.json` 이다.
+3. 서브에이전트의 답이 `완료 <받은 근거 수>/<판정한 근거 수>` 이고 두 수가 출력의 `count` 와 같으면 저장한다. 다르면 빠진 근거를 판정해 결과 파일에 더하게 한 뒤 저장한다.
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" digest "<transcript>" > "<tmp>/harness-digest.md"
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" observe --file "<tmp>/harness-observe-<n>.json"
 ```
 
-4. digest 와 이 대화 전체를 근거로 `${CLAUDE_PLUGIN_ROOT}/defaults/judge-schema.json` 형식의 판정 JSON 을 만든다. 파일로 쓰지 않는다. 작성 규칙은 "판정 JSON 작성 규칙" 절을 따른다.
-5. 판정 JSON 을 아래 명령의 `<판정 JSON>` 자리에 그대로 넣고 heredoc 으로 넘겨 병합한다. 항목이 없어도 `{"items": []}` 로 실행한다.
+4. `pending` 출력의 `remaining` 이 0 보다 크면 1단계로 돌아간다.
+5. 묶기·검증 입력을 파일로 받는다.
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" merge "<transcript>" --mode explicit <<'JSON'
-<판정 JSON>
-JSON
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" context > "<tmp>/harness-context.json"
 ```
 
-6. 이 세션의 항목을 읽어 "리포트 형식" 절에 맞춰 출력한다.
+6. "묶기·검증 프롬프트"로 서브에이전트를 부른다. `<결과 파일>` 은 `<tmp>/harness-groups.json` 이다. 서브에이전트가 `묶음 0` 으로 답하면 7단계를 건너뛴다.
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" list --session "<세션ID>"
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" groups --file "<tmp>/harness-groups.json"
 ```
 
-7. 리포트를 출력한 직후 보고한 항목(`propose`·`regressed`)을 기록하고 턴을 끝낸다. 기록한 항목과 sig 가 같은 항목은 다른 세션 것이어도 SessionStart 알림에 다시 나오지 않는다. 단, `regressed` 항목은 예외다.
+7. 관문 결과와 rubric 후보를 받는다.
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" list --session "<세션ID>" --mark-reported
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" gate > "<tmp>/harness-gate.json"
 ```
-
-### 판정 JSON 작성 규칙
-
-- digest 신호 표의 신호를 하나씩 판정한다. 결함이 아니거나 대상 파일에 바꿀 것이 없으면 항목을 만들지 않는다. `impact`·`actionability` 가 모두 1 인 항목은 병합에서 버려진다.
-- 신호로 잡히지 않았어도 대화에서 C1~C11 에 해당하는 사례를 찾으면 항목으로 넣는다.
-- `sig` 는 digest 의 "sig 규칙" 절을 따른다. `?` 를 그대로 쓰지 않는다.
-- 만들 항목이 digest 의 "결정된 sig" 와 같은 문제를 다루면, 범위·문구·C2/C7 분류가 달라도 새 sig 를 만들지 않고 그 sig 를 재사용한다.
-- 항목 하나는 결함 하나다. 서로 다른 잘못을 한 항목에 묶지 않는다. 결정된 sig 가 아닌 기존 sig 는 그 이름만 읽어도 이번 사례가 무엇인지 알 수 있을 때만 재사용하고, 아니면 사례를 그대로 말하는 새 sig 를 만든다.
-- 사용자가 요청 해석을 한 번 바로잡고 곧바로 맞게 진행됐으면(틀린 산출물이 남지 않았으면) 대화 중의 정상적인 조정이므로 항목을 만들지 않는다.
-- 지적·제안이 외부 도구(ocr 같은 리뷰 도구)나 사용자 결정에서 나왔으면 그것 자체를 결함으로 보지 않는다. 결함은 AI 가 그것을 받아 내린 판단(권고·해석·실행)에만 매기고, `target` 도 그 판단을 고칠 자리로 잡는다. 사용자가 정한 설계 방향은 근거로 쓰지 않는다.
-- `C2:?` 신호는 `condition` 을 C2(AI 가 원치 않는 일을 했다)와 C7(기존 메모리·CLAUDE.md 규칙을 따르지 않았거나 잘못된 곳에 저장했다) 중 하나로 고른다. 신호 하나에서 항목은 하나만 만들고, 같은 근거로 C2 항목과 C7 항목을 함께 만들지 않는다.
-- `impact`·`actionability` 는 digest 의 채점 기준표로 1~3 을 준다. 재발성은 쓰지 않는다.
-- `evidence` 는 항목마다 1개 이상이고, `session` 은 `<세션ID>`, `turn` 은 digest 의 턴 번호, `quote` 는 원문 인용이다.
-- `target.path` 는 고칠 파일의 절대 경로다. 아직 없는 스킬·스크립트면 만들 위치를 쓴다.
-- `proposal` 은 한국어로 쓴다. 첫 줄은 개선안 요지 한 문장이고, 다음 줄부터 diff 초안을 쓴다.
-- 대상 파일(`target.path`)에 같은 규칙이 이미 있으면 `duplicate_of_rule` 에 그 파일 경로와 규칙 문구를 쓴다. 그 규칙이 지켜지지 않았으면 `rule_unenforced` 를 true 로 둔다. 같은 규칙이 없으면 `duplicate_of_rule` 은 null, `rule_unenforced` 는 false 다. 규칙이 다른 범위(다른 프로젝트 메모리, 프로젝트 메모리와 전역 CLAUDE.md 사이)에만 있으면 중복이 아니라 C7 개선 대상이므로 `duplicate_of_rule` 을 null 로 둔다.
-- `skills` 는 그 sig 가 나온 스킬별 건수다. 스킬과 무관하면 `{}` 다.
-
-## 쌓인 항목 검토
-
-1. 검토 대기 항목(propose·regressed)을 읽는다. SessionStart 알림과 달리 `queue_limit` 에 묶이지 않고 모두 보인다.
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" list
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" rubric-candidates
 ```
 
-2. "리포트 형식" 절에 맞춰 출력하고 턴을 끝낸다. 항목이 없으면 "검토 대기 항목 없음" 한 줄만 쓴다.
+8. "보고 형식"대로 보고하고 턴을 끝낸다.
 
-모든 상태를 보려면 위 명령의 `list` 뒤에 `--all` 을 붙인다.
+### 관찰 판정 프롬프트
 
-## 지난 기록 처리 (backfill)
+```
+harness-loop 관찰 판정을 맡는다. 사용자에게 묻지 말고, 판정 이유는 한국어 한 줄로 쓴다.
 
-1. 설치(`installed_at`) 전에 수정된 기록을 최신순으로 한 줄에 하나씩 파일에 쓴다. `skip` 표시가 있는 세션은 빠진다. `--days N` 이 있으면 명령 끝에 `--days N` 을 붙이고, 없으면 기간 제한 없이 나열한다.
+1. <rubric 파일> 을 Read 로 읽는다. 판정 기준은 이 파일만 따른다.
+2. <근거 파일> 을 Read 로 읽는다. evidence 의 근거마다 kind·text·excerpt·skill·flags 를 보고 판정한다. excerpt 로 모자라면 근거의 transcript 파일에서 text 를 찾아 앞뒤를 읽는다.
+3. examples 는 사용자가 결함 아님으로 거절한 묶음의 문제와 이유다. 같은 경우는 해당 아님으로 판정한다.
+4. <스키마 파일> 형식의 JSON 을 <결과 파일> 에 Write 로 쓴다.
 
-```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" backfill-list > "<tmp>/harness-backfill.txt"
+규칙:
+- 받은 근거 id 마다 항목을 하나 이상 쓴다. 해당하지 않으면 verdict 를 false 로 쓴다. 근거를 하나도 빼지 않는다.
+- 받지 않은 id 는 쓰지 않는다. evidence_id 는 근거의 id 그대로다.
+- type 은 근거 kind 로 정한다: bash → repeat, failure → failure, ask → approval_question, prompt → correction(AI 가 글로 물은 질문에 대한 답이면 approval_question).
+- type 이 repeat 이면 verdict 와 상관없이 purpose 에 명령의 목적을 짧은 문구로 쓴다. 같은 목적이면 같은 문구를 쓴다.
+- reason 은 판정 이유 한 줄이다.
+- 마지막 답은 "완료 <받은 근거 수>/<판정한 근거 수>" 한 줄만 쓴다.
 ```
 
-2. 파일이 비어 있으면 처리 수 0 을 보고하고 멈춘다.
-3. 파일을 Read 로 읽어 위에서부터 한 줄씩 차례로 처리한다. 한 줄이 `<transcript>` 하나이고, 경로에 공백이 있어도 줄 전체를 따옴표 안에 그대로 넣는다. 기록마다 Bash 를 한 번씩 실행하고 Bash 타임아웃은 600000 ms 로 준다.
-
-```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" background "<transcript>" --mode sweep
-```
-
-4. 종료 코드별로 처리한다.
-
-| 종료 코드 | 뜻 | 처리 |
-|---|---|---|
-| 0 | 판정했거나 할 일이 없다 | 성공으로 세고 다음 기록으로 간다 |
-| 1 | 판정 실패(`${CLAUDE_PLUGIN_DATA}/hook-errors.log` 에 사유가 남는다) | 실패로 세고 다음 기록으로 간다 |
-| 2 | 하루 상한(`max_background_judges_per_day`)에 걸렸다 | 멈추고 5단계로 간다 |
-| 3 | 그 세션을 이미 판정 중이다(락이 잡혀 있다) | 건너뜀으로 세고 다음 기록으로 간다 |
-
-5. 처리 수(성공·실패·건너뜀·남은 기록)를 보고한다. 새로 생긴 검토 대기 항목은 `review` 로 본다.
-
-## 채점 기준 보강 (rubric)
-
-1. 규칙 근거 후보(사용자가 `not-defect`·`trivial` 로 거절했고 아직 규칙 근거로 쓰지 않은 train 분할 항목)를 kind 별로 읽는다.
-
-```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-candidates
-```
-
-2. `groups` 에서 항목 수가 출력의 `rubric_min_evidence` 이상인 kind 가 없으면 "규칙 후보 없음(kind 별 건수)" 한 줄을 쓰고 멈춘다.
-3. kind 별로 항목의 `condition`·`quote`·`reason` 을 읽어 같은 판단으로 묶이는 패턴을 찾는다. 패턴마다 서로 다른 sig 를 `rubric_min_evidence` 개 이상 근거로 들고, 근거가 모자란 패턴은 버린다. 한 sig 는 한 패턴에만 쓴다. 근거 sig 는 이 출력에 있는 것만 쓴다(test 분할 라벨과 이미 규칙 근거로 쓴 sig 는 `rubric-apply` 가 종료 코드 1 로 거부한다).
-4. 패턴마다 규칙 초안을 한 문장으로 쓴다. `not-defect` 는 "…이면 항목을 만들지 않는다", `trivial` 은 "…이면 영향을 1 로 본다" 형식이다. 특정 세션·파일 이름 대신 다시 나올 상황으로 쓴다.
-5. 초안을 아래 표로 보이고 턴을 끝낸다. 남은 패턴이 없으면 "근거가 충분한 패턴 없음" 한 줄만 쓴다.
-
-| 번호 | kind | 규칙 초안 | 근거 sig |
-|---|---|---|---|
-| 1 | `not-defect` | 규칙 문장 | `sig`, `sig`, `sig` |
-
-6. 사용자가 승인한 패턴마다 6~9단계를 차례로 진행한다. 문구를 고쳐 달라고 하면 고친 문구를 쓴다. 먼저 후보 rubric 을 파일로 만든다.
-
-```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-apply --kind <kind> --rule "<규칙>" --evidence <sig> <sig> <sig> --out "<tmp>/harness-rubric-candidate.md"
-```
-
-7. 저장된 판정을 현재 rubric 과 후보 rubric 으로 다시 판정한다. 오래 걸리므로 Bash 를 백그라운드로 실행하고, 끝나면 결과 파일을 Read 로 읽는다.
-
-```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/judge.py" replay --rubric "<tmp>/harness-rubric-candidate.md" > "<tmp>/harness-replay.json"
-```
-
-8. 결과에 따라 적용 여부를 정한다.
-
-| 결과 | 처리 |
+| 자리 | 값 |
 |---|---|
-| `eligible` 이 false | 라벨 수(`labels`)가 `replay_min_labels` 보다 적어 재판정을 건너뛰었다고 알리고 적용한다 |
-| `candidate` 의 `tpr` 이나 `tnr` 이 `current` 보다 0.05 넘게 낮다 | 적용하지 않는다. 두 rubric 의 `n_pos`·`n_neg`·`tpr`·`tnr` 을 보인다 |
-| `tpr`·`tnr` 이 null 이다(재판정한 항목이 없거나 모두 실패했다) | 숫자와 `errors` 를 보이고 적용 여부를 사용자에게 묻는다 |
-| 그 밖 | 두 rubric 의 숫자를 한 줄로 보이고 적용한다 |
+| `<rubric 파일>` | `${CLAUDE_PLUGIN_DATA}/rubric.md` |
+| `<근거 파일>` | `pending` 출력의 `file` |
+| `<스키마 파일>` | `${CLAUDE_PLUGIN_ROOT}/defaults/observe-schema.json` |
+| `<결과 파일>` | `<tmp>/harness-observe-<n>.json` |
 
-9. 아래 명령으로 적용한다.
+### 묶기·검증 프롬프트
 
-```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-apply --kind <kind> --rule "<규칙>" --evidence <sig> <sig> <sig>
+```
+harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem·proposal 은 한국어로 쓴다.
+
+1. <context 파일> 을 Read 로 읽는다. rubric 경로의 파일을 Read 로 읽고 "관찰 → 결정 대상"과 "공통 확인"을 따른다.
+2. observations(참 관찰)만 묶는다. 같은 대상 파일·같은 문제끼리 한 묶음이다. groups 의 기존 묶음(decisions 에 결정이 있는 묶음 포함)과 같은 문제면 그 id 를 그대로 쓰고 새 관찰 id 만 observations 에 넣는다. 새 묶음 id 는 짧은 영어 소문자 슬러그(예: release-adr-number)로 정한다.
+3. examples 는 사용자가 내린 결정 예시다(positive 는 진행·티켓, negative 는 거절). negative 와 같은 경우는 묶음으로 올리지 않는다.
+4. 결정 대상마다 대상 파일을 실제로 Read 로 읽고 verified 를 채운다.
+   - 관찰 당시 버전: 관찰의 skill.hash 또는 meta.scripts·meta.guidelines 의 hash. 내용은 <스냅샷 디렉터리>/<hash> 를 Read 하거나, 없으면 대상 저장소에서 git cat-file -p <hash> 로 읽는다.
+   - 현재 버전: 대상 경로를 Read 로 읽는다.
+   - 수정 이력이 필요하면(재발·반복 수정) git log --find-object=<hash>, git log -p -- <경로>, git diff 를 읽는다.
+5. <스키마 파일> 형식의 JSON 을 <결과 파일> 에 Write 로 쓴다. 바뀐 묶음만 넣는다.
+
+필드 규칙:
+- target_type: script | skill_supplement | guideline_supplement | fix | rework. target_path 는 고칠 파일의 절대 경로(없는 파일이면 만들 위치), 스킬이면 skill_root 에 스킬 디렉터리.
+- verified: checked_path(읽은 파일), hash(읽은 버전 해시, 현재 파일이면 빈 문자열), finding, 결함 줄을 특정했으면 line. 파일로 확인하지 못했으면 verified 를 null 로 둔다.
+- finding 과 target_type 은 아래 짝만 쓴다.
+  missing → skill_supplement | guideline_supplement | script
+  no_instruction → skill_supplement | guideline_supplement
+  wrong | ignored | has_script | asks_here → fix
+- specific_facts: 이 스킬·프로젝트에만 있는 사실(경로, 명령, 이름, 순서) 한 개 이상. 일반론만 있으면 묶음으로 올리지 않는다.
+- failure_ref: AI 가 실제로 다르게 움직인 장면의 관찰 id. 이 묶음 observations 안의 id 여야 한다.
+- proposal: scope(수정 범위), opinion(의견), diff(대상 파일 기준 unified diff).
+- guideline_supplement 는 관찰이 2개 이상 프로젝트에서 나왔으면 ~/.claude/CLAUDE.md, 한 프로젝트면 그 프로젝트의 CLAUDE.md 나 .claude/rules/ 파일을 대상으로 한다. 자동 메모리(memory/)는 읽기만 하고 대상으로 삼지 않는다.
+- rework 는 rework_kind 가 필요하다: recurrence | verified_recurrence 는 fix_version(수정한 버전의 blob 해시), repeat_edit 은 edits(같은 구간을 고친 버전들의 blob 해시 목록). git 밖 대상은 rework 로 만들지 않는다.
+
+마지막 답은 "묶음 <결과 파일에 쓴 묶음 수>" 한 줄만 쓴다.
 ```
 
-10. 패턴마다 "rubric 버전 <version>: <규칙>" 또는 적용하지 않은 이유를 한 줄로 보고한다. 적용한 규칙은 `${CLAUDE_PLUGIN_DATA}/rubric.md` 에 남고 다음 판정부터 digest 에 들어간다.
+| 자리 | 값 |
+|---|---|
+| `<context 파일>` | `<tmp>/harness-context.json` |
+| `<스냅샷 디렉터리>` | `${CLAUDE_PLUGIN_DATA}/skill-snapshots` |
+| `<스키마 파일>` | `${CLAUDE_PLUGIN_ROOT}/defaults/groups-schema.json` |
+| `<결과 파일>` | `<tmp>/harness-groups.json` |
+
+## 보고 형식
+
+`<tmp>/harness-gate.json` 의 `report` 를 순서대로 1부터 번호를 붙여 쓴다. 항목마다 아래 형식이다.
+
+````
+1. [<결정 대상>] <스킬 이름>(<target_path>) — <problem>
+   - 근거: <세션 ID 앞 8자> <skill.path 또는 cwd> — "<관찰 text 발췌>"
+   - 검증: <verified.checked_path>:<verified.line> — <verified.finding>
+   - 수정 범위: <proposal.scope>
+   - 의견: <proposal.opinion>
+   ```diff
+   <proposal.diff>
+   ```
+````
+
+| `target_type` | 결정 대상 |
+|---|---|
+| `script` | 스크립트화 |
+| `skill_supplement` | 스킬 보완 |
+| `guideline_supplement` | 지침 보완 |
+| `fix` | 지침·스크립트 수정 |
+| `rework` | 수정 방식 재검토 |
+
+- 스킬 이름은 `skill_root` 의 마지막 디렉터리 이름, 없으면 `target_path` 의 파일 이름이다.
+- 근거 줄은 묶음 `observations` 의 관찰을 `<tmp>/harness-context.json` 의 `observations` 에서 찾아 쓴다. 근거 줄은 세 줄까지 쓰고, 넘으면 `- 근거 외 N건` 한 줄을 더한다. `failure_ref` 관찰을 첫 근거로 쓴다.
+- 근거 줄 아래에 `count`·`sessions` 를 `- 횟수: N회, M개 세션` 한 줄로 쓴다.
+- `verified.line` 이 없으면 `:<verified.line>` 을 뺀다.
+- `rework` 항목은 `rework_kind` 를 결정 대상 뒤 괄호에 쓰고, `recurrence` 가 있으면 `- 재발 관찰: <id 목록>` 한 줄을 더한다.
+- `apply_target.kind` 가 `plugin_cache` 인 항목은 `- 외부 플러그인 캐시: 진행 불가, 티켓만 고를 수 있음` 한 줄을 더한다.
+- 항목 뒤에 `보류 N건, 버림 M건(<reason>별 개수)` 한 줄을 쓴다. 둘 다 0 이면 쓰지 않는다.
+- `notices` 가 있으면 그 뒤에 한 줄에 하나씩 그대로 쓴다. 고치거나 줄이지 않는다.
+- `rubric-candidates` 출력의 `ready` 에 true 인 kind 가 있으면 `rubric 보강 후보 있음(<kind> N건) — "보강할게"로 진행` 한 줄을 쓴다.
+- `report` 가 비면 `결정 대상 없음` 한 줄을 쓰고 위의 보류·버림, `notices`, rubric 줄만 쓴다.
+- `report` 가 있으면 끝에 `결정을 입력하세요. 예: 1 진행, 2 티켓, 3 거절 사소함` 한 줄을 쓴다.
 
 ## 결정
 
-1. 사용자 입력의 번호를 직전 리포트에서 찾아 그 항목의 sig 로 바꾼다. 번호가 리포트에 없거나 뜻이 모호하면 실행하지 않고 그 부분만 되묻는다.
-2. 결정마다 실행한다.
+1. 입력의 번호를 직전 보고에서 찾아 그 항목의 `id` 로 바꾼다. 직전 보고가 이 대화에 없으면 `gate` 를 다시 실행해 같은 순서로 번호를 매긴다. 번호가 보고에 없거나 뜻이 모호하면 그 부분만 실행하지 않고 되묻는다.
+2. 결정마다 아래 표대로 처리한다.
 
-| 입력 | 명령 |
+| 입력 | 처리 |
 |---|---|
-| 승인 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" approved --reason "<이유>"` (이유가 없으면 `--reason` 을 뺀다) |
-| 거절 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" rejected --kind <kind> --reason "<이유>"` (이유가 없으면 `--reason` 을 뺀다) |
-| 영향·해결 점수 수정 | `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" edit-score --impact <1~3> --actionability <1~3>` (바꾸는 쪽만 준다) |
+| 진행 | 아래 "진행" 절 |
+| 티켓 | 아래 "티켓" 절 |
+| 거절 | 사유를 아래 거절 표로 `--kind` 로 바꾸고, 사용자 이유 문장은 `--reason` 에 그대로 넘긴다 |
 
-거절의 `<kind>` 는 사용자 이유를 아래 표에 비춰 정한다. 사용자 이유 문장은 `--reason` 에 그대로 넘긴다.
-
-| 확인 질문 | 답 | kind |
-|---|---|---|
-| 실제로 잘못된 동작이었나 | 아니다(정상 동작을 결함으로 잡았다) | `not-defect` |
-| 다시 생기면 고치고 싶나 | 아니다(결함이지만 고칠 가치가 작다) | `trivial` |
-| 고치고 싶지만 여기서는 안 하나 | 그렇다(가치는 있지만 이 자리에서 고치지 않는다) | `wont-fix` |
-
-- 이유가 없거나 두 kind 에 걸치면 그 항목만 실행하지 않고 위 질문으로 되묻는다. 되물어도 답이 없으면 `--kind` 없이 거절한다.
-- 세 kind 모두 거절이므로 그 sig 는 다시 보고되지 않는다.
-
-3. 점수를 고친 항목은 명령 출력의 `score`·`status` 로 바뀐 점수와 상태를 한 줄로 알린다. 고친 점수는 그 sig 가 있는 모든 세션에 적용되고, 이후 판정 병합과 재채점에서도 judge 점수 대신 쓰인다.
-4. 승인한 항목마다 반영 대상의 소유 환경을 판정한다. 출력 JSON 의 `kind`·`real_path`·`root`·`rules` 를 쓴다.
+거절 명령:
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/apply_target.py" "<target.path>"
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" decide <id> reject --kind <kind> --reason "<이유>"
 ```
 
-5. `kind` 별로 반영한다.
-
-| kind | 반영 |
+| 사용자 사유 | `--kind` |
 |---|---|
-| `repo` | `rules` 의 파일을 읽고 그 저장소의 기여 절차를 따라 `real_path` 를 고친다. 기여 절차를 맡는 스킬(예: `contribute`)이 있으면 그 스킬로 커밋·PR 을 만든다 |
-| `local` | `real_path` 의 diff 를 보여 주고 사용자가 승인하면 적용한다 |
-| `plugin_cache` | 파일을 고치지 않는다. 교훈을 메모리에 남기고, 업스트림 이슈 초안(제목·재현·제안)을 리포트에 쓴다. 이 sig 가 다시 나오면 처음 한 번만 `regressed` 로 올라온다. 그 뒤 재발은 `watch` 로 남고 보고되지 않는다 |
-| `new` | 만들 위치와 초안을 보여 주고 사용자가 승인하면 만든다. 그 뒤 `root` 가 있으면 `repo`, 없으면 `local` 규칙을 따른다 |
+| 결함 아님(정상 동작을 결함으로 잡았다) | `not-defect` |
+| 사소함(결함이지만 고칠 가치가 작다) | `trivial` |
+| 안 고침(가치는 있지만 고치지 않는다) | `wont-fix` |
 
-6. 반영이 끝난 항목마다 기록한다.
+- 사유가 없거나 두 kind 에 걸치면 그 항목만 실행하지 않고 위 세 사유 중 무엇인지 되묻는다.
+- 이유 문장이 없으면 `--reason` 을 뺀다.
+
+3. 결정마다 결과를 한 줄로 보고한다: `<번호>. <결정> — <고친 경로 | 티켓 키 | 거절 사유>`.
+
+### 진행
+
+1. 항목의 `apply_target.kind` 가 `plugin_cache` 면 고치지 않는다. `원본 저장소에 티켓을 내세요: <apply_target.real_path>` 를 알리고 티켓을 고를 수 있다고 안내한다.
+2. `proposal.diff` 를 `apply_target.real_path` 에 반영한다. `new` 면 파일을 만든다. 대상이 다른 저장소·worktree 여도 그 작업 트리를 직접 고치고 고친 경로를 알린다.
+3. 근거가 된 문제를 다시 확인한다: 고친 스크립트를 실행하거나, 고친 지시를 근거 장면에 비춰 다시 읽는다. 확인 결과를 한 줄로 알린다.
+4. 반영과 확인이 끝난 뒤에 기록한다.
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" decide "<sig>" applied
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" decide <id> proceed
 ```
 
-7. 결정·반영 결과를 항목별 한 줄로 보고한다.
+5. 커밋하지 않는다. 사용자가 커밋·PR 을 요청하면 그 저장소 규칙(`apply_target.rules` 의 파일, `contribute` 스킬 등)을 따른다.
 
-## 리포트 형식
+### 티켓
 
-표와 상세에는 `propose`·`regressed` 항목만 쓴다. 항목은 `score` 내림차순이고 1부터 번호를 붙인다. 표 한 줄과 그 아래 상세를 항목마다 쓴다.
+1. 티켓 근거 파일을 만든다.
 
-| 번호 | 상태 | 조건 | sig | 점수(재발/영향/해결 → 합계) | 대상 | 소유 환경 |
-|---|---|---|---|---|---|---|
-| 1 | `status` | `condition` | `sig` | `scores.recurrence`/`scores.impact`/`scores.actionability` → `score` | `target.path` | `target.owner` |
-
-상세는 항목마다 아래 형식으로 쓴다.
-
-```
-### 1. <sig>
-- 개선안: <proposal 첫 줄>
-- 근거: "<evidence[0].quote>" (세션 <evidence[0].session>, 턴 <evidence[0].turn>)
-- 근거: "<evidence[1].quote>" (있을 때만)
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" ticket-file <id> --out-dir "<tmp>"
 ```
 
-- 다른 상태 항목은 상세 아래에 `그 외 N건(watch a·discarded b·…) — 모두 보기: report.py list --session <세션ID>` 한 줄로 줄인다. 다른 상태 항목이 없으면 이 줄을 쓰지 않는다.
-- 사용자가 모든 상태를 보겠다고 하면 다른 상태 항목도 같은 형식으로 쓴다.
-- `regressed` 항목은 상세 첫 줄에 `반영 실패: <regressed_after> 이후 재발` 을 쓴다.
-- review 모드는 상세에 `session`·`project` 를 한 줄 더 쓴다.
-- 리포트는 표 머리글·상세·안내 문장을 모두 한국어로 쓴다. 근거 인용만 원문 그대로 둔다.
-- 리포트를 쓰기 전에 `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" rubric-candidates` 를 실행한다. `groups` 에서 항목 수가 출력의 `rubric_min_evidence` 이상인 kind 가 있으면 리포트 끝 안내 줄 앞에 "채점 기준 보강 후보 있음(<kind> N건) — /harness-loop:retro rubric" 한 줄을 쓴다.
-- 리포트 끝에 "결정은 자유롭게 입력하세요. 이유를 함께 주면 판정 기준에 반영됩니다. 예: 1 승인, 2 거절(정상 동작이었음), 3번 영향 3으로" 한 줄을 쓴다.
+2. 출력 `file` 을 Read 로 읽어 미리보기로 보이고, 세션 발췌가 외부로 나간다는 점을 한 줄로 알린 뒤 턴을 끝낸다.
+3. 사용자가 명시적으로 확인하면 `ticket-creator` 스킬을 Skill 도구로 부르고, 인자에 그 파일 경로를 사양 파일로 넘긴다. 사용자가 고칠 내용을 말하면 파일을 고쳐 다시 미리보기를 보인다.
+4. 받은 티켓 키로 기록한다.
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" decide <id> ticket --ticket <KEY>
+```
+
+
+## rubric 갱신
+
+1. 후보를 읽는다. 출력의 `groups` 는 kind(`not-defect`·`trivial`)별 거절 묶음이고 `ready` 는 kind 별로 `rubric_min_evidence` 를 채웠는지다.
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" rubric-candidates
+```
+
+2. `ready` 가 true 인 kind 가 없으면 `규칙 후보 없음(kind 별 건수)` 한 줄을 쓰고 멈춘다.
+3. `ready` 인 kind 마다 묶음의 `problem`·`note`·`first_reason` 을 읽어 같은 판단으로 묶이는 패턴을 찾는다. 패턴마다 서로 다른 묶음 id 를 `rubric_min_evidence` 개 이상 근거로 들고, 근거가 모자란 패턴은 버린다. 한 묶음은 한 패턴에만 쓴다.
+4. 패턴마다 규칙 초안을 한 문장으로 쓴다. `not-defect` 는 "…이면 관찰로 보지 않는다", `trivial` 은 "…이면 결정 대상으로 올리지 않는다" 형식이다. 특정 세션·파일 이름 대신 다시 나올 상황으로 쓴다.
+5. 초안을 아래 표로 보이고 턴을 끝낸다. 남은 패턴이 없으면 `근거가 충분한 패턴 없음` 한 줄만 쓴다.
+
+| 번호 | kind | 규칙 초안 | 근거 묶음 |
+|---|---|---|---|
+| 1 | `not-defect` | 규칙 문장 | `id`, `id`, `id` |
+
+6. 사용자가 고른 패턴마다 7~13단계를 차례로 진행한다. 사용자가 문구를 고치면 고친 문구를 쓴다.
+7. 후보 rubric 을 파일로 만든다. 출력의 `version` 이 후보 rubric 버전이다.
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" rubric-apply --kind <kind> --rule "<규칙>" --evidence <id> <id> <id> --out "<tmp>/harness-rubric-candidate.md"
+```
+
+8. 판정 입력 보관본 목록을 받는다.
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" replay-inputs > "<tmp>/harness-replay-inputs.json"
+```
+
+9. "replay 프롬프트"로 서브에이전트 두 개를 한 메시지에서 함께 부른다. 하나는 `<rubric 파일>` 이 `${CLAUDE_PLUGIN_DATA}/rubric.md`, `<결과 파일>` 이 `<tmp>/harness-replay-current.json` 이고, 다른 하나는 `<tmp>/harness-rubric-candidate.md`, `<tmp>/harness-replay-candidate.json` 이다.
+10. 두 결과를 채점한다.
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" replay-score --current "<tmp>/harness-replay-current.json" --candidate "<tmp>/harness-replay-candidate.json"
+```
+
+11. 출력의 `eligible` 이 true 면 `current`·`candidate` 의 `tpr`·`tnr`·`n_pos`·`n_neg` 를 참고 수치로 한 줄에 보인다. false 면 test 분할 라벨이 `replay_min_labels` 보다 적어 정확도 비교를 생략했다고 한 줄로 알린다.
+12. `dropped_positives` 에 따라 적용한다.
+
+| `dropped_positives` | 처리 |
+|---|---|
+| 비었음 | 아래 적용 명령을 `--dropped`·`--confirmed` 없이 실행한다 |
+| 있음 | 빠지는 묶음의 id 와 `problem` 을 보이고 턴을 끝낸다. 사용자가 명시적으로 확인하면 아래 적용 명령을 `--dropped` 와 `--confirmed` 를 붙여 실행한다. 확인하지 않으면 적용하지 않는다 |
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" rubric-apply --kind <kind> --rule "<규칙>" --evidence <id> <id> <id> --dropped <id> … --confirmed
+```
+
+13. 패턴마다 `rubric 버전 <version>: <규칙>` 또는 적용하지 않은 이유를 한 줄로 보고한다.
+
+### replay 프롬프트
+
+```
+harness-loop replay 판정을 맡는다. 사용자에게 묻지 않는다.
+
+1. <rubric 파일> 을 Read 로 읽는다. 판정 기준은 이 파일만 따른다. 첫 줄 <!-- rubric-version: N --> 의 N 이 rubric 버전이다.
+2. <목록 파일> 을 Read 로 읽는다. JSON 배열의 경로마다 input.json 을 Read 로 읽는다.
+3. input.json 마다 다시 판정한다. group 은 묶음, observations 는 관찰마다 evidence·excerpt, file_versions 는 관찰 당시 대상 파일 내용이다. observations 의 observation 에 남은 예전 verdict·reason 과 input.json 의 rubric 은 쓰지 않는다.
+4. 이 rubric 으로 group.failure_ref 의 근거가 여전히 관찰에 해당하고, 묶음이 "공통 확인"을 넘고 "결정 대상으로 올리지 않는 경우"에 걸리지 않으면 surfaces 를 true, 아니면 false 로 쓴다.
+5. <스키마 파일> 형식으로 {"rubric_version": N, "results": [{"group": <group.id>, "surfaces": true|false}, …]} 를 <결과 파일> 에 Write 로 쓴다. 입력마다 결과를 하나씩 쓴다. 목록이 비었으면 results 를 빈 배열로 쓴다.
+
+마지막 답은 "완료 <결과 수>" 한 줄만 쓴다.
+```
+
+| 자리 | 값 |
+|---|---|
+| `<rubric 파일>` | 9단계에서 정한 rubric 파일 |
+| `<목록 파일>` | `<tmp>/harness-replay-inputs.json` |
+| `<스키마 파일>` | `${CLAUDE_PLUGIN_ROOT}/defaults/replay-schema.json` |
+| `<결과 파일>` | 9단계에서 정한 결과 파일 |
+
+## 백필 (backfill)
+
+1. 훅 설치 전 기록을 근거로 만든다. `--days N` 이 있으면 명령 끝에 붙인다.
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" backfill
+```
+
+2. 출력의 `sessions`·`records` 를 `백필: 세션 N개, 근거 M건` 한 줄로 알리고 기본 모드 1단계로 이어 간다.

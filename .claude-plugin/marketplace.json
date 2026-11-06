@@ -17,7 +17,7 @@
       "name": "harness-loop",
       "source": "./plugins/harness-loop",
       "description": "세션에서 하네스 결함 신호를 모아 점수를 매기고 개선안으로 제안한다.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": { "name": "yeonjin.roh" },
       "license": "MIT",
       "keywords": ["harness", "retro", "skills"]
