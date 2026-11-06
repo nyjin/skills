@@ -278,3 +278,71 @@ def test_proceed_counts_only_later_observations(obs_factory, monkeypatch):
 
 def test_last_decisions_placeholder_is_empty():
     assert groups._last_decisions() == {}
+
+
+def test_guideline_project_target_with_two_projects_is_scope(obs_factory):
+    a = obs_factory("correction", session="s1", cwd="/w/org/proj-a")
+    b = obs_factory("correction", session="s2", cwd="/w/org/proj-b")
+    groups.merge(result(group("g", "guideline_supplement", [a, b], target_path="/w/org/proj-a/CLAUDE.md")))
+    assert groups.gate(NOW)["dropped"] == [{"id": "g", "reason": "scope"}]
+
+
+def test_skill_supplement_counts_only_corrections(obs_factory):
+    a, b = obs_factory("failure"), obs_factory("failure")
+    groups.merge(result(group("g", "skill_supplement", [a, b], finding="no_instruction")))
+    assert ids(groups.gate(NOW), "held") == ["g"]
+
+
+def test_repeat_edit_counts_distinct_edits(repo, obs_factory):
+    target = str(repo / "skills/a/SKILL.md")
+    h1 = git(repo, "rev-parse", "HEAD:skills/a/SKILL.md").strip()
+    (repo / "skills/a/SKILL.md").write_text("v2\n")
+    commit(repo, "v2", "2026-10-21T00:00:00+00:00")
+    h2 = git(repo, "rev-parse", "HEAD:skills/a/SKILL.md").strip()
+    a = obs_factory("correction")
+    groups.merge(result(group("g", "rework", [a], target_path=target, rework_kind="repeat_edit", edits=[h1, h1, h2])))
+    assert ids(groups.gate(NOW), "held") == ["g"]
+
+
+def test_rework_tilde_target_is_expanded(obs_factory):
+    home_repo = Path.home() / "r"
+    (home_repo / "skills/a").mkdir(parents=True)
+    git(home_repo, "init", "-q")
+    git(home_repo, "config", "user.email", "t@t")
+    git(home_repo, "config", "user.name", "t")
+    (home_repo / "skills/a/SKILL.md").write_text("v1\n")
+    git(home_repo, "add", ".")
+    commit(home_repo, "init", "2026-10-20T00:00:00+00:00")
+    v1 = git(home_repo, "rev-parse", "HEAD:skills/a/SKILL.md").strip()
+    a = obs_factory("correction", skill=_skill(home_repo))
+    groups.merge(result(group("g", "rework", [a], target_path="~/r/skills/a/SKILL.md", rework_kind="recurrence",
+                              fix_version=v1)))
+    out = groups.gate(NOW)
+    assert ids(out, "report") == ["g"] and out["report"][0]["recurrence"] == [a] and out["notices"] == []
+
+
+def test_untracked_notice_expands_tilde(obs_factory):
+    (Path.home() / "plain").mkdir(parents=True)
+    a = obs_factory("failure")
+    groups.merge(result(group("g", "fix", [a], finding="wrong", target_path="~/plain/SKILL.md")))
+    out = groups.gate(NOW)
+    assert ids(out, "report") == ["g"] and str(Path.home() / "plain") in out["notices"][0]
+
+
+def test_rework_recurrence_after_proceed_decision(repo, obs_factory, monkeypatch):
+    # v1 → v2(baseline) → v1 로 되돌림: history 는 v1 을 첫 위치로만 남기므로 순서 규칙이면 재발을 놓친다
+    target = str(repo / "skills/a/SKILL.md")
+    (repo / "skills/a/SKILL.md").write_text("v2\n")
+    commit(repo, "v2", "2026-10-25T00:00:00+00:00")
+    base = git(repo, "rev-parse", "HEAD:skills/a/SKILL.md").strip()
+    (repo / "skills/a/SKILL.md").write_text("v1\n")
+    commit(repo, "revert", "2026-10-28T00:00:00+00:00")
+    before = obs_factory("correction", at="2026-11-01T10:00:00+09:00", skill=_skill(repo))
+    groups.merge(result(group("g", "rework", [before], target_path=target, rework_kind="recurrence")))
+    monkeypatch.setattr(groups, "_last_decisions", lambda: {
+        "g": {"group": "g", "decision": "proceed", "at": "2026-11-02T00:00:00+09:00", "baseline_hash": base}})
+    assert ids(groups.gate(NOW), "held") == ["g"]
+    later = obs_factory("correction", at="2026-11-03T10:00:00+09:00", skill=_skill(repo))
+    groups.merge(result(group("g", "rework", [later], target_path=target, rework_kind="recurrence")))
+    out = groups.gate(NOW)
+    assert ids(out, "report") == ["g"] and out["report"][0]["recurrence"] == [later]

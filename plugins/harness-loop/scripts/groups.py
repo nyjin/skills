@@ -108,21 +108,30 @@ def obs_hash(obs: dict, target_path: str) -> str | None:
 def _root_and_name(group: dict) -> tuple[str, str]:
     """git 밖 안내용 (스킬 루트, 이름). skill_root 가 없으면 대상 파일의 디렉터리와 파일 이름."""
     if group.get("skill_root"):
-        return group["skill_root"], os.path.basename(group["skill_root"].rstrip("/"))
-    return os.path.dirname(group["target_path"]), os.path.basename(group["target_path"])
+        root = os.path.expanduser(group["skill_root"])
+        return root, os.path.basename(root.rstrip("/"))
+    target = os.path.expanduser(group["target_path"])
+    return os.path.dirname(target), os.path.basename(target)
 
 
 def _rework(group: dict, obs: list[dict], proceed: dict | None, cfg: dict) -> tuple[bool, dict]:
-    """rework 관문. (넘었는지, 보고 필드). 버전 순서는 versions.history 순서."""
-    hist = [e["hash"] for e in versions.history(group["target_path"], EPOCH)]
+    """rework 관문. (넘었는지, 보고 필드).
+
+    proceed 결정이 있으면 obs 는 이미 결정 뒤 것뿐이라 해시가 있는 관찰을 모두 재발로 센다.
+    없으면 fix_version 의 versions.history 순서 이후(같은 버전 포함) 해시를 가진 관찰만 센다."""
+    target = _real(group["target_path"])
+    hist = [e["hash"] for e in versions.history(target, EPOCH)]
     if group["rework_kind"] == "repeat_edit":
-        edits = group.get("edits") or []
-        return bool(edits) and set(edits) <= set(hist) and len(edits) >= cfg["repeat_edit_min"], {}
-    base = group.get("fix_version") or (proceed or {}).get("baseline_hash")
+        edits = set(group.get("edits") or [])
+        return bool(edits) and edits <= set(hist) and len(edits) >= cfg["repeat_edit_min"], {}
+    if proceed:
+        rec = [o["evidence_id"] for o in obs if obs_hash(o, target)]
+        return bool(rec), ({"recurrence": rec} if rec else {})
+    base = group.get("fix_version")
     if base not in hist:
         return False, {}
     start = hist.index(base)
-    rec = [o["evidence_id"] for o in obs if (h := obs_hash(o, group["target_path"])) in hist and hist.index(h) >= start]
+    rec = [o["evidence_id"] for o in obs if (h := obs_hash(o, target)) in hist and hist.index(h) >= start]
     return bool(rec), ({"recurrence": rec} if rec else {})
 
 
@@ -156,7 +165,7 @@ def judge_group(group: dict, observations_by_id: dict, decisions: dict, cfg: dic
     types = {o.get("type") for o in obs}
     count, sessions = extra["count"], extra["sessions"]
     if ttype == "rework":
-        if versions.git_root(group["target_path"]) is None:
+        if versions.git_root(_real(group["target_path"])) is None:
             return "dropped", "untracked", extra
         ok, more = _rework(group, obs, decision if choice == "proceed" else None, cfg)
         return ("report" if ok else "held"), None, {**extra, **more}
@@ -165,9 +174,10 @@ def judge_group(group: dict, observations_by_id: dict, decisions: dict, cfg: dic
     elif ttype in ("skill_supplement", "fix") and "approval_question" in types:
         ok = count >= 1
     elif ttype == "skill_supplement":
-        ok = count >= cfg["correction_min_count"]
+        ok = sum(o.get("type") == "correction" for o in obs) >= cfg["correction_min_count"]
     elif ttype == "guideline_supplement":
-        if _real(group["target_path"]) == _real("~/.claude/CLAUDE.md") and extra["projects"] < 2:
+        is_global = _real(group["target_path"]) == _real("~/.claude/CLAUDE.md")
+        if is_global != (extra["projects"] >= 2):
             return "dropped", "scope", extra
         ok = count >= cfg["correction_min_count"] and sessions >= cfg["guideline_min_sessions"]
     else:
@@ -192,7 +202,7 @@ def gate(now: str | None = None) -> dict:
             out["report"].append({**group, **extra})
         else:
             out["held"].append(gid)
-        if reason == "untracked" or versions.git_root(group["target_path"]) is None:
+        if reason == "untracked" or versions.git_root(_real(group["target_path"])) is None:
             root, name = _root_and_name(group)
             names = untracked.setdefault(root, [])
             if name not in names:
