@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pyyaml>=6"]
+# ///
+"""미판정 근거를 판정자에게 넘길 묶음으로 만들고, 판정 결과를 observations.jsonl 에 저장한다."""
+import json
+from pathlib import Path
+
+import paths
+
+JUDGEABLE = ("prompt", "bash", "failure", "ask")
+META_KINDS = ("skill_start", "skill_edit")
+COPY_FIELDS = ("session", "at", "cwd", "skill", "file", "text", "meta")
+WINDOW = 256 * 1024
+TAIL_CHARS = 1500
+SCHEMA = Path(__file__).resolve().parents[1] / "defaults" / "observe-schema.json"
+_TYPES = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "number": (int, float)}
+
+
+def validate(obj, schema: dict, path: str = "$") -> None:
+    """JSON Schema 부분집합(type·required·enum·properties·items·minItems·minLength) 검증. 어긋나면 ValueError."""
+    t = schema.get("type")
+    if t:
+        ok = isinstance(obj, _TYPES[t])
+        if t in ("integer", "number") and isinstance(obj, bool):
+            ok = False
+        if not ok:
+            raise ValueError(f"{path}: {t} 이어야 합니다")
+    if "enum" in schema and obj not in schema["enum"]:
+        raise ValueError(f"{path}: {schema['enum']} 중 하나여야 합니다")
+    if isinstance(obj, str) and len(obj) < schema.get("minLength", 0):
+        raise ValueError(f"{path}: 길이 {schema['minLength']} 이상이어야 합니다")
+    if isinstance(obj, dict):
+        for key in schema.get("required", []):
+            if key not in obj:
+                raise ValueError(f"{path}.{key}: 필수 항목이 없습니다")
+        for key, sub in schema.get("properties", {}).items():
+            if key in obj:
+                validate(obj[key], sub, f"{path}.{key}")
+    if isinstance(obj, list):
+        if len(obj) < schema.get("minItems", 0):
+            raise ValueError(f"{path}: 항목 {schema['minItems']} 개 이상이어야 합니다")
+        if "items" in schema:
+            for i, item in enumerate(obj):
+                validate(item, schema["items"], f"{path}[{i}]")
+
+
+def _rows(path) -> list[dict | None]:
+    """줄마다 dict, 깨진 줄은 None(줄 번호를 유지한다)."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            row = None
+        out.append(row if isinstance(row, dict) else None)
+    return out
+
+
+def _cursor(hdir) -> int:
+    try:
+        return max(0, int((Path(hdir) / "evidence.cursor").read_text().strip()))
+    except (OSError, ValueError):
+        return 0
+
+
+def _blocks(row) -> list[dict]:
+    content = (row.get("message") or {}).get("content") if isinstance(row, dict) else None
+    return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+
+
+def _result_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(b.get("text", "") for b in content if isinstance(b, dict))
+    return ""
+
+
+def _window(transcript, pos: int) -> list[dict]:
+    """pos 앞 WINDOW 바이트의 완전한 JSON 줄들. 창 첫 줄(잘렸을 수 있음)과 깨진 줄은 버린다."""
+    try:
+        start = max(0, pos - WINDOW)
+        with open(transcript, "rb") as f:
+            f.seek(start)
+            data = f.read(max(0, pos - start))
+    except OSError:
+        return []
+    lines = data.decode("utf-8", "ignore").splitlines()
+    if start > 0:
+        lines = lines[1:]
+    rows = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def excerpt(transcript, pos: int, kind: str) -> str:
+    """prompt·ask: pos 앞 마지막 assistant 텍스트 끝 1500자 + 도구 호출 이름. 그 밖의 kind 는 빈 문자열."""
+    if kind not in ("prompt", "ask"):
+        return ""
+    rows = _window(transcript, pos)
+    idx = None
+    for i in range(len(rows) - 1, -1, -1):
+        if rows[i].get("type") == "assistant" and any(b.get("type") == "text" and b.get("text") for b in _blocks(rows[i])):
+            idx = i
+            break
+    if idx is None:
+        return ""
+    mid = (rows[idx].get("message") or {}).get("id")
+    group = [rows[idx]]
+    if mid:
+        group = [r for r in rows if r.get("type") == "assistant" and (r.get("message") or {}).get("id") == mid]
+    text = "".join(b.get("text", "") for r in group for b in _blocks(r) if b.get("type") == "text")
+    tools = [b.get("name", "") for r in group for b in _blocks(r) if b.get("type") == "tool_use"]
+    parts = [text[-TAIL_CHARS:]]
+    if tools:
+        parts.append("도구 호출: " + ", ".join(tools))
+    return "\n".join(parts)
+
+
+def _ask_result(transcript, pos: int) -> str:
+    rows = _window(transcript, pos)
+    ask_id = None
+    for r in rows:
+        for b in _blocks(r):
+            if b.get("type") == "tool_use" and b.get("name") == "AskUserQuestion":
+                ask_id = b.get("id")
+    if not ask_id:
+        return ""
+    for r in rows:
+        for b in _blocks(r):
+            if b.get("type") == "tool_result" and b.get("tool_use_id") == ask_id:
+                return _result_text(b.get("content"))
+    return ""
+
+
+def project_of(cwd: str) -> str:
+    return "/".join(Path(cwd).parts[-2:]) if cwd else ""
+
+
+def pending(limit: int) -> list[dict]:
+    items = []
+    for hdir in paths.all_harness_dirs():
+        if (hdir / "skip").exists():
+            continue
+        for rec in _rows(hdir / "evidence.jsonl")[_cursor(hdir):]:
+            if not rec or rec.get("kind") not in JUDGEABLE:
+                continue
+            ex = excerpt(rec.get("transcript", ""), rec.get("pos") or 0, rec["kind"])
+            if rec["kind"] == "ask" and (rec.get("meta") or {}).get("answer_missing"):
+                res = _ask_result(rec.get("transcript", ""), rec.get("pos") or 0)
+                if res:
+                    ex = (ex + "\n" if ex else "") + "응답: " + res
+            items.append({**rec, "excerpt": ex, "project": project_of(rec.get("cwd", ""))})
+    items.sort(key=lambda r: paths.aware(r["at"]))
+    return items[:limit]
+
+
+def observations(since: str | None = None) -> list[dict]:
+    rows = [r for r in _rows(paths.data_dir() / "observations.jsonl") if r]
+    if since:
+        cut = paths.aware(since)
+        rows = [r for r in rows if paths.aware(r["at"]) >= cut]
+    return rows
+
+
+def _advance(hdir, ids: set) -> None:
+    rows = _rows(hdir / "evidence.jsonl")
+    last = max((i for i, r in enumerate(rows) if r and r.get("id") in ids), default=None)
+    if last is None:
+        return
+    end = last + 1
+    while end < len(rows) and rows[end] and rows[end].get("kind") in META_KINDS:
+        end += 1
+    if end > _cursor(hdir):
+        paths.atomic_write(hdir / "evidence.cursor", str(end))
+
+
+def save(result: dict) -> dict:
+    validate(result, json.loads(SCHEMA.read_text(encoding="utf-8")))
+    entries = result["observations"]
+    for i, e in enumerate(entries):
+        if e["type"] == "repeat" and not e.get("purpose"):
+            raise ValueError(f"$.observations[{i}].purpose: repeat 는 purpose 가 필요합니다")
+    wanted = {e["evidence_id"] for e in entries}
+    records = {}
+    dirs = paths.all_harness_dirs()
+    for hdir in dirs:
+        for r in _rows(hdir / "evidence.jsonl"):
+            if r and r.get("id") in wanted:
+                records[r["id"]] = r
+    unknown = sorted(wanted - set(records))
+    if unknown:
+        raise ValueError(f"$.observations: 알 수 없는 evidence_id {unknown[0]}")
+    out = paths.data_dir() / "observations.jsonl"
+    done = {r.get("evidence_id") for r in _rows(out) if r}
+    saved = skipped = 0
+    for e in entries:
+        if e["evidence_id"] in done:
+            skipped += 1
+            continue
+        rec = records[e["evidence_id"]]
+        obs = {**e, **{f: rec.get(f) for f in COPY_FIELDS}, "project": project_of(rec.get("cwd", ""))}
+        paths.append_line(out, obs)
+        saved += 1
+    for hdir in dirs:
+        _advance(hdir, wanted)
+    return {"saved": saved, "skipped": skipped}
