@@ -208,3 +208,58 @@ def test_replay_gate_rejects_bad_input(tmp_path, capsys):
     code, cap = cli_fail(capsys, "replay-gate", "--file", write(tmp_path / "b.json", {"results": []}), "--out", out)
     assert code == 1 and "rubric_version" in cap.err
     assert not out.exists()
+
+
+def test_replay_gate_requires_every_archived_evidence(tmp_path, capsys):
+    _archive("g1", "a1")
+    inp = paths.data_dir() / "replay" / "g1" / "input.json"
+    arch = json.loads(inp.read_text())
+    arch["observations"].append({**arch["observations"][0], "evidence_id": "a2"})
+    write(inp, arch)
+    entry = {"type": "failure", "verdict": True, "reason": "r"}
+    data = {"rubric_version": 2, "results": [{"group": "g1", "observations": [{**entry, "evidence_id": "a1"}]}]}
+    out = tmp_path / "gated.json"
+    code, cap = cli_fail(capsys, "replay-gate", "--file", write(tmp_path / "rj.json", data), "--out", out)
+    assert code == 1 and cap.err.rstrip().endswith("다시 판정하지 않은 근거 1건: a2")
+    assert not out.exists()
+    data["results"][0]["observations"].append({**entry, "evidence_id": "a2"})
+    assert cli(capsys, "replay-gate", "--file", write(tmp_path / "rj.json", data), "--out", out)["results"] == [
+        {"group": "g1", "surfaces": True}]
+
+
+def test_observe_rejects_non_object_before_pending_check(tmp_path, capsys):
+    pend = write(tmp_path / "pending.json", {"evidence": [{"id": "e1"}], "examples": []})
+    code, cap = cli_fail(capsys, "observe", "--file", write(tmp_path / "o.json", ["x"]), "--pending", pend)
+    assert code == 1 and "object" in cap.err and "Traceback" not in cap.err
+
+
+def test_pending_adds_repeat_stats_and_recent_purposes(obs_factory, tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(paths, "now", lambda: NOW)
+    obs_factory("repeat", at="2026-11-05T10:00:00+09:00")
+    obs_factory("repeat", at="2025-01-01T10:00:00+09:00")  # window_days 밖
+    obs_factory("repeat", verdict=False)
+    lines = paths.data_dir() / "observations.jsonl"
+    rows = [json.loads(ln) for ln in lines.read_text().splitlines()]
+    rows[1]["purpose"], rows[2]["purpose"] = "오래된 목적", "거짓 목적"
+    lines.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+
+    def bash(session, n, name):
+        hdir = paths.projects_root() / "q" / session / "harness"
+        hdir.mkdir(parents=True, exist_ok=True)
+        rec = {"id": f"{session}-{n}", "kind": "bash", "at": "2026-11-05T11:00:00+09:00", "session": session,
+               "transcript": "", "pos": 0, "cwd": "/w/o/p", "skill": None, "text": "python3 - <<EOF",
+               "file": str(hdir / "scripts" / f"{name}.txt") if name else None, "flags": {}, "meta": {}}
+        with open(hdir / "evidence.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec) + "\n")
+
+    bash("t1", 1, "abc")
+    bash("t1", 2, "abc")
+    bash("t2", 1, "abc")
+    bash("t2", 2, "def")
+    bash("t2", 3, None)
+    cli(capsys, "pending", "--out", tmp_path / "p.json")
+    data = json.loads((tmp_path / "p.json").read_text())
+    stats = {e["id"]: e.get("repeat_stats") for e in data["evidence"] if e["kind"] == "bash"}
+    assert stats == {"t1-1": {"count": 3, "sessions": 2}, "t1-2": {"count": 3, "sessions": 2},
+                     "t2-1": {"count": 3, "sessions": 2}, "t2-2": {"count": 1, "sessions": 1}, "t2-3": None}
+    assert data["recent_purposes"] == ["같은 목적"]

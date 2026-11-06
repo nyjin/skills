@@ -59,11 +59,39 @@ def context_examples(limit: int) -> list[dict]:
              "problem": (store.get(gid) or {}).get("problem"), "note": lab["note"]} for gid, lab in mixed[:limit]]
 
 
+RECENT_PURPOSES = 50
+
+
+def _repeat_stats() -> dict[str, dict]:
+    """inline 스크립트 사본 이름(본문 sha1)별, 모든 세션 evidence.jsonl 의 bash 근거 수와 세션 수."""
+    seen: dict[str, list] = {}
+    for hdir in paths.all_harness_dirs():
+        for r in observe._rows(hdir / "evidence.jsonl"):
+            if r and r.get("kind") == "bash" and r.get("file"):
+                seen.setdefault(Path(r["file"]).name, []).append(hdir)
+    return {name: {"count": len(dirs), "sessions": len(set(dirs))} for name, dirs in seen.items()}
+
+
+def _recent_purposes(cfg) -> list[str]:
+    """window_days 안 참 repeat 관찰의 purpose, 최근 것부터 중복 없이."""
+    since = (paths.aware(paths.now()) - timedelta(days=cfg["window_days"])).isoformat()
+    obs = sorted((o for o in observe.observations(since)
+                  if o.get("type") == "repeat" and o.get("verdict") is True and o.get("purpose")),
+                 key=lambda o: paths.aware(o["at"]), reverse=True)
+    return list(dict.fromkeys(o["purpose"] for o in obs))[:RECENT_PURPOSES]
+
+
 def cmd_pending(a, cfg):
     batch = observe.pending(cfg["judge_batch"] if a.limit is None else a.limit)
+    if any(e["kind"] == "bash" and e.get("file") for e in batch):
+        stats = _repeat_stats()
+        for e in batch:
+            if e["kind"] == "bash" and e.get("file"):
+                e["repeat_stats"] = stats[Path(e["file"]).name]
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"evidence": batch, "examples": pending_examples(cfg["label_examples"])},
+    out.write_text(json.dumps({"evidence": batch, "examples": pending_examples(cfg["label_examples"]),
+                               "recent_purposes": _recent_purposes(cfg)},
                               ensure_ascii=False, indent=2), encoding="utf-8")
     return {"count": len(batch), "file": str(out.resolve()), "remaining": observe.pending_count() - len(batch)}
 
@@ -84,9 +112,10 @@ def cmd_gate(a, cfg):
 
 def cmd_observe(a, cfg):
     result = _read_json(a.file)
+    observe.validate(result, json.loads(observe.SCHEMA.read_text(encoding="utf-8")))
     if a.pending:
         wanted = [e.get("id") for e in _read_json(a.pending).get("evidence") or []]
-        got = {e.get("evidence_id") for e in result.get("observations") or [] if isinstance(e, dict)}
+        got = {e["evidence_id"] for e in result["observations"]}
         missing = [i for i in wanted if i not in got]
         if missing:
             raise ValueError(f"판정하지 않은 근거 {len(missing)}건: {' '.join(missing)}")
@@ -108,13 +137,15 @@ def cmd_replay_gate(a, cfg):
     """다시 판정한 관찰을 보관본 근거와 합쳐 관문에 걸고 replay-schema 결과를 쓴다."""
     data = _read_json(a.file)
     observe.validate(data, _replay_gate_schema())
-    results = []
+    results, missing = [], []
     for i, r in enumerate(data["results"]):
         inp = paths.data_dir() / "replay" / r["group"] / "input.json"
         if not inp.is_file():
             raise ValueError(f"$.results[{i}].group: 보관본이 없는 묶음 {r['group']}")
         archived = _read_json(inp)
         by_id = {e.get("evidence_id"): e for e in archived.get("observations") or []}
+        judged = {e["evidence_id"] for e in r["observations"]}
+        missing += [eid for eid in by_id if eid and eid not in judged]
         obs = []
         for j, e in enumerate(r["observations"]):
             if e["evidence_id"] not in by_id:
@@ -126,6 +157,8 @@ def cmd_replay_gate(a, cfg):
                         "project": observe.project_of(src)})
         surfaces = rubric.gate_one(archived["group"], {"observations": obs, "group": r.get("group_fields") or {}})
         results.append({"group": r["group"], "surfaces": surfaces})
+    if missing:
+        raise ValueError(f"다시 판정하지 않은 근거 {len(missing)}건: {' '.join(missing)}")
     out = {"rubric_version": data["rubric_version"], "results": results}
     Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     return out
@@ -210,7 +243,7 @@ def main(argv=None) -> None:
             lock = paths.data_dir()
             if not paths.acquire_lock(lock):
                 lock = None
-                print("다른 retro 작업이 공용 데이터 락을 쥐고 있습니다. 잠시 뒤 다시 실행하세요", file=sys.stderr)
+                print("다른 retro 작업이 공용 데이터 락을 잡고 있습니다. 잠시 뒤 다시 실행하세요", file=sys.stderr)
                 sys.exit(paths.LOCKED_EXIT)
         result = COMMANDS[a.command](a, paths.load_config())
     except (ValueError, KeyError, OSError) as e:
