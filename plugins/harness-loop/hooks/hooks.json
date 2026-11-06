@@ -3,24 +3,34 @@
     "SessionStart": [
       {
         "matcher": "startup|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\" session-start",
-            "timeout": 10
-          }
-        ]
+        "hooks": [{"type": "command", "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"", "timeout": 5}]
       }
     ],
-    "SessionEnd": [
+    "UserPromptSubmit": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\" session-end",
-            "timeout": 10
-          }
-        ]
+        "hooks": [{"type": "command", "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"", "timeout": 5}]
+      }
+    ],
+    "UserPromptExpansion": [
+      {
+        "hooks": [{"type": "command", "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"", "timeout": 5}]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Skill|Bash",
+        "hooks": [{"type": "command", "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"", "timeout": 5}]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "AskUserQuestion|Edit|Write|MultiEdit",
+        "hooks": [{"type": "command", "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"", "timeout": 5}]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [{"type": "command", "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"", "timeout": 5}]
       }
     ]
   }

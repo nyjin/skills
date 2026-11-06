@@ -3,81 +3,92 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml>=6"]
 # ///
-"""SessionStart·SessionEnd 훅 진입점. 어떤 경우에도 종료 코드 0 이고 오류는 hook-errors.log 에 남긴다."""
+"""훅 진입점. 근거 이벤트는 evidence 로 기록하고 SessionStart 는 하루 한 번 알림을 낸다. 종료 코드는 항상 0."""
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import evidence
+import paths
 
-def _guarded(data: dict) -> bool:
-    return os.environ.get("HARNESS_RETRO") == "1" or bool(data.get("agent_id"))
+NOTICE = "harness-loop: 판정하지 않은 근거 {n}건이 있습니다. /harness-loop:retro 로 확인하세요."
 
 
-def run(event: str, raw: str) -> None:
-    import judge
-    import report
-    import state
+def _lines(path: Path) -> int:
+    try:
+        return path.read_bytes().count(b"\n")
+    except OSError:
+        return 0
 
-    if event not in ("session-start", "session-end"):
-        raise ValueError(f"알 수 없는 이벤트: {event}")
+
+def pending_count() -> int:
+    total = 0
+    for hdir in paths.all_harness_dirs():
+        if (hdir / "skip").exists():
+            continue
+        try:
+            cursor = int((hdir / "evidence.cursor").read_text().strip())
+        except (OSError, ValueError):
+            cursor = 0
+        total += max(0, _lines(hdir / "evidence.jsonl") - cursor)
+    return total
+
+
+def session_start_text() -> str | None:
+    d = paths.data_dir()
+    today = date.today().isoformat()
+    day_file = d / "notice-day"
+    try:
+        if day_file.read_text().strip() == today:
+            return None
+    except OSError:
+        pass
+    errors = _lines(d / "hook-errors.log")
+    try:
+        seen = int((d / "hook-errors.seen").read_text().strip())
+    except (OSError, ValueError):
+        seen = 0
+    new_errors = errors - seen
+    n = pending_count()
+    if n <= 0 and new_errors <= 0:
+        return None
+    text = NOTICE.format(n=n)
+    if new_errors > 0:
+        text += f" (훅 오류 {new_errors}건, hook-errors.log)"
+        paths.atomic_write(d / "hook-errors.seen", str(errors))
+    paths.atomic_write(day_file, today)
+    return text
+
+
+def run(raw: str) -> str | None:
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("훅 입력이 JSON 객체가 아니다")
-    transcript_path = data.get("transcript_path")
-    if _guarded(data):
-        if transcript_path and Path(transcript_path).is_file():
-            (state.harness_dir(Path(transcript_path)) / "skip").touch()
-        return
-    if event == "session-end":
-        if transcript_path:
-            judge.spawn_background(Path(transcript_path), "session-end")
-        return
-    if data.get("source") not in ("startup", "resume"):
-        return
+    if os.environ.get("HARNESS_RETRO") == "1" or data.get("agent_id"):
+        return None
+    event = data.get("hook_event_name")
+    if event == "SessionStart":
+        if os.environ.get("HERDR_PW_WORKER"):
+            return None
+        text = session_start_text()
+        if not text:
+            return None
+        return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}, ensure_ascii=False)
+    evidence.handle(event, data)
+    return None
+
+
+def main() -> None:
     try:
-        report.regressions()
+        out = run(sys.stdin.read())
+        if out:
+            print(out)
     except Exception as e:
-        _log_error(f"{event} regressions", e)
-    try:
-        room = max(0, state.load_config()["max_background_judges_per_day"] - judge.runs_today())
-        for t in report.sweep(datetime.now().astimezone().isoformat(), exclude_session=data.get("session_id"))[:room]:
-            judge.spawn_background(t, "sweep")
-    except Exception as e:
-        _log_error(f"{event} sweep", e)
-    if os.environ.get("HERDR_PW_WORKER"):
-        return
-    pairs = report.pending(state.load_config()["queue_limit"])
-    errors_total, errors_new = report.hook_errors()
-    text = report.session_start_text(pairs, errors_new)
-    if not text:
-        return
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}, ensure_ascii=False))
-    report.mark_reported(pairs)
-    report.mark_hook_errors_seen(errors_total)
-
-
-def _log_error(event: str, error: BaseException) -> None:
-    try:
-        env = os.environ.get("CLAUDE_PLUGIN_DATA")
-        d = Path(env) if env else Path.home() / ".claude/plugins/data/harness-loop-local"
-        d.mkdir(parents=True, exist_ok=True)
-        with open(d / "hook-errors.log", "a", encoding="utf-8") as f:
-            f.write(f"{datetime.now().astimezone().isoformat()} hook {event}: {type(error).__name__}: {' '.join(str(error).split())}\n")
-    except Exception:
-        pass
-
-
-def main(argv=None) -> None:
-    argv = sys.argv if argv is None else argv
-    event = argv[1] if len(argv) > 1 else ""
-    try:
-        run(event, sys.stdin.read())
-    except Exception as e:
-        _log_error(event or "unknown", e)
+        paths.log_error("hook", e)
     sys.exit(0)
 
 

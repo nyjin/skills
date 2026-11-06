@@ -1,193 +1,182 @@
-import io
 import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timedelta
+import time
 from pathlib import Path
 
 import pytest
 
 import hook
-import judge
-import state
+import paths
 
-HOOK = str(Path(__file__).resolve().parents[1] / "scripts" / "hook.py")
+PLUGIN = Path(__file__).resolve().parents[1]
+HOOK = PLUGIN / "scripts" / "hook.py"
+FIXTURES = Path(__file__).parent / "fixtures" / "payloads"
+SID = "abcd1234-0000-0000-0000-000000000000"
+NOTICE2 = "harness-loop: 판정하지 않은 근거 2건이 있습니다. /harness-loop:retro 로 확인하세요."
 
 
 @pytest.fixture
-def spawned(monkeypatch):
-    calls = []
-    monkeypatch.setattr(judge, "spawn_background", lambda t, mode: calls.append((Path(t), mode)))
-    for name in ("HARNESS_RETRO", "CLAUDE_CODE_CHILD_SESSION", "HERDR_PW_WORKER"):
-        monkeypatch.delenv(name, raising=False)
-    return calls
+def session(tmp_projects):
+    p = tmp_projects / "-proj" / f"{SID}.jsonl"
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "hi"}}) + "\n")
+    return p
 
 
-def run_hook(monkeypatch, capsys, event, payload):
-    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
-    with pytest.raises(SystemExit) as e:
-        hook.main(["hook.py", event])
-    assert e.value.code == 0
-    return capsys.readouterr().out
+def prompt_payload(session, text="안녕", **kw):
+    data = json.loads((FIXTURES / "UserPromptSubmit.json").read_text())
+    data.update(hook_event_name="UserPromptSubmit", transcript_path=str(session), session_id=SID, cwd=str(session.parent), prompt=text, **kw)
+    return json.dumps(data)
 
 
-def make_transcript(root, sid, lines=3):
-    t = root / "proj" / f"{sid}.jsonl"
-    t.parent.mkdir(parents=True, exist_ok=True)
-    t.write_text("".join(json.dumps({"type": "user", "message": {"role": "user", "content": f"말 {n}"}}) + "\n" for n in range(lines)))
-    return t
+def evidence_file(session):
+    return paths.harness_path(session) / "evidence.jsonl"
 
 
-def propose_item(sig, score=2.6):
-    return {"sig": sig, "condition": sig.split(":")[0], "status": "propose", "score": score, "sessions": 1, "scores": {"recurrence": 1, "impact": 3, "actionability": 3}, "target": {"path": "/r/x.md"}, "proposal": f"{sig} 제안"}
+def start(source="startup"):
+    return json.dumps({"hook_event_name": "SessionStart", "source": source, "session_id": "s", "transcript_path": "/x"})
 
 
-def unswept_after_install(root, sid):
-    (state.data_dir() / "installed_at").write_text((datetime.now().astimezone() - timedelta(days=1)).isoformat())
-    t = make_transcript(root, sid)
-    old = (datetime.now() - timedelta(hours=1)).timestamp()
-    os.utime(t, (old, old))
-    return t
+@pytest.fixture
+def evidence_pending(tmp_projects):
+    h = tmp_projects / "-p" / "sess1" / "harness"
+    h.mkdir(parents=True)
+    (h / "evidence.jsonl").write_text('{"id":"a"}\n{"id":"b"}\n{"id":"c"}\n')
+    (h / "evidence.cursor").write_text("1")
+    return h
 
 
-def test_hook_guard_harness_retro_writes_skip(tmp_projects, monkeypatch, capsys, spawned):
-    t = make_transcript(tmp_projects, "s1")
+def test_prompt_event_records_evidence(session):
+    assert hook.run(prompt_payload(session)) is None
+    [line] = evidence_file(session).read_text().splitlines()
+    assert json.loads(line)["text"] == "안녕"
+
+
+def test_guard_agent_and_retro_env_record_nothing(session, monkeypatch):
+    assert hook.run(prompt_payload(session, agent_id="a1")) is None
     monkeypatch.setenv("HARNESS_RETRO", "1")
-    out = run_hook(monkeypatch, capsys, "session-end", {"session_id": "s1", "transcript_path": str(t)})
-    assert out == ""
-    assert (tmp_projects / "proj" / "s1" / "harness" / "skip").exists()
-    assert spawned == []
+    assert hook.run(prompt_payload(session)) is None
+    assert not evidence_file(session).exists()
 
 
-def test_hook_guard_agent_id(tmp_projects, monkeypatch, capsys, spawned):
-    t = make_transcript(tmp_projects, "s1")
-    out = run_hook(monkeypatch, capsys, "session-start", {"session_id": "s1", "transcript_path": str(t), "source": "startup", "agent_id": "a1"})
-    assert out == ""
-    assert (tmp_projects / "proj" / "s1" / "harness" / "skip").exists()
-    assert spawned == []
+def test_worker_session_records_but_no_notice(session, evidence_pending, monkeypatch):
+    monkeypatch.setenv("HERDR_PW_WORKER", "1")
+    hook.run(prompt_payload(session))
+    assert evidence_file(session).exists()
+    assert hook.run(start()) is None
+    assert not (paths.data_dir() / "notice-day").exists()
 
 
-def test_hook_child_session_env_alone_does_not_skip(tmp_projects, monkeypatch, capsys, spawned):
-    t = make_transcript(tmp_projects, "s1")
-    monkeypatch.setenv("CLAUDE_CODE_CHILD_SESSION", "1")
-    out = run_hook(monkeypatch, capsys, "session-end", {"session_id": "s1", "transcript_path": str(t)})
-    assert out == "" and spawned == [(t, "session-end")]
-    assert not (tmp_projects / "proj" / "s1" / "harness" / "skip").exists()
+def test_pending_count_subtracts_cursor_and_skips_skip(evidence_pending, tmp_projects):
+    other = tmp_projects / "-p" / "sess2" / "harness"
+    other.mkdir(parents=True)
+    (other / "evidence.jsonl").write_text('{"id":"x"}\n')
+    assert hook.pending_count() == 3
+    (other / "skip").touch()
+    assert hook.pending_count() == 2
 
 
-def test_hook_session_end_spawns_judge(tmp_projects, monkeypatch, capsys, spawned):
-    t = make_transcript(tmp_projects, "s1")
-    out = run_hook(monkeypatch, capsys, "session-end", {"session_id": "s1", "transcript_path": str(t), "reason": "exit"})
-    assert out == ""
-    assert spawned == [(t, "session-end")]
+def test_session_start_notice_once_per_day(evidence_pending):
+    out = json.loads(hook.run(start()))
+    assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+    assert out["hookSpecificOutput"]["additionalContext"] == NOTICE2
+    assert hook.run(start()) is None
+
+
+def test_session_start_silent_when_nothing_pending(tmp_projects):
+    assert hook.run(start()) is None
+
+
+def test_new_hook_errors_appended_and_marked_seen(evidence_pending):
+    d = paths.data_dir()
+    (d / "hook-errors.log").write_text("a\nb\n")
+    text = json.loads(hook.run(start()))["hookSpecificOutput"]["additionalContext"]
+    assert text == NOTICE2 + " (훅 오류 2건, hook-errors.log)"
+    assert (d / "hook-errors.seen").read_text() == "2"
+    (d / "notice-day").unlink()
+    (d / "hook-errors.log").write_text("a\nb\nc\n")
+    text = json.loads(hook.run(start()))["hookSpecificOutput"]["additionalContext"]
+    assert text.endswith(" (훅 오류 1건, hook-errors.log)")
+    (d / "notice-day").unlink()
+    assert json.loads(hook.run(start()))["hookSpecificOutput"]["additionalContext"] == NOTICE2
+
+
+def test_new_hook_errors_alone_trigger_notice(tmp_projects):
+    d = paths.data_dir()
+    (d / "hook-errors.log").write_text("a\n")
+    text = json.loads(hook.run(start()))["hookSpecificOutput"]["additionalContext"]
+    assert text == "harness-loop: 판정하지 않은 근거 0건이 있습니다. /harness-loop:retro 로 확인하세요. (훅 오류 1건, hook-errors.log)"
+
+
+def subprocess_env(tmp_path):
+    home = tmp_path / "isolated-home"
+    empty = tmp_path / "empty-projects"
+    empty.mkdir(exist_ok=True)
+    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_PLUGIN_DATA", "HARNESS_RETRO", "HERDR_PW_WORKER")}
+    env.update(HOME=str(home), HARNESS_PROJECTS_ROOT=str(empty))
+    return env, home
 
 
 def test_hook_bad_input_exits_zero_and_logs(tmp_path):
-    home = tmp_path / "isolated-home"
-    empty = tmp_path / "empty-projects"
-    empty.mkdir()
-    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_PLUGIN_DATA", "HARNESS_RETRO", "CLAUDE_CODE_CHILD_SESSION", "HERDR_PW_WORKER")}
-    env.update(HOME=str(home), HARNESS_PROJECTS_ROOT=str(empty))
-    r = subprocess.run([sys.executable, HOOK, "session-start"], input="not json", capture_output=True, text=True, env=env)
+    env, home = subprocess_env(tmp_path)
+    r = subprocess.run([sys.executable, HOOK], input="{", capture_output=True, text=True, env=env)
     assert r.returncode == 0 and r.stdout == ""
-    fallback_data_dir = home / ".claude/plugins/data/harness-loop-local"
-    assert "session-start" in (fallback_data_dir / "hook-errors.log").read_text()
+    log = (home / ".claude/plugins/data/harness-loop-local/hook-errors.log").read_text().splitlines()
+    assert len(log) == 1
 
 
-def test_hook_session_start_emits_additional_context(tmp_projects, monkeypatch, capsys, spawned):
-    t = make_transcript(tmp_projects, "s1")
-    state.save_items(state.harness_dir(t), {"C1:a": propose_item("C1:a"), "C1:b": propose_item("C1:b", 3.0)})
-    out = run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "startup"})
-    payload = json.loads(out)
-    assert payload["hookSpecificOutput"]["hookEventName"] == "SessionStart"
-    text = payload["hookSpecificOutput"]["additionalContext"]
-    assert text.splitlines()[0] == "harness-loop: 검토 대기 action item 2건 — /harness-loop:retro review"
-    assert all(i.get("reported_at") for i in state.load_items(state.harness_dir(t)).values())
-    assert run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "resume"}) == ""
+def test_hook_internal_error_exits_zero_and_logs(session, monkeypatch, capsys):
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(hook.evidence, "handle", boom)
+    monkeypatch.setattr(sys, "stdin", __import__("io").StringIO(prompt_payload(session)))
+    with pytest.raises(SystemExit) as e:
+        hook.main()
+    assert e.value.code == 0
+    assert capsys.readouterr().out == ""
+    assert "boom" in (paths.data_dir() / "hook-errors.log").read_text()
 
 
-def test_hook_session_start_ignores_compact_source(tmp_projects, monkeypatch, capsys, spawned):
-    t = unswept_after_install(tmp_projects, "s1")
-    state.save_items(state.harness_dir(t), {"C1:a": propose_item("C1:a")})
-    out = run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "compact"})
-    assert out == "" and spawned == []
-    assert "reported_at" not in state.load_items(state.harness_dir(t))["C1:a"]
+def test_hook_does_not_import_old_modules():
+    src = HOOK.read_text()
+    for name in ("judge", "report", "state"):
+        assert f"import {name}" not in src
 
 
-def test_hook_session_start_skips_worker_env(tmp_projects, monkeypatch, capsys, spawned):
-    t = unswept_after_install(tmp_projects, "s1")
-    state.save_items(state.harness_dir(t), {"C1:a": propose_item("C1:a")})
-    monkeypatch.setenv("HERDR_PW_WORKER", "w1")
-    out = run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "startup"})
-    assert out == ""
-    assert spawned == [(t, "sweep")]
-    assert "reported_at" not in state.load_items(state.harness_dir(t))["C1:a"]
+def test_hooks_json_events_and_commands():
+    spec = json.loads((PLUGIN / "hooks/hooks.json").read_text())["hooks"]
+    assert set(spec) == {"SessionStart", "UserPromptSubmit", "UserPromptExpansion", "PreToolUse", "PostToolUse", "PostToolUseFailure"}
+    matchers = {k: [g.get("matcher") for g in v] for k, v in spec.items()}
+    assert matchers == {
+        "SessionStart": ["startup|resume"],
+        "UserPromptSubmit": [None],
+        "UserPromptExpansion": [None],
+        "PreToolUse": ["Skill|Bash"],
+        "PostToolUse": ["AskUserQuestion|Edit|Write|MultiEdit"],
+        "PostToolUseFailure": [None],
+    }
+    for groups in spec.values():
+        for g in groups:
+            for h in g["hooks"]:
+                assert h["command"].startswith('uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/hook.py"')
+                assert h["timeout"] == 5
 
 
-def test_hook_session_start_reports_hook_errors_once(tmp_projects, monkeypatch, capsys, spawned):
-    (state.data_dir() / "hook-errors.log").write_text("x session-end boom\n")
-    out = run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "startup"})
-    assert json.loads(out)["hookSpecificOutput"]["additionalContext"].startswith("harness-loop: 훅 오류 1건: ")
-    assert run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "startup"}) == ""
-
-
-def test_hooks_json_shape():
-    cfg = json.loads((Path(HOOK).parents[1] / "hooks" / "hooks.json").read_text())
-    start = cfg["hooks"]["SessionStart"][0]
-    assert start["matcher"] == "startup|resume"
-    assert start["hooks"][0] == {"type": "command", "command": 'uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/hook.py" session-start', "timeout": 10}
-    end = cfg["hooks"]["SessionEnd"][0]["hooks"][0]
-    assert end == {"type": "command", "command": 'uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/hook.py" session-end', "timeout": 10}
-
-
-def test_hook_guard_without_existing_transcript_creates_nothing(tmp_projects, monkeypatch, capsys, spawned):
-    monkeypatch.setenv("HARNESS_RETRO", "1")
-    missing = tmp_projects / "proj" / "gone.jsonl"
-    assert run_hook(monkeypatch, capsys, "session-end", {"session_id": "gone", "transcript_path": str(missing)}) == ""
-    assert not (tmp_projects / "proj").exists()
-
-
-def test_hook_sweep_trimmed_to_remaining_daily_cap(tmp_projects, monkeypatch, capsys, spawned):
-    (state.data_dir() / "scoring.yaml").write_text("max_background_judges_per_day: 2\n")
-    now = datetime.now().astimezone()
-    (state.data_dir() / "judge-runs.jsonl").write_text(json.dumps({"at": now.isoformat(), "date": now.date().isoformat(), "session": "x", "ok": True}) + "\n")
-    for sid in ("a", "b", "c"):
-        unswept_after_install(tmp_projects, sid)
-    run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "startup"})
-    assert len(spawned) == 1
-
-
-def test_hook_sweep_excludes_own_session(tmp_projects, monkeypatch, capsys, spawned):
-    unswept_after_install(tmp_projects, "me")
-    other = unswept_after_install(tmp_projects, "other")
-    run_hook(monkeypatch, capsys, "session-start", {"session_id": "me", "source": "startup"})
-    assert spawned == [(other, "sweep")]
-
-
-@pytest.mark.parametrize("broken", ["regressions", "sweep"])
-def test_hook_report_survives_regressions_or_sweep_failure(tmp_projects, monkeypatch, capsys, spawned, broken):
-    import report
-
-    t = make_transcript(tmp_projects, "s1")
-    state.save_items(state.harness_dir(t), {"C1:a": propose_item("C1:a")})
-
-    def boom(*a, **kw):
-        raise RuntimeError(f"{broken} boom")
-
-    monkeypatch.setattr(report, broken, boom)
-    out = run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "startup"})
-    text = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-    assert text.startswith("harness-loop: 검토 대기 action item 1건")
-    assert "- 훅 오류 1건: " in text
-    assert f"{broken} boom" in (state.data_dir() / "hook-errors.log").read_text()
-
-
-def test_hook_report_survives_broken_config_and_decisions(tmp_projects, monkeypatch, capsys, spawned):
-    t = make_transcript(tmp_projects, "s1")
-    state.save_items(state.harness_dir(t), {"C1:a": propose_item("C1:a")})
-    (state.data_dir() / "scoring.yaml").write_text("weights: [\n")
-    (state.data_dir() / "decisions.jsonl").write_text('[1, 2]\n{"sig": "C1:a"}\n')
-    out = run_hook(monkeypatch, capsys, "session-start", {"session_id": "now", "source": "startup"})
-    text = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-    assert text.startswith("harness-loop: 검토 대기 action item 1건")
+def test_hook_p95_under_100ms(session, tmp_path):
+    env, _ = subprocess_env(tmp_path)
+    env["HARNESS_PROJECTS_ROOT"] = os.environ["HARNESS_PROJECTS_ROOT"]
+    env["CLAUDE_PLUGIN_DATA"] = os.environ["CLAUDE_PLUGIN_DATA"]
+    data = json.loads((FIXTURES / "PreToolUse-Bash.json").read_text())
+    data.update(hook_event_name="PreToolUse", transcript_path=str(session), session_id=SID, cwd=str(session.parent))
+    raw = json.dumps(data)
+    times = []
+    for _ in range(40):
+        t = time.perf_counter()
+        subprocess.run(["uv", "run", "--script", str(HOOK)], input=raw, capture_output=True, text=True, env=env, check=True)
+        times.append(time.perf_counter() - t)
+    times = sorted(times[1:])
+    print("p95", times[37])
+    assert times[37] < 0.1
