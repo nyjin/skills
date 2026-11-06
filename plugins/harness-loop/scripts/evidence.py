@@ -193,16 +193,21 @@ def inline_body(command: str) -> str | None:
     return m.group(1)[1:-1] if m else None
 
 
-def skill_scripts(command: str, skill_path: str | None) -> list[str]:
-    """명령 안의 경로 중 skill_path 아래 실제 파일."""
+def skill_scripts(command: str, skill_path: str | None, cwd: str | None = None) -> list[str]:
+    """명령 안의 경로 중 skill_path 아래 실제 파일(realpath). 상대 경로는 cwd 기준, heredoc 본문은 보지 않는다."""
     if not skill_path:
         return []
+    m = HEREDOC.search(command)
+    head = command[:m.end()] if m else command
     root = os.path.realpath(skill_path) + os.sep
     out: list[str] = []
-    for tok in PATH_TOKEN.findall(command):
+    for tok in PATH_TOKEN.findall(head):
         p = os.path.expanduser(tok)
-        if tok not in out and os.path.isfile(p) and os.path.realpath(p).startswith(root):
-            out.append(tok)
+        if not os.path.isabs(p):
+            p = os.path.join(cwd or os.getcwd(), p)
+        real = os.path.realpath(p)
+        if real not in out and real.startswith(root) and os.path.isfile(real):
+            out.append(real)
     return out
 
 
@@ -210,20 +215,25 @@ def is_tracked_file(path: str) -> bool:
     """스킬 파일 또는 지침 파일인지."""
     p = str(path).replace(os.sep, "/")
     name = p.rsplit("/", 1)[-1]
-    if name == "SKILL.md" or ("/skills/" in p and not p.endswith("/skills/")):
+    if name == "SKILL.md":
         return True
+    for d in Path(p).parents:
+        if d.parent.name == "skills" and (d / "SKILL.md").is_file():
+            return True
     if any(p == r or p.endswith("/" + r) for r in apply_target.RULE_FILES):
         return True
     return "/.claude/rules/" in p and name.endswith(".md")
 
 
 def _save_inline(hdir, body: str) -> str:
-    data = body.encode("utf-8")
+    data = body.encode("utf-8", "surrogatepass")
     f = Path(hdir) / "scripts" / f"{hashlib.sha1(data).hexdigest()}.txt"
     if not f.exists():
         f.parent.mkdir(parents=True, exist_ok=True)
-        with open(f, "wb") as out:
+        tmp = f.with_name(f"{f.name}.{os.getpid()}.tmp")
+        with open(tmp, "wb") as out:
             out.write(data)
+        os.replace(tmp, f)
     return str(f)
 
 
@@ -238,7 +248,7 @@ def _bash(data, hdir, pos, at, hash_of) -> list[dict]:
         return []
     state, skill = _cur_skill(data, hdir, hash_of)
     spath = state.get("path") if state else None
-    scripts = [{"path": p, "hash": hash_of(p)} for p in skill_scripts(command, spath)]
+    scripts = [{"path": p, "hash": hash_of(p)} for p in skill_scripts(command, spath, data.get("cwd"))]
     rec = _record("bash", data, hdir, pos, at, skill, command, {"scripts": scripts})
     body = inline_body(command)
     if body is not None:

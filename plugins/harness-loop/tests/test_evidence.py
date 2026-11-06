@@ -1,4 +1,5 @@
 import json
+import os
 import multiprocessing
 import subprocess
 from pathlib import Path
@@ -286,8 +287,8 @@ def test_bash_records_skill_script_hash(session, tmp_path):
     other.write_text("x")
     cmd = f"python3 {sk}/scripts/run.py {other} {sk}/scripts/missing.py"
     [r] = evidence.handle("PreToolUse", bash(cmd, session), hash_of=versions.blob_hash)
-    assert r["meta"]["scripts"] == [{"path": str(sk / "scripts" / "run.py"),
-                                     "hash": versions.blob_hash(sk / "scripts" / "run.py")}]
+    real = os.path.realpath(sk / "scripts" / "run.py")
+    assert r["meta"]["scripts"] == [{"path": real, "hash": versions.blob_hash(real)}]
     assert evidence.skill_scripts(cmd, None) == []
 
 
@@ -334,11 +335,29 @@ def test_skill_edit_for_skill_and_guideline_files_only(session, tmp_path):
         return f, evidence.handle("PostToolUse", d, hash_of=versions.blob_hash)
 
     for tool, rel in [("Edit", "x/skills/s/SKILL.md"), ("Write", "r/CLAUDE.md"), ("MultiEdit", "r/.claude/rules/x.md"),
-                      ("Edit", "r/.claude/CLAUDE.md"), ("Edit", "p/skills/s/scripts/a.py"), ("Edit", "q/SKILL.md")]:
+                      ("Edit", "r/.claude/CLAUDE.md"), ("Edit", "p/skills/s/scripts/a.py"), ("Edit", "q/SKILL.md"),
+                      ("Edit", "repo/skills/x/scripts/run.py")]:
+        if "skills/" in rel and not rel.endswith("SKILL.md"):
+            (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / rel.split("/scripts")[0] / "SKILL.md").write_text("s")
         f, [r] = edit(tool, rel)
         assert r["kind"] == "skill_edit" and r["file"] == str(f)
         assert r["meta"]["hash_after"] == versions.blob_hash(f)
-    for rel in ("src/a.py", "r/.claude/rules/x.txt", "r/NOTCLAUDE.md"):
+    for rel in ("skills/repo/src/a.py", "src/a.py", "r/.claude/rules/x.txt", "r/NOTCLAUDE.md"):
         assert edit("Edit", rel)[1] == []
     d = payload("PostToolUse", session, tool_name="Read", tool_input={"file_path": str(tmp_path / "r/CLAUDE.md")})
     assert evidence.handle("PostToolUse", d, hash_of=versions.blob_hash) == []
+
+
+def test_skill_scripts_tilde_and_relative(tmp_path, monkeypatch):
+    home = Path(os.path.expanduser("~"))
+    sk = home / "skills" / "demo"
+    (sk / "scripts").mkdir(parents=True)
+    f = sk / "scripts" / "run.py"
+    f.write_text("1")
+    real = os.path.realpath(f)
+    assert evidence.skill_scripts("python3 ~/skills/demo/scripts/run.py", str(sk)) == [real]
+    assert evidence.skill_scripts("python3 scripts/run.py", str(sk), str(sk)) == [real]
+    assert evidence.skill_scripts("python3 scripts/run.py", str(sk), str(tmp_path)) == []
+    heredoc = f"python3 - <<'EOF'\n{f}\nEOF"
+    assert evidence.skill_scripts(heredoc, str(sk)) == []
