@@ -10,7 +10,7 @@ argument-hint: "[backfill [--days N]]"
 
 ## 공통 규칙
 
-- 사용자에게 하는 말과 보고, 서브에이전트가 쓰는 `reason`·`problem`·`proposal` 은 대화나 기록이 영어여도 한국어로 쓴다. 원문 인용만 원문 그대로 둔다.
+- 사용자에게 하는 말과 보고, 서브에이전트가 쓰는 `reason`·`problem`·`proposal` 은 대화나 기록이 영어여도 한국어로 쓴다. 인용은 원문 그대로 둔다.
 - `retro.py` 하위 명령은 모두 아래 형식으로 Bash 에서 실행한다. 앞의 `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}"` 를 빼지 않고, 다른 환경 변수를 덧붙이지 않는다.
 
 ```bash
@@ -108,6 +108,7 @@ harness-loop 관찰 판정을 맡는다. 사용자에게 묻지 말고, 판정 �
 - 받지 않은 id 는 쓰지 않는다. evidence_id 는 근거의 id 그대로다.
 - type 은 근거 kind 로 정한다: bash → repeat, failure → failure, ask → approval_question, prompt → correction(AI 가 글로 물은 질문에 대한 답이면 approval_question).
 - type 이 repeat 이면 verdict 와 상관없이 purpose 에 명령의 목적을 짧은 문구로 쓴다. 같은 목적이면 같은 문구를 쓴다.
+- repeat 판정에는 근거의 repeat_stats(같은 inline 스크립트가 모든 세션에 나온 횟수 count·세션 수 sessions)와 파일 맨 위 recent_purposes(최근 참 반복 관찰의 목적 문구)를 함께 본다. 목적이 recent_purposes 의 문구와 같으면 그 문구를 글자 그대로 purpose 에 쓴다.
 - reason 은 판정 이유 한 줄이다.
 - 마지막 답은 "완료 <판정한 근거 수>" 한 줄만 쓴다.
 ```
@@ -126,6 +127,7 @@ harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem
 
 1. <context 파일> 을 Read 로 읽는다. rubric 경로의 파일을 Read 로 읽고 "관찰 → 결정 대상"과 "공통 확인"을 따른다.
 2. observations(참 관찰)만 묶는다. 같은 대상 파일·같은 문제끼리 한 묶음이다. groups 의 기존 묶음(decisions 에 결정이 있는 묶음 포함)과 같은 문제면 그 id 를 그대로 쓰고 새 관찰 id 만 observations 에 넣는다. 새 묶음 id 는 짧은 영어 소문자 슬러그(예: release-adr-number)로 정한다.
+   - decisions 가 proceed 인 묶음은 관문이 결정 뒤 관찰로 재발을 자동으로 다시 판정한다. 같은 문제가 다시 나오면 그 id 에 새 관찰만 넣고, 재발을 알리려고 rework 묶음을 따로 만들지 않는다.
 3. examples 는 사용자가 내린 결정 예시다(positive 는 진행·티켓, negative 는 거절). negative 와 같은 경우는 묶음으로 올리지 않는다.
 4. 결정 대상마다 대상 파일을 실제로 Read 로 읽고 verified 를 채운다.
    - 관찰 당시 버전: 관찰의 skill.hash 또는 meta.scripts·meta.guidelines 의 hash. 내용은 <스냅샷 디렉터리>/<hash> 를 Read 하거나, 없으면 대상 저장소에서 git cat-file -p <hash> 로 읽는다.
@@ -181,12 +183,12 @@ harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem
 | `rework` | 수정 방식 재검토 |
 
 - 스킬 이름은 `skill_root` 의 마지막 디렉터리 이름, 없으면 `target_path` 의 파일 이름이다.
-- 근거 줄에는 묶음 `observations` 의 관찰을 `<tmp>/harness-context.json` 의 `observations` 에서 찾아 쓴다. 첫 근거는 `failure_ref` 관찰이고, 세 줄을 넘으면 나머지는 `- 근거 외 N건` 한 줄로 줄인다.
+- 근거 줄에는 묶음 `observations` 의 관찰을 `<tmp>/harness-context.json` 의 `observations` 에서 찾아 쓴다. 첫 근거는 `failure_ref` 관찰이고, 근거가 세 개를 넘으면 나머지는 `- 그 밖의 근거 N건` 한 줄로 줄인다.
 - `<위치>` 는 `repeat` 관찰이면 관찰의 `file`(저장한 스크립트 경로), 그 밖에는 `skill.path`, 없으면 `cwd` 다.
 - `verified.line` 이 없으면 `:<verified.line>` 을 뺀다.
 - `rework` 항목은 `rework_kind` 를 결정 대상 뒤 괄호에 쓰고, `recurrence` 가 있으면 `- 재발 관찰: <id 목록>` 한 줄을 더한다.
 - `apply_target.kind` 가 `plugin_cache` 인 항목은 `- 외부 플러그인 캐시: 진행 불가, 티켓만 고를 수 있음` 한 줄을 더한다.
-- 항목 뒤에 `보류 N건, 버림 M건(<reason>별 개수)` 한 줄을 쓴다. 버림은 `dropped` 중 `reason` 이 `rejected` 인 것을 빼고 센다. 둘 다 0 이면 쓰지 않는다.
+- 항목 뒤에 `보류 N건, 버림 M건(<reason>별 개수)` 한 줄을 쓴다. 보류는 `held` 만 센다. 버림은 `dropped` 중 `reason` 이 `rejected` 인 것을 빼고 센다. `waiting`(티켓·진행 결정 뒤 기다리는 묶음)이 있으면 줄 끝에 `, 결정 후 대기 K건` 을 더한다. 셋 다 0 이면 쓰지 않는다.
 - `notices` 가 있으면 그 뒤에 한 줄에 하나씩 그대로 쓴다. 고치거나 줄이지 않는다.
 - `rubric-candidates` 출력의 `ready` 에 true 인 kind 가 있으면 `rubric 보강 후보 있음(<kind> N건) — "보강할게"로 진행` 한 줄을 쓴다.
 - `report` 가 비면 `결정 대상 없음` 한 줄을 쓰고 위의 보류·버림, `notices`, rubric 줄만 쓴다.
@@ -315,9 +317,9 @@ harness-loop replay 판정을 맡는다. 사용자에게 묻지 말고, reason �
 
 1. <rubric 파일> 을 Read 로 읽는다. 판정 기준은 이 파일만 따른다. 첫 줄 <!-- rubric-version: N --> 의 N 이 rubric 버전이다.
 2. <목록 파일> 을 Read 로 읽는다. JSON 배열의 경로마다 input.json 을 Read 로 읽는다.
-3. input.json 의 group 은 묶음, observations 는 관찰마다 evidence·excerpt, file_versions 는 관찰 당시 대상 파일 내용이다. observations 의 observation 에 남은 예전 verdict·reason 과 input.json 의 rubric 은 쓰지 않는다.
+3. input.json 의 group 은 묶음, observations 는 관찰별 evidence·excerpt 목록, file_versions 는 관찰 당시 대상 파일 내용이다. observations 의 observation 에 남은 예전 verdict·reason 과 input.json 의 rubric 은 쓰지 않는다.
 4. observations 의 근거마다 이 rubric 으로 다시 판정한다. 항목 형식은 <관찰 스키마 파일> 의 observations 항목과 같다(evidence_id, type, verdict, reason, repeat 이면 purpose). 근거를 하나도 빼지 않는다.
-5. 이 rubric 의 "공통 확인"이나 "결정 대상으로 올리지 않는 경우"로 묶음 필드가 달라지면 바뀐 필드만 group_fields 에 쓴다. 묶음이 결정 대상이 아니게 되면 group_fields 에 {"verified": null} 을 쓴다.
+5. 이 rubric 의 "공통 확인"이나 "결정 대상으로 올리지 않는 경우"로 묶음이 달라지면 바뀐 필드만 group_fields 에 쓴다. 파일 검증(관찰 → 결정 대상)이 더는 성립하지 않으면 {"verified": null}, 구체성 확인을 통과하지 못하면 {"specific_facts": []} 를 쓴다. 달라진 것이 없으면 group_fields 를 쓰지 않는다.
 6. 아래 JSON 을 <결과 파일> 에 Write 로 쓴다. 입력마다 results 항목을 하나씩 쓴다. 목록이 비었으면 results 를 빈 배열로 쓴다.
    {"rubric_version": N, "results": [{"group": <group.id>, "observations": [...], "group_fields": {...}}, …]}
 
@@ -333,10 +335,10 @@ harness-loop replay 판정을 맡는다. 사용자에게 묻지 말고, reason �
 
 ## 백필 (backfill)
 
-1. 훅 설치 전 기록을 근거로 만든다. `--days N` 이 있으면 명령 끝에 붙인다.
+1. 훅 설치 전 기록을 근거로 만든다. `<N>` 은 인자의 `--days N` 값이고, 인자에 없으면 14 다.
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" backfill
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" backfill --days <N>
 ```
 
 2. 출력의 `sessions`·`records` 를 `백필: 세션 N개, 근거 M건` 한 줄로 알리고 기본 모드 1단계로 이어 간다.

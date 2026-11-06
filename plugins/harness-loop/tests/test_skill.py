@@ -97,6 +97,13 @@ def test_decision_table_covers_choices():
     assert "--ticket" in body
 
 
+def test_backfill_default_window_and_cli_fields_referenced():
+    _, _, body = _parts()
+    assert "backfill --days <N>" in body and "인자에 없으면 14" in body
+    for field in ("repeat_stats", "recent_purposes", "`waiting`"):
+        assert field in body, field
+
+
 def test_report_shows_notices_verbatim():
     _, _, body = _parts()
     assert any("notices" in l and "그대로" in l for l in body.splitlines())
