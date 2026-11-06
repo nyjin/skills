@@ -226,6 +226,13 @@ def test_after_rejection_false_when_big_line_straddles_window(session):
     assert evidence.after_rejection(session, session.stat().st_size) is False
 
 
+def test_after_rejection_true_when_window_cuts_ordinary_line(session):
+    with open(session, "a") as f:
+        f.write(tool_result("z" * 70000))
+        f.write(tool_result("The user doesn't want to proceed", True))
+    assert evidence.after_rejection(session, session.stat().st_size) is True
+
+
 def test_slash_start_prompt_has_prompts_since_zero(session):
     [r] = prompt(session, "/tech-writing:write README")
     assert r["skill"]["prompts_since"] == 0

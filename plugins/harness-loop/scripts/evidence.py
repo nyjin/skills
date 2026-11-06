@@ -66,10 +66,11 @@ def after_rejection(transcript, pos: int) -> bool:
             data = f.read(pos - start)
     except OSError:
         return False
-    if start > 0 and b"tool_result" in data.split(b"\n", 1)[0]:
-        return False
+    lines = data.decode("utf-8", "ignore").splitlines()
+    if start > 0:
+        lines = lines[1:]
     last = None
-    for line in data.decode("utf-8", "ignore").splitlines():
+    for line in lines:
         try:
             row = json.loads(line)
         except ValueError:
