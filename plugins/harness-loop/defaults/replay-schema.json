@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "required": ["rubric_version", "results"],
+  "properties": {
+    "rubric_version": {"type": "integer"},
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["group", "surfaces"],
+        "properties": {
+          "group": {"type": "string", "minLength": 1},
+          "surfaces": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

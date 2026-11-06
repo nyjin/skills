@@ -84,7 +84,7 @@ def test_archive_contains_no_decision_and_file_versions(group_in_repo, obs_facto
     data = json.loads(decide.archive(gid).read_text(encoding="utf-8"))
     assert "decision" not in data["group"] and "ticket" not in data["group"]
     assert data["file_versions"] == {h: "v1\n"}
-    assert data["rubric"]["version"] == 1 and "채점 기준" in data["rubric"]["text"]
+    assert data["rubric"]["version"] == 1 and "판정 기준" in data["rubric"]["text"]
     assert data["observations"][0]["evidence"]["id"] == data["group"]["observations"][0]
 
 

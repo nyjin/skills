@@ -286,7 +286,7 @@ def test_digest_contains_rubric_signals_existing_sigs(tmp_projects):
         {"sig": "C2:?", "condition": "C2", "turn": 2, "line": 12, "skill": "ticket-creator", "quote": "아니 에픽 밑으로 넣어줘", "needs_judge": True},
     ]
     md = judge.digest(t, sigs)
-    assert "# 채점 기준" in md   # rubric.md 본문
+    assert "# 판정 기준" in md   # rubric.md 본문
     assert "| C2:? | C2 | 2 | ticket-creator | 예 | 아니 에픽 밑으로 넣어줘 |" in md
     assert "Error: a\\|b" in md
     assert "IBS-1 티켓 내용 확인해서 후속 티켓 만들어줘" in md
