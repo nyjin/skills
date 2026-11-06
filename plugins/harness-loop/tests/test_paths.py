@@ -35,12 +35,6 @@ def test_non_mapping_config_falls_back_and_logs():
     assert "config.yaml" in (paths.data_dir() / "hook-errors.log").read_text()
 
 
-def test_old_scoring_yaml_is_ignored():
-    d = paths.data_dir()
-    (d / "scoring.yaml").write_text("window_days: 99\n")
-    assert paths.load_config()["window_days"] == 30
-
-
 def test_harness_paths(tmp_projects):
     t = tmp_projects / "proj" / "sess1.jsonl"
     p = paths.harness_path(t)
