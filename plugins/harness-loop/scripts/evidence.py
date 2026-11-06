@@ -16,6 +16,7 @@ import versions
 
 TEXT_MAX = 2000
 TAIL = 64 * 1024
+BASE_SCAN = 256 * 1024
 SLASH_SKILL = re.compile(r"^/([\w.-]+:[\w.-]+)")
 SLASH_ANY = re.compile(r"^/([^\s/]+)")
 BASE_DIR = re.compile(r"Base directory for this skill: ([^\s\\\"]+)")
@@ -42,7 +43,7 @@ def skill_base_dir(transcript, start_pos: int) -> str | None:
     try:
         with open(transcript, "rb") as f:
             f.seek(start_pos)
-            data = f.read().decode("utf-8", "ignore")
+            data = f.read(BASE_SCAN).decode("utf-8", "ignore")
     except OSError:
         return None
     m = BASE_DIR.search(data)
@@ -64,6 +65,8 @@ def after_rejection(transcript, pos: int) -> bool:
             f.seek(start)
             data = f.read(pos - start)
     except OSError:
+        return False
+    if start > 0 and b"tool_result" in data.split(b"\n", 1)[0]:
         return False
     last = None
     for line in data.decode("utf-8", "ignore").splitlines():
@@ -107,11 +110,20 @@ def _append(hdir, session: str, rec: dict) -> dict:
 def _skill_field(hdir, state: dict | None, transcript_path: str, hash_of) -> dict | None:
     if not state:
         return None
-    if not state.get("path"):
-        base = skill_base_dir(transcript_path, state.get("pos", 0))
+    if not state.get("path") and not state.get("base_dir_checked"):
+        start = state.get("pos", 0)
+        base = skill_base_dir(transcript_path, start)
         if base:
             state["path"] = base
             _save_state(hdir, state)
+        else:
+            try:
+                size = os.path.getsize(transcript_path)
+            except OSError:
+                size = 0
+            if size > start + BASE_SCAN:
+                state["base_dir_checked"] = True
+                _save_state(hdir, state)
     path = state.get("path") or ""
     return {
         "name": state["name"],
@@ -121,21 +133,40 @@ def _skill_field(hdir, state: dict | None, transcript_path: str, hash_of) -> dic
     }
 
 
-def _guidelines(cwd: str, hash_of) -> list[dict]:
+def _guidelines(hdir, cwd: str, hash_of) -> list[dict]:
+    """지침 파일 해시. 세션 harness/guideline-cache.json 에 (mtime, size)별 해시와 cwd 의 git 루트를 캐시한다."""
+    cache_path = Path(hdir) / "guideline-cache.json"
+    try:
+        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cache = {}
+    files, roots = cache.setdefault("files", {}), cache.setdefault("roots", {})
+    dirty = False
     found: list[Path] = []
     start = Path(cwd).resolve()
     for d in (start, *start.parents):
         found += [d / n for n in GUIDELINE_NAMES]
-    root = versions.git_root(start)
-    if root:
-        found += sorted((Path(root) / ".claude" / "rules").glob("*.md"))
+    if cwd not in roots:
+        roots[cwd] = versions.git_root(start)
+        dirty = True
+    if roots[cwd]:
+        found += sorted((Path(roots[cwd]) / ".claude" / "rules").glob("*.md"))
     found.append(Path.home() / ".claude" / "CLAUDE.md")
     out, seen = [], set()
     for p in found:
         if p in seen or not p.is_file():
             continue
         seen.add(p)
-        out.append({"path": str(p), "hash": hash_of(p)})
+        key = os.path.realpath(p)
+        st = p.stat()
+        hit = files.get(key)
+        if not hit or hit["mtime_ns"] != st.st_mtime_ns or hit["size"] != st.st_size:
+            hit = {"mtime_ns": st.st_mtime_ns, "size": st.st_size, "hash": hash_of(p)}
+            files[key] = hit
+            dirty = True
+        out.append({"path": str(p), "hash": hit["hash"]})
+    if dirty:
+        paths.atomic_write(cache_path, json.dumps(cache, ensure_ascii=False))
     return out
 
 
@@ -181,7 +212,7 @@ def _prompt(data, hdir, pos, at, hash_of, cfg) -> list[dict]:
             state["prompts_since"] = state.get("prompts_since", 0) + 1
             _save_state(hdir, state)
     else:
-        meta["guidelines"] = _guidelines(data.get("cwd") or os.getcwd(), hash_of)
+        meta["guidelines"] = _guidelines(hdir, data.get("cwd") or os.getcwd(), hash_of)
     skill = _skill_field(hdir, state, data.get("transcript_path", ""), hash_of)
     flags = {"after_rejection": after_rejection(data.get("transcript_path", ""), pos)}
     return [_record("prompt", data, hdir, pos, at, skill, text, meta, flags)]

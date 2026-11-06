@@ -178,3 +178,54 @@ def test_concurrent_appends_stay_valid_jsonl(session):
     rows = [json.loads(ln) for ln in lines]
     assert len(rows) == 400
     assert len({r["id"] for r in rows}) == 400
+
+
+def test_never_matching_skill_stops_rescanning(session):
+    with open(session, "a") as f:
+        f.write(tool_result("x" * (evidence.BASE_SCAN + 10)))
+    [r] = prompt(session, "/some:skill go", pos=0)
+    hdir = paths.harness_path(session)
+    state = evidence.skill_state(hdir)
+    assert state["base_dir_checked"] is True and not state["path"]
+    assert not r["skill"]["path"]
+    sk = session.parent / "late" / "skills" / "x"
+    with open(session, "a") as f:
+        f.write(tool_result(f"Base directory for this skill: {sk}"))
+    [r2] = prompt(session, "again")
+    assert not r2["skill"]["path"] and not evidence.skill_state(hdir)["path"]
+
+
+def test_guideline_hash_cached_when_unchanged(session, tmp_path):
+    proj = tmp_path / "repo2"
+    proj.mkdir()
+    (proj / "CLAUDE.md").write_text("a\n")
+    calls = []
+
+    def stub(p):
+        calls.append(str(p))
+        return "h"
+
+    def go():
+        return evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=proj, prompt="hi"), hash_of=stub)
+
+    go()
+    n = len(calls)
+    assert n >= 1
+    [r] = go()
+    assert len(calls) == n and r["meta"]["guidelines"][0]["hash"] == "h"
+    (proj / "CLAUDE.md").write_text("changed content\n")
+    go()
+    assert len(calls) == n + 1
+
+
+def test_after_rejection_false_when_big_line_straddles_window(session):
+    with open(session, "a") as f:
+        f.write(tool_result("The user doesn't want to proceed", True))
+        f.write(tool_result("y" * 70000))
+        f.write(json.dumps({"type": "user", "note": "tool_result"}) + "\n")
+    assert evidence.after_rejection(session, session.stat().st_size) is False
+
+
+def test_slash_start_prompt_has_prompts_since_zero(session):
+    [r] = prompt(session, "/tech-writing:write README")
+    assert r["skill"]["prompts_since"] == 0
