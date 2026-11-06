@@ -290,11 +290,14 @@ def _bash(data, hdir, pos, at, hash_of) -> list[dict]:
     return [rec]
 
 
-def _failure(data, hdir, pos, at, hash_of) -> list[dict]:
-    if data.get("is_interrupt"):
-        return []
+def _failure(data, hdir, pos, at, hash_of, cfg) -> list[dict]:
     err = data.get("error")
     err = err if isinstance(err, str) else ""
+    if any(m in err for m in cfg["eval_markers"]):
+        (Path(hdir) / "skip").write_text(at)
+        return []
+    if data.get("is_interrupt"):
+        return []
     text = str(data.get("tool_name") or "") + "\n" + "\n".join(err.splitlines()[:20])
     meta = {"input": json.dumps(data.get("tool_input"), ensure_ascii=False)[:600]}
     return [_record("failure", data, hdir, pos, at, _cur_skill(data, hdir, hash_of)[1], text, meta)]
@@ -414,7 +417,7 @@ def handle(event: str, data: dict, *, pos: int | None = None, at: str | None = N
     elif event == "PreToolUse" and data.get("tool_name") == "Bash":
         records = _bash(data, hdir, pos, at, hash_of)
     elif event == "PostToolUseFailure":
-        records = _failure(data, hdir, pos, at, hash_of)
+        records = _failure(data, hdir, pos, at, hash_of, cfg)
     elif event == "PostToolUse" and data.get("tool_name") == "AskUserQuestion":
         records = _ask(data, hdir, pos, at, hash_of)
     elif event == "PostToolUse" and data.get("tool_name") in EDIT_TOOLS:

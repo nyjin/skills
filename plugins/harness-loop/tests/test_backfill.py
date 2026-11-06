@@ -98,6 +98,29 @@ def test_backfill_skips_injected_and_continued(redesign_sessions, tmp_projects):
     assert backfill.run() == {"sessions": 0, "records": 0}
 
 
+def test_backfill_marks_eval_sessions_skip(redesign_sessions, tmp_projects):
+    a = redesign_sessions["a"]
+    ev = tmp_projects / "-w-proj-e" / "eeee5555.jsonl"
+    ev.parent.mkdir(parents=True)
+    ev.write_text(a.read_text(encoding="utf-8").replace("fatal: no ADR found", "트리거 측정 중"), encoding="utf-8")
+    os.utime(ev, (a.stat().st_mtime, a.stat().st_mtime))
+    assert backfill.run()["sessions"] == 2
+    assert (paths.harness_path(ev) / "skip").exists()
+    assert not (paths.harness_path(ev) / "evidence.jsonl").exists()
+    assert backfill.run() == {"sessions": 0, "records": 0}
+
+
+def test_backfill_eval_failure_stops_recording(redesign_sessions, monkeypatch):
+    # session_kind 로 못 거른 세션도 재구성한 실패 근거에서 같은 검사로 멈춘다
+    monkeypatch.setattr(backfill.tr, "session_kind", lambda turns, cfg: "normal")
+    a = redesign_sessions["a"]
+    a.write_text(a.read_text(encoding="utf-8").replace("fatal: no ADR found", "트리거 측정 중"), encoding="utf-8")
+    os.utime(a, (time.time() - 3600,) * 2)
+    backfill.run()
+    assert (paths.harness_path(a) / "skip").exists()
+    assert [r["kind"] for r in records(a)] == ["prompt", "skill_start", "bash"]
+
+
 def test_backfill_days_filters_by_mtime(redesign_sessions):
     b = redesign_sessions["b"]
     now = time.time()

@@ -378,6 +378,15 @@ def test_bash_records_skill_script_hash(session, tmp_path):
     assert evidence.skill_scripts(cmd, None) == []
 
 
+def test_failure_with_eval_marker_creates_skip(session):
+    d = payload("PostToolUseFailure", session, tool_name="Bash", tool_input={"command": "x"},
+                error="Exit code 1\n트리거 측정 중 입니다")
+    assert evidence.handle("PostToolUseFailure", d, hash_of=versions.blob_hash) == []
+    assert (paths.harness_path(session) / "skip").exists()
+    assert not (paths.harness_path(session) / "evidence.jsonl").exists()
+    assert prompt(session, "다음") == []
+
+
 def test_failure_record_and_interrupt_skipped(session):
     err = "\n".join(f"line{i}" for i in range(30))
     d = payload("PostToolUseFailure", session, tool_name="Bash", tool_input={"command": "x" * 900}, error=err)

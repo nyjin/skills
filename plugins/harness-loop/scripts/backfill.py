@@ -111,11 +111,15 @@ def events(path: Path):
 
 
 def run(days: int | None = None) -> dict:
-    """HARNESS_RETRO 가드는 훅 재귀 방지용이라 백필 동안에는 환경에서 잠시 뺀다."""
+    """HARNESS_RETRO 가드는 훅 재귀 방지용이라 백필 동안에는 환경에서 잠시 뺀다. 측정(eval) 세션은 skip 만 만든다."""
     sessions = records = 0
+    cfg = paths.load_config()
     saved = os.environ.pop("HARNESS_RETRO", None)
     try:
         for path in transcripts(days):
+            if tr.session_kind(tr.parse(path)[0], cfg) == "eval":
+                (paths.harness_dir(path) / "skip").write_text(paths.now())
+                continue
             sessions += 1
             for event, data, pos, at in events(path):
                 records += len(evidence.handle(event, data, pos=pos, at=at, cache=False,
