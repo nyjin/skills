@@ -238,18 +238,37 @@ def test_decisions_reject_and_ticket(obs_factory, monkeypatch):
         "r": {"group": "r", "decision": "reject", "kind": "trivial", "at": NOW},
         "t": {"group": "t", "decision": "ticket", "at": NOW}})
     out = groups.gate(NOW)
-    assert out["dropped"] == [{"id": "r", "reason": "rejected"}] and out["held"] == ["t"]
+    assert out["dropped"] == [{"id": "r", "reason": "rejected"}] and out["held"] == [] and out["waiting"] == ["t"]
 
 
-def test_proceed_counts_only_later_observations(obs_factory, monkeypatch):
-    a = obs_factory("failure", at="2026-11-01T10:00:00+09:00")
-    groups.merge(result(group("g", "fix", [a], finding="wrong")))
+def test_proceeded_group_reports_recurrence_as_rework(repo, obs_factory, monkeypatch):
+    target = str(repo / "skills/a/SKILL.md")
+    a = obs_factory("failure", at="2026-11-01T10:00:00+09:00", skill=_skill(repo))
+    groups.merge(result(group("g", "fix", [a], finding="wrong", target_path=target)))
     monkeypatch.setattr(groups, "_last_decisions", lambda: {
         "g": {"group": "g", "decision": "proceed", "at": "2026-11-02T00:00:00+09:00", "baseline_hash": "h"}})
-    assert ids(groups.gate(NOW), "held") == ["g"]
-    b = obs_factory("failure", at="2026-11-03T10:00:00+09:00")
-    groups.merge(result(group("g", "fix", [b], finding="wrong")))
-    assert ids(groups.gate(NOW), "report") == ["g"]
+    out = groups.gate(NOW)
+    assert out["held"] == [] and out["waiting"] == ["g"]
+    no_hash = obs_factory("failure", at="2026-11-03T09:00:00+09:00")
+    groups.merge(result(group("g", "fix", [no_hash], finding="wrong", target_path=target)))
+    assert groups.gate(NOW)["waiting"] == ["g"]
+    b = obs_factory("failure", at="2026-11-03T10:00:00+09:00", skill=_skill(repo))
+    groups.merge(result(group("g", "fix", [b], finding="wrong", target_path=target)))
+    [rep] = groups.gate(NOW)["report"]
+    assert rep["id"] == "g" and rep["target_type"] == "rework" and rep["rework_kind"] == "recurrence"
+    assert rep["recurrence"] == [b]
+    assert groups.load()["g"]["target_type"] == "fix"
+
+
+def test_merge_rejects_empty_group_id(obs_factory):
+    a = obs_factory("failure")
+    g = group("x", "fix", [a], finding="wrong", problem="!!!")
+    del g["id"]
+    with pytest.raises(ValueError, match="id"):
+        groups.merge(result(g))
+    with pytest.raises(ValueError, match="id"):
+        groups.merge(result(group("", "fix", [a], finding="wrong")))
+    assert groups.load() == {}
 
 
 def test_last_decisions_placeholder_is_empty():
@@ -317,7 +336,7 @@ def test_rework_recurrence_after_proceed_decision(repo, obs_factory, monkeypatch
     groups.merge(result(group("g", "rework", [before], target_path=target, rework_kind="recurrence")))
     monkeypatch.setattr(groups, "_last_decisions", lambda: {
         "g": {"group": "g", "decision": "proceed", "at": "2026-11-02T00:00:00+09:00", "baseline_hash": base}})
-    assert ids(groups.gate(NOW), "held") == ["g"]
+    assert ids(groups.gate(NOW), "waiting") == ["g"]
     later = obs_factory("correction", at="2026-11-03T10:00:00+09:00", skill=_skill(repo))
     groups.merge(result(group("g", "rework", [later], target_path=target, rework_kind="recurrence")))
     out = groups.gate(NOW)

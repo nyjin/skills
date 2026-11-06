@@ -55,11 +55,13 @@ def merge(result: dict) -> list[str]:
         bad = [e for e in g["observations"] if e not in true_ids]
         if bad:
             raise ValueError(f"$.groups[{i}].observations: 참 관찰이 아닌 evidence_id {bad[0]}")
+        if not g.get("id", slug(g["problem"])):
+            raise ValueError(f"$.groups[{i}].id: 빈 묶음 id 입니다")
     store = load()
     changed = []
     at = paths.now()
     for g in result["groups"]:
-        gid = g.get("id") or slug(g["problem"])
+        gid = g.get("id", slug(g["problem"]))
         old = store.get(gid)
         new = {**g, "id": gid}
         if old:
@@ -161,6 +163,13 @@ def judge_group(group: dict, observations_by_id: dict, decisions: dict, cfg: dic
              "projects": len({o.get("project") for o in obs})}
     if choice == "ticket":
         return "held", None, extra
+    if choice == "proceed" and ttype != "rework":
+        # 진행한 묶음은 결정 뒤 버전에서 관찰이 하나라도 다시 나오면 수정 방식 재검토(재발)로 올린다(설계 8장)
+        target = _real(group["target_path"])
+        rec = [o["evidence_id"] for o in obs if obs_hash(o, target)]
+        if not rec or versions.git_root(target) is None:
+            return "held", None, extra
+        return "report", None, {**extra, "target_type": "rework", "rework_kind": "recurrence", "recurrence": rec}
 
     types = {o.get("type") for o in obs}
     count, sessions = extra["count"], extra["sessions"]
@@ -190,7 +199,7 @@ def gate(now: str | None = None) -> dict:
     cfg = paths.load_config()
     by_id = {o["evidence_id"]: o for o in observe.observations() if o.get("verdict") is True and o.get("evidence_id")}
     decisions = _last_decisions()
-    out = {"report": [], "held": [], "dropped": [], "notices": []}
+    out = {"report": [], "held": [], "waiting": [], "dropped": [], "notices": []}
     untracked: dict[str, list[str]] = {}
     for gid, group in load().items():
         status, reason, extra = judge_group(group, by_id, decisions, cfg, now)
@@ -200,6 +209,8 @@ def gate(now: str | None = None) -> dict:
                 continue
         elif status == "report":
             out["report"].append({**group, **extra})
+        elif (decisions.get(gid) or {}).get("decision") in ("ticket", "proceed"):
+            out["waiting"].append(gid)
         else:
             out["held"].append(gid)
         if reason == "untracked" or versions.git_root(_real(group["target_path"])) is None:
