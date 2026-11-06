@@ -35,30 +35,6 @@ def repo(tmp_path):
     return r
 
 
-@pytest.fixture
-def obs_factory(tmp_projects):
-    """근거 레코드를 세션 evidence.jsonl 에 쓰고 observe.save 로 관찰을 만든다. evidence_id 를 돌려준다."""
-    n = [0]
-
-    def make(type_="correction", at="2026-11-05T10:00:00+09:00", session="s1", cwd="/w/org/proj-a",
-             verdict=True, skill=None, meta=None):
-        n[0] += 1
-        eid = f"{session}-{n[0]}"
-        hdir = tmp_projects / "p" / session / "harness"
-        hdir.mkdir(parents=True, exist_ok=True)
-        rec = {"id": eid, "kind": "prompt", "at": at, "session": session, "transcript": "", "pos": 0,
-               "cwd": cwd, "skill": skill, "text": "t", "file": None, "flags": {}, "meta": meta or {}}
-        with open(hdir / "evidence.jsonl", "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        entry = {"evidence_id": eid, "type": type_, "verdict": verdict, "reason": "이유"}
-        if type_ == "repeat":
-            entry["purpose"] = "같은 목적"
-        observe.save({"observations": [entry]})
-        return eid
-
-    return make
-
-
 def group(gid, target_type, obs, finding="missing", target_path="/x/skills/a/SKILL.md", **extra):
     g = {"id": gid, "target_type": target_type, "target_path": target_path, "problem": "문제",
          "observations": obs,
