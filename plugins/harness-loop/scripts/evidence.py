@@ -72,7 +72,7 @@ def after_rejection(transcript, pos: int) -> bool:
             data = f.read(pos - start)
     except OSError:
         return False
-    lines = data.decode("utf-8", "ignore").splitlines()
+    lines = data.decode("utf-8", "ignore").split("\n")
     if start > 0:
         lines = lines[1:]
     last = None
@@ -140,41 +140,74 @@ def _skill_field(hdir, state: dict | None, transcript_path: str, hash_of) -> dic
     }
 
 
-def _guidelines(hdir, cwd: str, hash_of, cache_on: bool = True) -> list[dict]:
-    """지침 파일 해시. 세션 harness/guideline-cache.json 에 (mtime, size)별 해시와 cwd 의 git 루트를 캐시한다.
-    cache_on=False 면 캐시를 읽지도 쓰지도 않는다(백필처럼 hash_of 가 시각에 따라 달라질 때)."""
-    cache_path = Path(hdir) / "guideline-cache.json"
-    try:
-        cache = json.loads(cache_path.read_text(encoding="utf-8")) if cache_on else {}
-    except (OSError, ValueError):
-        cache = {}
-    files, roots = cache.setdefault("files", {}), cache.setdefault("roots", {})
-    dirty = False
+class _Cache:
+    """세션 harness/guideline-cache.json: 파일 realpath 별 (mtime_ns, size, 해시)와 cwd 별 git 루트·프로젝트 루트.
+    on=False 면 읽지도 쓰지도 않는다(백필처럼 hash_of 가 시각에 따라 달라질 때)."""
+
+    def __init__(self, hdir, hash_of, on: bool = True):
+        self.path, self.hash_of, self.on, self.dirty = Path(hdir) / "guideline-cache.json", hash_of, on, False
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8")) if on else {}
+        except (OSError, ValueError):
+            data = {}
+        self.data = data if isinstance(data, dict) else {}
+        self.files = self.data.setdefault("files", {})
+        self.roots = self.data.setdefault("roots", {})
+        self.projects = self.data.setdefault("projects", {})
+
+    def hash(self, p):
+        """파일이 (mtime_ns, size) 그대로면 저장한 해시, 아니면 hash_of 로 새로 계산한다."""
+        if not self.on:
+            return self.hash_of(p)
+        try:
+            st = os.stat(p)
+        except OSError:
+            return self.hash_of(p)
+        key = os.path.realpath(p)
+        hit = self.files.get(key)
+        if not hit or hit["mtime_ns"] != st.st_mtime_ns or hit["size"] != st.st_size:
+            h = self.hash_of(p)
+            if h is None:
+                return None
+            hit = {"mtime_ns": st.st_mtime_ns, "size": st.st_size, "hash": h}
+            self.files[key] = hit
+            self.dirty = True
+        return hit["hash"]
+
+    def _roots(self, cwd: str) -> None:
+        if cwd not in self.roots or cwd not in self.projects:
+            self.roots[cwd], self.projects[cwd] = versions.repo_roots(cwd, versions.HOOK_TIMEOUT)
+            self.dirty = True
+
+    def git_root(self, cwd: str) -> str | None:
+        self._roots(cwd)
+        return self.roots[cwd]
+
+    def project_root(self, cwd: str) -> str:
+        self._roots(cwd)
+        return self.projects[cwd]
+
+    def save(self) -> None:
+        if self.dirty and self.on:
+            paths.atomic_write(self.path, json.dumps(self.data, ensure_ascii=False))
+
+
+def _guidelines(cache: _Cache, cwd: str) -> list[dict]:
+    """cwd 에서 위로 올라가며 찾은 지침 파일, git 루트의 .claude/rules/*.md, ~/.claude/CLAUDE.md 의 해시."""
     found: list[Path] = []
     start = Path(cwd).resolve()
     for d in (start, *start.parents):
         found += [d / n for n in GUIDELINE_NAMES]
-    if cwd not in roots:
-        roots[cwd] = versions.git_root(start)
-        dirty = True
-    if roots[cwd]:
-        found += sorted((Path(roots[cwd]) / ".claude" / "rules").glob("*.md"))
+    root = cache.git_root(cwd)
+    if root:
+        found += sorted((Path(root) / ".claude" / "rules").glob("*.md"))
     found.append(Path.home() / ".claude" / "CLAUDE.md")
     out, seen = [], set()
     for p in found:
         if p in seen or not p.is_file():
             continue
         seen.add(p)
-        key = os.path.realpath(p)
-        st = p.stat()
-        hit = files.get(key)
-        if not hit or hit["mtime_ns"] != st.st_mtime_ns or hit["size"] != st.st_size:
-            hit = {"mtime_ns": st.st_mtime_ns, "size": st.st_size, "hash": hash_of(p)}
-            files[key] = hit
-            dirty = True
-        out.append({"path": str(p), "hash": hit["hash"]})
-    if dirty and cache_on:
-        paths.atomic_write(cache_path, json.dumps(cache, ensure_ascii=False))
+        out.append({"path": str(p), "hash": cache.hash(p)})
     return out
 
 
@@ -334,7 +367,7 @@ def _start_skill(data, hdir, name, pos, at, hash_of) -> dict:
     return _record("skill_start", data, hdir, pos, at, skill, name)
 
 
-def _prompt(data, hdir, pos, at, hash_of, cfg, cache) -> list[dict]:
+def _prompt(data, hdir, pos, at, cache: _Cache, cfg) -> list[dict]:
     text = data.get("prompt")
     if not isinstance(text, str) or text.startswith("<") or text.startswith(tr.CONTINUED):
         return []
@@ -347,14 +380,11 @@ def _prompt(data, hdir, pos, at, hash_of, cfg, cache) -> list[dict]:
         set_skill(hdir, m.group(1), None, pos)
         started = True
     state = skill_state(hdir)
-    meta = {}
-    if state:
-        if not started:
-            state["prompts_since"] = state.get("prompts_since", 0) + 1
-            _save_state(hdir, state)
-    else:
-        meta["guidelines"] = _guidelines(hdir, data.get("cwd") or os.getcwd(), hash_of, cache)
-    skill = _skill_field(hdir, state, data.get("transcript_path", ""), hash_of)
+    if state and not started:
+        state["prompts_since"] = state.get("prompts_since", 0) + 1
+        _save_state(hdir, state)
+    meta = {"guidelines": _guidelines(cache, data.get("cwd") or os.getcwd())}
+    skill = _skill_field(hdir, state, data.get("transcript_path", ""), cache.hash)
     flags = {"after_rejection": after_rejection(data.get("transcript_path", ""), pos)}
     return [_record("prompt", data, hdir, pos, at, skill, text, meta, flags)]
 
@@ -376,9 +406,11 @@ def handle(event: str, data: dict, *, pos: int | None = None, at: str | None = N
             pos = 0
     at = at or paths.now()
     cfg = paths.load_config()
+    c = _Cache(hdir, hash_of, cache)
+    hash_of = c.hash
     records: list[dict] = []
     if event == "UserPromptSubmit":
-        records = _prompt(data, hdir, pos, at, hash_of, cfg, cache)
+        records = _prompt(data, hdir, pos, at, c, cfg)
     elif event == "PreToolUse" and data.get("tool_name") == "Bash":
         records = _bash(data, hdir, pos, at, hash_of)
     elif event == "PostToolUseFailure":
@@ -398,4 +430,9 @@ def handle(event: str, data: dict, *, pos: int | None = None, at: str | None = N
             name = m.group(1) if m else None
         if isinstance(name, str) and name:
             records = [_start_skill(data, hdir, name.lstrip("/"), pos, at, hash_of)]
+    if records:
+        project = c.project_root(data.get("cwd") or os.getcwd())
+        for r in records:
+            r["meta"]["project_root"] = project
+    c.save()
     return [_append(hdir, data["session_id"], r) for r in records]

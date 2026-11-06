@@ -61,12 +61,13 @@ def test_uncommitted_version_snapshotted_then_found_after_commit(repo):
     assert versions.commit_of(f, h)["subject"] == "v2"
 
 
-def test_staged_but_uncommitted_is_snapshotted(repo):
+def test_object_in_git_store_is_not_snapshotted(repo):
+    # 설계 6장: git cat-file -e 가 성공하면(add 한 blob 포함) 사본을 만들지 않는다
     f = repo / "skills/a/SKILL.md"
     f.write_text("staged\n")
     git(repo, "add", ".")
     h = versions.remember(f)
-    assert (paths.data_dir() / "skill-snapshots" / h).exists()
+    assert not (paths.data_dir() / "skill-snapshots" / h).exists()
 
 
 def test_history_merges_commits_and_snapshots_in_time_order(repo, monkeypatch):

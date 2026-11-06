@@ -148,7 +148,12 @@ def _ask_result(transcript, pos: int, tool_use_id: str | None = None) -> str:
     return ""
 
 
-def project_of(cwd: str) -> str:
+def project_of(rec: dict) -> str:
+    """기록 때 남긴 meta.project_root(같은 저장소의 하위 디렉터리·worktree 는 한 프로젝트), 없으면 cwd 의 마지막 두 단계."""
+    root = (rec.get("meta") or {}).get("project_root")
+    if root:
+        return root
+    cwd = rec.get("cwd") or ""
     return "/".join(Path(cwd).parts[-2:]) if cwd else ""
 
 
@@ -194,7 +199,7 @@ def pending(limit: int) -> list[dict]:
             res = _ask_result(rec.get("transcript", ""), rec.get("pos") or 0, (rec.get("meta") or {}).get("tool_use_id"))
             if res:
                 ex = (ex + "\n" if ex else "") + "응답: " + res
-        items.append({**rec, "excerpt": ex, "project": project_of(rec.get("cwd", ""))})
+        items.append({**rec, "excerpt": ex, "project": project_of(rec)})
     return items
 
 
@@ -242,7 +247,7 @@ def save(result: dict) -> dict:
             skipped += 1
             continue
         rec = records[e["evidence_id"]]
-        obs = {**e, **{f: rec.get(f) for f in COPY_FIELDS}, "project": project_of(rec.get("cwd", ""))}
+        obs = {**e, **{f: rec.get(f) for f in COPY_FIELDS}, "project": project_of(rec)}
         paths.append_line(out, obs)
         saved += 1
     for hdir in dirs:

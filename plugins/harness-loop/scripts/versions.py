@@ -14,9 +14,12 @@ import apply_target
 import paths
 
 
-def _git(cwd, *args) -> str | None:
+HOOK_TIMEOUT = 1  # 훅에서 부르는 git 의 제한 시간(초). retro 시점 호출은 기본 5초
+
+
+def _git(cwd, *args, timeout: float = 5) -> str | None:
     try:
-        r = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=5)
+        r = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return None
     return r.stdout if r.returncode == 0 else None
@@ -30,11 +33,22 @@ def blob_hash(path) -> str | None:
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
-def git_root(path) -> str | None:
+def git_root(path, timeout: float = 5) -> str | None:
     p = Path(path)
     d = p if p.is_dir() else p.parent
-    out = _git(d, "rev-parse", "--show-toplevel")
+    out = _git(d, "rev-parse", "--show-toplevel", timeout=timeout)
     return out.strip() or None if out is not None else None
+
+
+def repo_roots(cwd, timeout: float = 5) -> tuple[str | None, str]:
+    """(작업 트리 루트, 프로젝트 루트). 프로젝트 루트는 worktree 들이 함께 쓰는 .git 의 부모이고,
+    공용 디렉터리가 .git 이 아니면(서브모듈 등) 작업 트리 루트, git 밖이면 cwd 다."""
+    out = _git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel", timeout=timeout)
+    lines = (out or "").splitlines()
+    if len(lines) < 2:
+        return None, str(cwd)
+    common, top = Path(lines[0].strip()), lines[1].strip() or None
+    return top, str(common.parent) if common.name == ".git" else (top or str(cwd))
 
 
 def in_plugin_cache(path) -> bool:
@@ -43,12 +57,6 @@ def in_plugin_cache(path) -> bool:
 
 def _rel(path, root) -> str:
     return os.path.relpath(os.path.realpath(path), os.path.realpath(root))
-
-
-def _committed(root, h) -> bool:
-    if _git(root, "cat-file", "-e", h) is None:
-        return False
-    return bool((_git(root, "log", "--all", "--format=%H", f"--find-object={h}") or "").strip())
 
 
 def _index_pairs(snaps) -> list[dict]:
@@ -72,8 +80,8 @@ def remember(path) -> str | None:
         except OSError:
             return None
         h = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
-        root = git_root(path)
-        if root and _committed(root, h):
+        root = git_root(path, HOOK_TIMEOUT)
+        if root and _git(root, "cat-file", "-e", h, timeout=HOOK_TIMEOUT) is not None:
             return h
         snaps = paths.data_dir() / "skill-snapshots"
         snaps.mkdir(parents=True, exist_ok=True)

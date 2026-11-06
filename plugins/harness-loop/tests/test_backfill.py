@@ -72,7 +72,7 @@ def test_backfill_matches_live_records(redesign_sessions, tmp_projects):
     assert correction["flags"]["after_rejection"] is True
     assert correction["at"] == "2026-10-10T09:00:09.000Z"
     assert correction["pos"] == sum(len(ln.encode()) for ln in lines[:9])
-    assert got[5]["meta"] == {"tool_use_id": "a4"} and "답: docs/adr" in got[5]["text"]
+    assert got[5]["meta"] == {"tool_use_id": "a4", "project_root": str(repo.resolve())} and "답: docs/adr" in got[5]["text"]
     assert got[2]["skill"]["path"] == f"{repo}/skills/a"
 
 

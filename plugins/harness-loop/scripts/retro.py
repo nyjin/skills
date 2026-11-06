@@ -123,7 +123,7 @@ def cmd_replay_gate(a, cfg):
                 raise ValueError(f"$.results[{i}].observations[{j}].purpose: repeat 는 purpose 가 필요합니다")
             src = by_id[e["evidence_id"]].get("evidence") or by_id[e["evidence_id"]].get("observation") or {}
             obs.append({**e, **{f: src.get(f) for f in observe.COPY_FIELDS},
-                        "project": observe.project_of(src.get("cwd") or "")})
+                        "project": observe.project_of(src)})
         surfaces = rubric.gate_one(archived["group"], {"observations": obs, "group": r.get("group_fields") or {}})
         results.append({"group": r["group"], "surfaces": surfaces})
     out = {"rubric_version": data["rubric_version"], "results": results}

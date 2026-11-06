@@ -95,7 +95,7 @@ def test_skill_state_from_skill_call_and_base_dir(session, tmp_path):
     [r] = prompt(session, "다시 해")
     assert r["skill"]["name"] == "tech-writing:write" and r["skill"]["prompts_since"] == 1
     assert r["skill"]["path"].endswith("skills/write") and r["skill"]["hash"] == versions.blob_hash(sk / "SKILL.md")
-    assert "guidelines" not in r["meta"]
+    assert r["meta"]["guidelines"] == []
     state = evidence.skill_state(paths.harness_path(session))
     assert state["path"].endswith("skills/write") and state["prompts_since"] == 1
     [r2] = prompt(session, "또")
@@ -138,6 +138,77 @@ def test_prompt_outside_skill_records_guideline_hashes(session, tmp_path):
     }
 
 
+def test_prompt_in_skill_still_records_guideline_hashes(session, tmp_path):
+    proj = tmp_path / "gp"
+    proj.mkdir()
+    (proj / "CLAUDE.md").write_text("g\n")
+    evidence.handle("PreToolUse", fixture("PreToolUse-Skill", transcript_path=str(session), cwd=str(proj)),
+                    hash_of=versions.blob_hash)
+    [r] = evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=proj, prompt="다시"),
+                          hash_of=versions.blob_hash)
+    assert r["skill"]["name"] == "tech-writing:write"
+    assert r["meta"]["guidelines"] == [{"path": str(proj.resolve() / "CLAUDE.md"),
+                                        "hash": versions.blob_hash(proj / "CLAUDE.md")}]
+
+
+def test_skill_and_script_hash_cached_when_unchanged(session, tmp_path):
+    sk = tmp_path / "plug" / "skills" / "demo"
+    (sk / "scripts").mkdir(parents=True)
+    (sk / "SKILL.md").write_text("# demo\n")
+    (sk / "scripts" / "run.py").write_text("print(1)\n")
+    evidence.set_skill(paths.harness_dir(session), "demo", str(sk), 0)
+    calls = []
+
+    def stub(p):
+        calls.append(os.path.realpath(p))
+        return "h"
+
+    def go():
+        return evidence.handle("PreToolUse", bash(f"python3 {sk}/scripts/run.py", session), hash_of=stub)
+
+    [r1] = go()
+    skill_md, script = os.path.realpath(sk / "SKILL.md"), os.path.realpath(sk / "scripts" / "run.py")
+    assert calls.count(skill_md) == 1 and calls.count(script) == 1
+    [r2] = go()
+    assert calls.count(skill_md) == 1 and calls.count(script) == 1
+    assert r2["skill"]["hash"] == "h" and r2["meta"]["scripts"] == [{"path": script, "hash": "h"}]
+    (sk / "SKILL.md").write_text("# demo changed\n")
+    go()
+    assert calls.count(skill_md) == 2 and calls.count(script) == 1
+
+
+def test_skill_hash_not_cached_when_cache_off(session, tmp_path):
+    sk = tmp_path / "plug" / "skills" / "demo"
+    sk.mkdir(parents=True)
+    (sk / "SKILL.md").write_text("# demo\n")
+    evidence.set_skill(paths.harness_dir(session), "demo", str(sk), 0)
+    answers = iter(["h1", "h2"])
+    [r1], [r2] = (evidence.handle("PreToolUse", bash("ls", session), hash_of=lambda p: next(answers), cache=False)
+                  for _ in range(2))
+    assert (r1["skill"]["hash"], r2["skill"]["hash"]) == ("h1", "h2")
+
+
+def test_project_root_shared_by_subdir_and_worktree(session, tmp_path):
+    import observe
+
+    repo = tmp_path / "main"
+    (repo / "sub").mkdir(parents=True)
+    for args in (("init", "-q"), ("config", "user.email", "t@t"), ("config", "user.name", "t")):
+        subprocess.run(["git", "-C", str(repo), *args], check=True)
+    (repo / "f").write_text("x\n")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "init"], check=True)
+    wt = tmp_path / "wt"
+    subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(wt)], check=True, capture_output=True)
+    outside = tmp_path / "plain"
+    outside.mkdir()
+    recs = [evidence.handle("PreToolUse", bash("ls", session, cwd=c), hash_of=versions.blob_hash)[0]
+            for c in (repo, repo / "sub", wt, outside)]
+    projects = [observe.project_of(r) for r in recs]
+    assert projects[0] == projects[1] == projects[2] == str(repo.resolve())
+    assert projects[3] == str(outside)
+
+
 def test_no_guideline_files_no_entries(session, tmp_path):
     (tmp_path / "empty").mkdir()
     [r] = evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=tmp_path / "empty", prompt="hi"),
@@ -166,8 +237,8 @@ def test_missing_transcript_records_pos_zero(tmp_projects):
     assert r["pos"] == 0
 
 
-def bash(cmd, session):
-    return payload("PreToolUse-Bash", session, tool_input={"command": cmd})
+def bash(cmd, session, cwd=None):
+    return payload("PreToolUse-Bash", session, cwd=cwd, tool_input={"command": cmd})
 
 
 def _worker(args):
