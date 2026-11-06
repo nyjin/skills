@@ -152,22 +152,33 @@ def project_of(cwd: str) -> str:
     return "/".join(Path(cwd).parts[-2:]) if cwd else ""
 
 
-def pending(limit: int) -> list[dict]:
-    items = []
+def _judgeable() -> list[dict]:
+    """skip 아닌 세션들의 커서 뒤 판정 대상 근거, 시각순."""
+    recs = []
     for hdir in paths.all_harness_dirs():
         if (hdir / "skip").exists():
             continue
         for rec in _rows(hdir / "evidence.jsonl")[_cursor(hdir):]:
-            if not rec or rec.get("kind") not in JUDGEABLE or not rec.get("at"):
-                continue
-            ex = excerpt(rec.get("transcript", ""), rec.get("pos") or 0, rec["kind"])
-            if rec["kind"] == "ask" and (rec.get("meta") or {}).get("answer_missing"):
-                res = _ask_result(rec.get("transcript", ""), rec.get("pos") or 0, (rec.get("meta") or {}).get("tool_use_id"))
-                if res:
-                    ex = (ex + "\n" if ex else "") + "응답: " + res
-            items.append({**rec, "excerpt": ex, "project": project_of(rec.get("cwd", ""))})
-    items.sort(key=lambda r: paths.aware(r["at"]))
-    return items[:limit]
+            if rec and rec.get("kind") in JUDGEABLE and rec.get("at"):
+                recs.append(rec)
+    recs.sort(key=lambda r: paths.aware(r["at"]))
+    return recs
+
+
+def pending_count() -> int:
+    return len(_judgeable())
+
+
+def pending(limit: int) -> list[dict]:
+    items = []
+    for rec in _judgeable()[:limit]:
+        ex = excerpt(rec.get("transcript", ""), rec.get("pos") or 0, rec["kind"])
+        if rec["kind"] == "ask" and (rec.get("meta") or {}).get("answer_missing"):
+            res = _ask_result(rec.get("transcript", ""), rec.get("pos") or 0, (rec.get("meta") or {}).get("tool_use_id"))
+            if res:
+                ex = (ex + "\n" if ex else "") + "응답: " + res
+        items.append({**rec, "excerpt": ex, "project": project_of(rec.get("cwd", ""))})
+    return items
 
 
 def observations(since: str | None = None) -> list[dict]:

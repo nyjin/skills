@@ -34,13 +34,14 @@ def write(path, obj):
 def test_cli_pipeline_end_to_end(redesign_sessions, tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(paths, "now", lambda: NOW)
     repo = redesign_sessions["repo"]
-    assert cli(capsys, "backfill") == {"sessions": 2, "records": 12}
+    assert cli(capsys, "backfill") == {"sessions": 2, "records": 13}
 
     batch = tmp_path / "batch.json"
+    assert cli(capsys, "pending", "--out", batch, "--limit", 0)["remaining"] == 9
     out = cli(capsys, "pending", "--out", batch, "--limit", 5)
-    assert out == {"count": 5, "file": str(batch.resolve()), "remaining": 3}
+    assert out == {"count": 5, "file": str(batch.resolve()), "remaining": 4}
     out = cli(capsys, "pending", "--out", batch)
-    assert out["count"] == 8 and out["remaining"] == 0
+    assert out["count"] == 9 and out["remaining"] == 0
     data = json.loads(batch.read_text())
     assert data["examples"] == []
     by_text = {e["text"]: e["id"] for e in data["evidence"]}
@@ -48,7 +49,7 @@ def test_cli_pipeline_end_to_end(redesign_sessions, tmp_path, capsys, monkeypatc
     second = by_text["ADR 번호가 또 틀렸어, 다음 번호를 써야지"]
     entries = [{"evidence_id": e["id"], "type": "correction", "verdict": e["id"] in (first, second),
                 "reason": "ADR 번호 교정" if e["id"] in (first, second) else "결함 아님"} for e in data["evidence"]]
-    assert cli(capsys, "observe", "--file", write(tmp_path / "obs.json", {"observations": entries})) == {"saved": 8, "skipped": 0}
+    assert cli(capsys, "observe", "--file", write(tmp_path / "obs.json", {"observations": entries})) == {"saved": 9, "skipped": 0}
 
     ctx = cli(capsys, "context")
     assert sorted(o["evidence_id"] for o in ctx["observations"]) == sorted([first, second])
@@ -118,8 +119,8 @@ def test_pending_includes_not_defect_examples(labels_mix, obs_factory, tmp_path,
     eid = obs_factory("correction")
     groups.merge({"groups": [group(train[3], "fix", [eid], finding="wrong")]})
     decision(ids("test", 3, "x")[2], "reject", "not-defect")
-    out = cli(capsys, "pending", "--out", tmp_path / "p.json")
-    assert out["count"] == 0
+    out = cli(capsys, "pending", "--out", tmp_path / "p.json", "--limit", 0)
+    assert out == {"count": 0, "file": str((tmp_path / "p.json").resolve()), "remaining": 0}
     data = json.loads((tmp_path / "p.json").read_text())
     assert data["examples"] == [{"group": train[3], "problem": "문제", "reason": "이유"}]
 

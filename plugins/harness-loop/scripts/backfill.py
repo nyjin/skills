@@ -5,6 +5,7 @@
 # ///
 """지난 세션 기록(transcript)을 줄 단위로 읽어 훅 입력을 재구성하고 evidence.handle 로 근거를 만든다."""
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -19,16 +20,14 @@ import versions
 
 PRE_TOOLS = ("Skill", "Bash")
 POST_TOOLS = ("AskUserQuestion", *evidence.EDIT_TOOLS)
+LIVE_SEC = 600
 
 
 def transcripts(days: int | None) -> list[Path]:
-    """처리할 transcript. --days 가 있으면 수정 시각이 그 안, 없으면 installed_at 전. evidence.jsonl·skip 이 있거나 서브에이전트 기록이면 뺀다."""
-    if days is not None:
-        cut = time.time() - days * 86400
-        keep = lambda mtime: mtime >= cut  # noqa: E731
-    else:
-        installed = paths.aware((paths.data_dir() / "installed_at").read_text().strip()).timestamp()
-        keep = lambda mtime: mtime < installed  # noqa: E731
+    """처리할 transcript. --days 가 있으면 수정 시각이 그 안의 것만. evidence.jsonl·skip 이 있거나, 서브에이전트 기록이거나,
+    LIVE_SEC 안에 수정돼 진행 중일 수 있는 세션은 뺀다."""
+    now = time.time()
+    cut = now - days * 86400 if days is not None else None
     out = []
     for t in sorted(paths.projects_root().glob("*/*.jsonl")):
         if "/subagents/" in t.as_posix():
@@ -36,7 +35,8 @@ def transcripts(days: int | None) -> list[Path]:
         hdir = paths.harness_path(t)
         if (hdir / "evidence.jsonl").exists() or (hdir / "skip").exists():
             continue
-        if keep(t.stat().st_mtime):
+        mtime = t.stat().st_mtime
+        if mtime <= now - LIVE_SEC and (cut is None or mtime >= cut):
             out.append(t)
     return out
 
@@ -98,22 +98,29 @@ def events(path: Path):
                 resent = tr._resends_queued(turns, text)
                 if not resent:
                     turns.append(tr.Turn(len(turns) + 1, d.get("cwd"), 0, text, slash=slash is not None))
+                    # live 훅은 슬래시 명령도 UserPromptSubmit(`/x args`)을 먼저 내고 UserPromptExpansion 을 낸다
+                    yield "UserPromptSubmit", {**base, "prompt": text}, pos, at
                 if slash is not None:
                     yield "UserPromptExpansion", {**base, "command_name": text.split()[0][1:], "prompt": text}, pos, at
-                elif not resent:
-                    yield "UserPromptSubmit", {**base, "prompt": text}, pos, at
             elif kind == "attachment":
                 text = tr._queued_text(d.get("attachment"))
                 if text is not None and not text.startswith((tr.CONTINUED, tr.INTERRUPT)):
+                    # 사람이 친 대기 입력이라 기록한다. live 훅이 이 입력에 UserPromptSubmit 을 내는지는 확인하지 않았다
                     turns.append(tr.Turn(len(turns) + 1, d.get("cwd"), 0, text, queued=True))
                     yield "UserPromptSubmit", {**base, "prompt": text}, pos, at
 
 
 def run(days: int | None = None) -> dict:
+    """HARNESS_RETRO 가드는 훅 재귀 방지용이라 백필 동안에는 환경에서 잠시 뺀다."""
     sessions = records = 0
-    for path in transcripts(days):
-        sessions += 1
-        for event, data, pos, at in events(path):
-            records += len(evidence.handle(event, data, pos=pos, at=at, cache=False,
-                                           hash_of=lambda p, at=at: versions.hash_at(p, at)))
+    saved = os.environ.pop("HARNESS_RETRO", None)
+    try:
+        for path in transcripts(days):
+            sessions += 1
+            for event, data, pos, at in events(path):
+                records += len(evidence.handle(event, data, pos=pos, at=at, cache=False,
+                                               hash_of=lambda p, at=at: versions.hash_at(p, at)))
+    finally:
+        if saved is not None:
+            os.environ["HARNESS_RETRO"] = saved
     return {"sessions": sessions, "records": records}

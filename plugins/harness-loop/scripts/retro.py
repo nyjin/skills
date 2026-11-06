@@ -60,13 +60,12 @@ def context_examples(limit: int) -> list[dict]:
 
 
 def cmd_pending(a, cfg):
-    items = observe.pending(10 ** 9)
-    batch = items[:a.limit or cfg["judge_batch"]]
+    batch = observe.pending(cfg["judge_batch"] if a.limit is None else a.limit)
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"evidence": batch, "examples": pending_examples(cfg["label_examples"])},
                               ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"count": len(batch), "file": str(out.resolve()), "remaining": len(items) - len(batch)}
+    return {"count": len(batch), "file": str(out.resolve()), "remaining": observe.pending_count() - len(batch)}
 
 
 def cmd_context(a, cfg):

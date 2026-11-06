@@ -51,21 +51,22 @@ def test_backfill_matches_live_records(redesign_sessions, tmp_projects):
         16: ("PostToolUse", {"tool_name": "Write", "tool_input": {"file_path": skill_md, "content": "v1\n"},
                              "tool_response": {}, "tool_use_id": "a5"}),
         18: ("UserPromptSubmit", {"prompt": "그리고 번호는 세 자리로 맞춰줘"}),
-        20: ("UserPromptExpansion", {"command_name": "harness-loop:retro", "prompt": "/harness-loop:retro review"}),
+        20: [("UserPromptSubmit", {"prompt": "/harness-loop:retro review"}),
+             ("UserPromptExpansion", {"command_name": "harness-loop:retro", "prompt": "/harness-loop:retro review"})],
     }
     with open(live, "w", encoding="utf-8") as f:
         for i, line in enumerate(lines, 1):
             f.write(line)
             f.flush()
-            if i in hooks:
-                event, extra = hooks[i]
-                at = json.loads(line)["timestamp"]
+            at = json.loads(line)["timestamp"]
+            calls = hooks.get(i, [])
+            for event, extra in calls if isinstance(calls, list) else [calls]:
                 evidence.handle(event, {**base, "hook_event_name": event, **extra}, at=at, hash_of=lambda p: None)
-    assert backfill.run() == {"sessions": 2, "records": 12}
+    assert backfill.run() == {"sessions": 2, "records": 13}
     got, want = records(src), records(live)
     assert summary(got) == summary(want)
     assert [r["kind"] for r in got] == ["prompt", "skill_start", "bash", "failure", "prompt", "ask",
-                                        "skill_edit", "prompt", "skill_start"]
+                                        "skill_edit", "prompt", "prompt", "skill_start"]
     assert [r["pos"] for r in got] == [r["pos"] for r in want]
     correction = got[4]
     assert correction["flags"]["after_rejection"] is True
@@ -89,7 +90,8 @@ def test_backfill_skips_injected_and_continued(redesign_sessions, tmp_projects):
 
     assert backfill.run()["sessions"] == 2
     prompts = [r["text"] for r in records(a) if r["kind"] == "prompt"]
-    assert prompts == ["릴리스 노트 써줘", "아니, ADR 번호는 docs/adr 에서 다음 번호를 찾아야 해", "그리고 번호는 세 자리로 맞춰줘"]
+    assert prompts == ["릴리스 노트 써줘", "아니, ADR 번호는 docs/adr 에서 다음 번호를 찾아야 해", "그리고 번호는 세 자리로 맞춰줘",
+                       "/harness-loop:retro review"]
     assert not (paths.harness_path(skipped) / "evidence.jsonl").exists()
     assert paths.harness_path(done).joinpath("evidence.jsonl").read_text() == ""
     assert not any(p.name == "evidence.jsonl" for p in (tmp_projects / "-w-proj-a" / SESSION_A / "subagents").rglob("*"))
@@ -105,11 +107,19 @@ def test_backfill_days_filters_by_mtime(redesign_sessions):
     assert not (paths.harness_path(redesign_sessions["a"]) / "evidence.jsonl").exists()
 
 
-def test_backfill_default_only_before_installed_at(redesign_sessions):
-    b = redesign_sessions["b"]
-    future = time.time() + 3600
-    os.utime(b, (future, future))
-    assert [p.name for p in backfill.transcripts(None)] == [redesign_sessions["a"].name]
+def test_backfill_default_ignores_installed_at_but_skips_live(redesign_sessions):
+    a, b = redesign_sessions["a"], redesign_sessions["b"]
+    (paths.data_dir() / "installed_at").write_text("2020-01-01T00:00:00+00:00")
+    now = time.time()
+    os.utime(a, (now - 3600, now - 3600))
+    os.utime(b, (now - 60, now - 60))
+    assert [p.name for p in backfill.transcripts(None)] == [a.name]
+
+
+def test_backfill_runs_under_harness_retro(redesign_sessions, monkeypatch):
+    monkeypatch.setenv("HARNESS_RETRO", "1")
+    assert backfill.run()["records"] == 13
+    assert os.environ["HARNESS_RETRO"] == "1"
 
 
 def test_backfill_uses_git_hash_at_time(repo, redesign_sessions):
