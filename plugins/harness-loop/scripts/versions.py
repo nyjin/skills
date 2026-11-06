@@ -5,9 +5,9 @@
 # ///
 """스킬 파일 버전: git blob 해시, 커밋되지 않은 내용의 사본, git 이력 조회."""
 import hashlib
+import json
 import os
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 
 import apply_target
@@ -51,19 +51,40 @@ def _committed(root, h) -> bool:
     return bool((_git(root, "log", "--all", "--format=%H", f"--find-object={h}") or "").strip())
 
 
-def remember(path) -> str | None:
-    """커밋에 없는 내용은 skill-snapshots/<해시> 에 보관하고 해시를 돌려준다. 예외를 내지 않는다."""
+def _index_pairs(snaps) -> list[dict]:
+    rows = []
     try:
-        h = blob_hash(path)
-        if h is None:
+        for ln in (snaps / "index.jsonl").read_text(encoding="utf-8").splitlines():
+            try:
+                rows.append(json.loads(ln))
+            except ValueError:
+                continue
+    except OSError:
+        pass
+    return rows
+
+
+def remember(path) -> str | None:
+    """커밋에 없는 내용은 skill-snapshots/<해시> 에 보관하고 index.jsonl 에 (해시, 경로)를 한 번 남긴 뒤 해시를 돌려준다. 예외를 내지 않는다."""
+    try:
+        try:
+            data = Path(path).read_bytes()
+        except OSError:
             return None
+        h = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
         root = git_root(path)
         if root and _committed(root, h):
             return h
-        snap = paths.data_dir() / "skill-snapshots" / h
+        snaps = paths.data_dir() / "skill-snapshots"
+        snaps.mkdir(parents=True, exist_ok=True)
+        snap = snaps / h
         if not snap.exists():
-            snap.parent.mkdir(parents=True, exist_ok=True)
-            paths.atomic_write(snap, Path(path).read_text(encoding="utf-8", errors="replace"))
+            tmp = snap.with_name(snap.name + f".tmp{os.getpid()}")
+            tmp.write_bytes(data)
+            os.replace(tmp, snap)
+        real = os.path.realpath(path)
+        if not any(r.get("hash") == h and r.get("path") == real for r in _index_pairs(snaps)):
+            paths.append_line(snaps / "index.jsonl", {"hash": h, "path": real, "at": paths.now()})
         return h
     except Exception as e:
         paths.log_error("versions.remember", e)
@@ -83,7 +104,11 @@ def commit_of(path, h) -> dict | None:
 
 
 def history(path, since: str) -> list[dict]:
-    since_dt = paths.aware(since)
+    try:
+        since_dt = paths.aware(since)
+    except ValueError as e:
+        paths.log_error("versions.history", e)
+        return []
     entries = []
     root = git_root(path)
     if root:
@@ -94,14 +119,13 @@ def history(path, since: str) -> list[dict]:
             h = (_git(root, "rev-parse", f"{commit}:{rel}") or "").strip()
             if commit and h:
                 entries.append({"hash": h, "at": at, "source": "commit", "commit": commit, "subject": subject})
-    snaps = paths.data_dir() / "skill-snapshots"
-    for f in snaps.glob("*") if snaps.is_dir() else []:
+    real = os.path.realpath(path)
+    for r in _index_pairs(paths.data_dir() / "skill-snapshots"):
         try:
-            mtime = datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).astimezone()
-        except OSError:
+            if r.get("path") == real and paths.aware(r["at"]) >= since_dt:
+                entries.append({"hash": r["hash"], "at": r["at"], "source": "snapshot"})
+        except (KeyError, ValueError, TypeError):
             continue
-        if mtime >= since_dt:
-            entries.append({"hash": f.name, "at": mtime.isoformat(), "source": "snapshot"})
     entries.sort(key=lambda e: paths.aware(e["at"]))
     seen, result = set(), []
     for e in entries:

@@ -69,16 +69,15 @@ def test_staged_but_uncommitted_is_snapshotted(repo):
     assert (paths.data_dir() / "skill-snapshots" / h).exists()
 
 
-def test_history_merges_commits_and_snapshots_in_time_order(repo):
+def test_history_merges_commits_and_snapshots_in_time_order(repo, monkeypatch):
     f = repo / "skills/a/SKILL.md"
-    snaps = paths.data_dir() / "skill-snapshots"
+    monkeypatch.setattr(paths, "now", lambda: "2026-01-01T01:00:00+00:00")
     f.write_text("v2\n")
     h2 = versions.remember(f)
-    os.utime(snaps / h2, (1767229200, 1767229200))  # 2026-01-01T01:00Z
     commit(repo, "v2", "2026-01-01T02:00:00+00:00")
+    monkeypatch.setattr(paths, "now", lambda: "2026-01-01T04:00:00+00:00")
     f.write_text("v3\n")
     h3 = versions.remember(f)
-    os.utime(snaps / h3, (1767240000, 1767240000))  # 2026-01-01T04:00Z
     hist = versions.history(f, "2025-12-31T00:00:00+00:00")
     assert [(e["hash"], e["source"]) for e in hist] == [
         (blob("v1\n"), "commit"), (h2, "snapshot"), (h3, "snapshot")]
@@ -113,3 +112,32 @@ def test_plugin_cache_notice_uses_ticket_text():
 
 def test_remember_never_raises(tmp_path):
     assert versions.remember(tmp_path / "없음") is None
+
+
+def test_history_excludes_other_files_snapshots(repo):
+    a, b = repo / "skills/a/SKILL.md", repo / "skills/a/OTHER.md"
+    a.write_text("a2\n")
+    b.write_text("b-new\n")
+    ha, hb = versions.remember(a), versions.remember(b)
+    since = "2020-01-01T00:00:00+00:00"
+    assert [e["hash"] for e in versions.history(a, since) if e["source"] == "snapshot"] == [ha]
+    assert [e["hash"] for e in versions.history(b, since) if e["source"] == "snapshot"] == [hb]
+
+
+def test_snapshot_bytes_match_hash_name(tmp_path):
+    f = tmp_path / "x.md"
+    f.write_bytes(b"a\r\nb\xff\xfe\n")
+    h = versions.remember(f)
+    snap = paths.data_dir() / "skill-snapshots" / h
+    assert snap.read_bytes() == f.read_bytes()
+    assert versions.blob_hash(snap) == h
+
+
+def test_history_since_filter_and_bad_since(repo, monkeypatch):
+    f = repo / "skills/a/SKILL.md"
+    f.write_text("v2\n")
+    monkeypatch.setattr(paths, "now", lambda: "2026-01-01T01:00:00+00:00")
+    h2 = versions.remember(f)
+    assert [e["hash"] for e in versions.history(f, "2026-01-01T00:30:00+00:00")] == [h2]
+    assert versions.history(f, "2026-01-01T01:30:00+00:00") == []
+    assert versions.history(f, "not-a-date") == []
