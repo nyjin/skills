@@ -47,12 +47,12 @@ def record(group_id: str, choice: str, *, kind=None, reason=None, baseline_hash=
     if choice == "proceed":
         if apply_target.classify(group["target_path"])["kind"] == "plugin_cache":
             raise ValueError("외부 플러그인 캐시 대상은 진행할 수 없습니다. 원본 저장소에 티켓을 내세요")
-        baseline_hash = baseline_hash or versions.blob_hash(_target(group))
+        baseline_hash = baseline_hash or versions.remember(_target(group))
     rec = {"group": group_id, "decision": choice, "kind": kind, "note": reason,
            "baseline_hash": baseline_hash, "ticket": ticket, "at": paths.now(),
            "rubric_version": _rubric()[1]}
-    paths.append_line(_file(), rec)
     archive(group_id)
+    paths.append_line(_file(), rec)
     return rec
 
 

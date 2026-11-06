@@ -45,6 +45,24 @@ def test_proceed_records_baseline_hash_and_archives(group_in_repo):
     assert (paths.data_dir() / "replay" / gid / "input.json").exists()
 
 
+def test_proceed_snapshots_uncommitted_fix(group_in_repo):
+    gid, skill, _ = group_in_repo
+    skill.write_text("고친 내용\n")
+    rec = decide.record(gid, "proceed")
+    assert rec["baseline_hash"] == decide.versions.blob_hash(skill)
+    assert (paths.data_dir() / "skill-snapshots" / rec["baseline_hash"]).read_text() == "고친 내용\n"
+
+
+def test_failed_archive_records_no_decision(g, monkeypatch):
+    def boom(gid):
+        raise OSError("disk")
+
+    monkeypatch.setattr(decide, "archive", boom)
+    with pytest.raises(OSError):
+        decide.record(g, "ticket", ticket="IBS-1")
+    assert decide.last_decisions() == {}
+
+
 def test_rubric_version_from_data_rubric(g):
     (paths.data_dir() / "rubric.md").write_text("<!-- rubric-version: 4 -->\n본문\n")
     assert decide.record(g, "ticket", ticket="IBS-1")["rubric_version"] == 4
