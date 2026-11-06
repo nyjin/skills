@@ -13,6 +13,7 @@ JUDGEABLE = ("prompt", "bash", "failure", "ask")
 META_KINDS = ("skill_start", "skill_edit")
 COPY_FIELDS = ("session", "at", "cwd", "skill", "file", "text", "meta")
 WINDOW = 256 * 1024
+FORWARD = 64 * 1024
 TAIL_CHARS = 1500
 SCHEMA = Path(__file__).resolve().parents[1] / "defaults" / "observe-schema.json"
 _TYPES = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "number": (int, float)}
@@ -49,7 +50,7 @@ def validate(obj, schema: dict, path: str = "$") -> None:
 def _rows(path) -> list[dict | None]:
     """줄마다 dict, 깨진 줄은 None(줄 번호를 유지한다)."""
     try:
-        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").split("\n")
     except OSError:
         return []
     out = []
@@ -82,16 +83,16 @@ def _result_text(content) -> str:
     return ""
 
 
-def _window(transcript, pos: int) -> list[dict]:
-    """pos 앞 WINDOW 바이트의 완전한 JSON 줄들. 창 첫 줄(잘렸을 수 있음)과 깨진 줄은 버린다."""
+def _window(transcript, pos: int, forward: int = 0) -> list[dict]:
+    """pos 앞 WINDOW 바이트(+ 뒤 forward 바이트)의 완전한 JSON 줄들. 창 첫 줄(잘렸을 수 있음)과 깨진 줄은 버린다."""
     try:
         start = max(0, pos - WINDOW)
         with open(transcript, "rb") as f:
             f.seek(start)
-            data = f.read(max(0, pos - start))
+            data = f.read(pos - start + forward)
     except OSError:
         return []
-    lines = data.decode("utf-8", "ignore").splitlines()
+    lines = data.decode("utf-8", "ignore").split("\n")
     if start > 0:
         lines = lines[1:]
     rows = []
@@ -129,13 +130,15 @@ def excerpt(transcript, pos: int, kind: str) -> str:
     return "\n".join(parts)
 
 
-def _ask_result(transcript, pos: int) -> str:
-    rows = _window(transcript, pos)
-    ask_id = None
-    for r in rows:
-        for b in _blocks(r):
-            if b.get("type") == "tool_use" and b.get("name") == "AskUserQuestion":
-                ask_id = b.get("id")
+def _ask_result(transcript, pos: int, tool_use_id: str | None = None) -> str:
+    """ask 의 tool_result. tool_use_id 가 있으면 뒤 FORWARD 까지 찾고, 없으면 pos 이전 가장 가까운 AskUserQuestion 의 결과."""
+    rows = _window(transcript, pos, FORWARD)
+    ask_id = tool_use_id
+    if not ask_id:
+        for r in _window(transcript, pos):
+            for b in _blocks(r):
+                if b.get("type") == "tool_use" and b.get("name") == "AskUserQuestion":
+                    ask_id = b.get("id")
     if not ask_id:
         return ""
     for r in rows:
@@ -155,11 +158,11 @@ def pending(limit: int) -> list[dict]:
         if (hdir / "skip").exists():
             continue
         for rec in _rows(hdir / "evidence.jsonl")[_cursor(hdir):]:
-            if not rec or rec.get("kind") not in JUDGEABLE:
+            if not rec or rec.get("kind") not in JUDGEABLE or not rec.get("at"):
                 continue
             ex = excerpt(rec.get("transcript", ""), rec.get("pos") or 0, rec["kind"])
             if rec["kind"] == "ask" and (rec.get("meta") or {}).get("answer_missing"):
-                res = _ask_result(rec.get("transcript", ""), rec.get("pos") or 0)
+                res = _ask_result(rec.get("transcript", ""), rec.get("pos") or 0, (rec.get("meta") or {}).get("tool_use_id"))
                 if res:
                     ex = (ex + "\n" if ex else "") + "응답: " + res
             items.append({**rec, "excerpt": ex, "project": project_of(rec.get("cwd", ""))})
@@ -171,7 +174,7 @@ def observations(since: str | None = None) -> list[dict]:
     rows = [r for r in _rows(paths.data_dir() / "observations.jsonl") if r]
     if since:
         cut = paths.aware(since)
-        rows = [r for r in rows if paths.aware(r["at"]) >= cut]
+        rows = [r for r in rows if r.get("at") and paths.aware(r["at"]) >= cut]
     return rows
 
 

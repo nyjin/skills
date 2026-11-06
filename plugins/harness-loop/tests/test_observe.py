@@ -67,17 +67,47 @@ def test_excerpt_window_is_bounded(tmp_path, monkeypatch):
     assert observe.excerpt(t, t.stat().st_size, "prompt") == ""
 
 
-def test_excerpt_ask_adds_tool_result(tmp_path, two_sessions):
-    t = tmp_path / "t.jsonl"
-    use = {"type": "assistant", "message": {"id": "m2", "content": [{"type": "tool_use", "name": "AskUserQuestion", "id": "q1"}]}}
-    res = {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "q1", "content": "예"}]}}
-    t.write_text(line(asst("물어봄")) + line(use) + line(res), encoding="utf-8")
-    assert "물어봄" in observe.excerpt(t, t.stat().st_size, "ask")
+def _ask_use(tid):
+    return {"type": "assistant", "message": {"id": "m-" + tid, "content": [{"type": "tool_use", "name": "AskUserQuestion", "id": tid}]}}
+
+
+def _ask_res(tid, text):
+    return {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tid, "content": text}]}}
+
+
+def _ask_pending(two_sessions, t, pos, meta):
     hdir, recs = two_sessions[0], two_sessions[1]
-    rec = {**recs[0], "kind": "ask", "transcript": str(t), "pos": t.stat().st_size, "meta": {"answer_missing": True}}
+    rec = {**recs[0], "kind": "ask", "transcript": str(t), "pos": pos, "meta": {"answer_missing": True, **meta}}
     (hdir / "evidence.jsonl").write_text(line(rec))
-    got = observe.pending(10)
-    assert any("응답: 예" in g["excerpt"] for g in got if g["id"] == rec["id"])
+    return next(g for g in observe.pending(10) if g["id"] == rec["id"])
+
+
+def test_excerpt_ask_adds_tool_result_written_after_pos(tmp_path, two_sessions):
+    t = tmp_path / "t.jsonl"
+    t.write_text(line(asst("물어봄")) + line(_ask_use("q1")), encoding="utf-8")
+    pos = t.stat().st_size  # 훅 시점: tool_result 는 아직 없다
+    with open(t, "a", encoding="utf-8") as f:
+        f.write(line(_ask_res("q1", "예")))
+    assert "물어봄" in observe.excerpt(t, pos, "ask")
+    for meta in ({"tool_use_id": "q1"}, {}):
+        assert "응답: 예" in _ask_pending(two_sessions, t, pos, meta)["excerpt"]
+
+
+def test_ask_result_matches_tool_use_id_with_two_asks(tmp_path, two_sessions):
+    t = tmp_path / "t.jsonl"
+    t.write_text(line(asst("물어봄")) + line(_ask_use("q1")) + line(_ask_res("q1", "첫째")) + line(_ask_use("q2")), encoding="utf-8")
+    pos = t.stat().st_size
+    with open(t, "a", encoding="utf-8") as f:
+        f.write(line(_ask_res("q2", "둘째")))
+    assert "응답: 둘째" in _ask_pending(two_sessions, t, pos, {"tool_use_id": "q2"})["excerpt"]
+    assert "응답: 첫째" in _ask_pending(two_sessions, t, pos, {"tool_use_id": "q1"})["excerpt"]
+
+
+def test_record_without_at_is_skipped(two_sessions):
+    ha, ra = two_sessions[0], two_sessions[1]
+    bad = {k: v for k, v in ra[0].items() if k != "at"}
+    (ha / "evidence.jsonl").write_text(line(bad) + line(ra[2]))
+    assert [g["id"] for g in observe.pending(10) if g["session"] == "aaaaaaaa1"] == ["aaaaaaaa-3"]
 
 
 def test_pending_orders_across_sessions_and_skips_meta_kinds(two_sessions):

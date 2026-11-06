@@ -295,6 +295,8 @@ def _ask(data, hdir, pos, at, hash_of) -> list[dict]:
             lines.append("답: " + (", ".join(map(str, ans)) if isinstance(ans, list) else str(ans)))
         parts.append("\n".join(lines))
     meta = {"answer_missing": True} if missing else {}
+    if data.get("tool_use_id"):
+        meta["tool_use_id"] = data["tool_use_id"]
     return [_record("ask", data, hdir, pos, at, _cur_skill(data, hdir, hash_of)[1], "\n".join(parts), meta)]
 
 

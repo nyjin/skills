@@ -309,11 +309,12 @@ def _ask(session, **kw):
 
 
 def test_ask_record_text(session):
-    d = _ask(session, tool_response={"answers": {"어느 쪽?": "B"}})
+    d = _ask(session, tool_response={"answers": {"어느 쪽?": "B"}}, tool_use_id="toolu_9")
     [r] = evidence.handle("PostToolUse", d, hash_of=versions.blob_hash)
     assert r["kind"] == "ask"
     assert r["text"] == "Q: 어느 쪽?\n- A\n- B\n답: B"
     assert "answer_missing" not in r["meta"]
+    assert r["meta"]["tool_use_id"] == "toolu_9"
     d = _ask(session)
     d["tool_input"]["answers"] = {"어느 쪽?": "A"}
     [r] = evidence.handle("PostToolUse", d, hash_of=versions.blob_hash)
