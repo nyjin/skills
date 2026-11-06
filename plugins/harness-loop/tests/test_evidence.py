@@ -29,6 +29,7 @@ def session(tmp_projects):
 
 def payload(event, session, cwd=None, **kw):
     base = fixture(event)
+    base["hook_event_name"] = event.split("-")[0]
     base.update(transcript_path=str(session), cwd=str(cwd or session.parent), **kw)
     return base
 
@@ -164,11 +165,14 @@ def test_missing_transcript_records_pos_zero(tmp_projects):
     assert r["pos"] == 0
 
 
+def bash(cmd, session):
+    return payload("PreToolUse-Bash", session, tool_input={"command": cmd})
+
+
 def _worker(args):
     session, n = args
     for i in range(n):
-        evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", Path(session), prompt=f"p{i}"),
-                        hash_of=versions.blob_hash)
+        evidence.handle("PreToolUse", bash(f"echo {i}", Path(session)), hash_of=versions.blob_hash)
 
 
 def test_concurrent_appends_stay_valid_jsonl(session):
@@ -236,3 +240,105 @@ def test_after_rejection_true_when_window_cuts_ordinary_line(session):
 def test_slash_start_prompt_has_prompts_since_zero(session):
     [r] = prompt(session, "/tech-writing:write README")
     assert r["skill"]["prompts_since"] == 0
+
+
+@pytest.mark.parametrize("cmd,body", [
+    ("python3 - <<'EOF'\nprint(1)\nEOF", "print(1)\n"),
+    ('python3 -c "import json; print(2)"', "import json; print(2)"),
+    ("cat <<-X\n\tsome\nX", "\tsome\n"),
+    ('cat <<"E"\na\nE', "a\n"),
+    ("cat <<E\na\nE", "a\n"),
+    ("ls -la", None),
+])
+def test_inline_body(cmd, body):
+    assert evidence.inline_body(cmd) == body
+
+
+def test_bash_saves_inline_script_once(session):
+    cmd = "python3 - <<'EOF'\nprint(1)\nEOF"
+    [a] = evidence.handle("PreToolUse", bash(cmd, session), hash_of=versions.blob_hash)
+    [b] = evidence.handle("PreToolUse", bash(cmd, session), hash_of=versions.blob_hash)
+    assert a["kind"] == "bash" and a["text"] == cmd
+    assert a["file"] == b["file"]
+    assert len(list((paths.harness_path(session) / "scripts").iterdir())) == 1
+    assert Path(a["file"]).read_bytes() == b"print(1)\n"
+
+
+def test_plain_bash_has_no_file(session):
+    [r] = evidence.handle("PreToolUse", bash("ls -la", session), hash_of=versions.blob_hash)
+    assert r["file"] is None and r["meta"]["scripts"] == []
+
+
+def test_inline_body_crlf_and_long(session):
+    cmd = "python3 - <<'EOF'\r\n" + "x=1\r\n" * 5000 + "EOF"
+    [r] = evidence.handle("PreToolUse", bash(cmd, session), hash_of=versions.blob_hash)
+    assert len(r["text"]) == 2000
+    data = Path(r["file"]).read_bytes()
+    assert data.count(b"x=1\r\n") == 5000
+
+
+def test_bash_records_skill_script_hash(session, tmp_path):
+    sk = tmp_path / "plug" / "skills" / "demo"
+    (sk / "scripts").mkdir(parents=True)
+    (sk / "scripts" / "run.py").write_text("print(1)\n")
+    evidence.set_skill(paths.harness_dir(session), "demo", str(sk), 0)
+    other = tmp_path / "other.py"
+    other.write_text("x")
+    cmd = f"python3 {sk}/scripts/run.py {other} {sk}/scripts/missing.py"
+    [r] = evidence.handle("PreToolUse", bash(cmd, session), hash_of=versions.blob_hash)
+    assert r["meta"]["scripts"] == [{"path": str(sk / "scripts" / "run.py"),
+                                     "hash": versions.blob_hash(sk / "scripts" / "run.py")}]
+    assert evidence.skill_scripts(cmd, None) == []
+
+
+def test_failure_record_and_interrupt_skipped(session):
+    err = "\n".join(f"line{i}" for i in range(30))
+    d = payload("PostToolUseFailure", session, tool_name="Bash", tool_input={"command": "x" * 900}, error=err)
+    [r] = evidence.handle("PostToolUseFailure", d, hash_of=versions.blob_hash)
+    assert r["kind"] == "failure"
+    assert r["text"] == "Bash\n" + "\n".join(f"line{i}" for i in range(20))
+    assert len(r["meta"]["input"]) == 600
+    d["is_interrupt"] = True
+    assert evidence.handle("PostToolUseFailure", d, hash_of=versions.blob_hash) == []
+
+
+def _ask(session, **kw):
+    qs = [{"question": "어느 쪽?", "options": [{"label": "A"}, {"label": "B"}]}]
+    return payload("PostToolUse", session, tool_name="AskUserQuestion", tool_input={"questions": qs}, **kw)
+
+
+def test_ask_record_text(session):
+    d = _ask(session, tool_response={"answers": {"어느 쪽?": "B"}})
+    [r] = evidence.handle("PostToolUse", d, hash_of=versions.blob_hash)
+    assert r["kind"] == "ask"
+    assert r["text"] == "Q: 어느 쪽?\n- A\n- B\n답: B"
+    assert "answer_missing" not in r["meta"]
+    d = _ask(session)
+    d["tool_input"]["answers"] = {"어느 쪽?": "A"}
+    [r] = evidence.handle("PostToolUse", d, hash_of=versions.blob_hash)
+    assert r["text"].endswith("답: A")
+
+
+def test_ask_without_answer_marks_missing(session):
+    [r] = evidence.handle("PostToolUse", _ask(session, tool_response="whatever"), hash_of=versions.blob_hash)
+    assert r["meta"]["answer_missing"] is True
+    assert r["text"] == "Q: 어느 쪽?\n- A\n- B"
+
+
+def test_skill_edit_for_skill_and_guideline_files_only(session, tmp_path):
+    def edit(tool, rel):
+        f = tmp_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("v")
+        d = payload("PostToolUse", session, tool_name=tool, tool_input={"file_path": str(f)})
+        return f, evidence.handle("PostToolUse", d, hash_of=versions.blob_hash)
+
+    for tool, rel in [("Edit", "x/skills/s/SKILL.md"), ("Write", "r/CLAUDE.md"), ("MultiEdit", "r/.claude/rules/x.md"),
+                      ("Edit", "r/.claude/CLAUDE.md"), ("Edit", "p/skills/s/scripts/a.py"), ("Edit", "q/SKILL.md")]:
+        f, [r] = edit(tool, rel)
+        assert r["kind"] == "skill_edit" and r["file"] == str(f)
+        assert r["meta"]["hash_after"] == versions.blob_hash(f)
+    for rel in ("src/a.py", "r/.claude/rules/x.txt", "r/NOTCLAUDE.md"):
+        assert edit("Edit", rel)[1] == []
+    d = payload("PostToolUse", session, tool_name="Read", tool_input={"file_path": str(tmp_path / "r/CLAUDE.md")})
+    assert evidence.handle("PostToolUse", d, hash_of=versions.blob_hash) == []

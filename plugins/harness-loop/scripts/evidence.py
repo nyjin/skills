@@ -4,12 +4,14 @@
 # dependencies = ["pyyaml>=6"]
 # ///
 """훅 입력을 근거 레코드로 바꿔 세션 harness/evidence.jsonl 에 덧붙인다(프롬프트·스킬 상태·가드)."""
+import hashlib
 import json
 import os
 import re
 import time
 from pathlib import Path
 
+import apply_target
 import paths
 import transcript as tr
 import versions
@@ -20,6 +22,10 @@ BASE_SCAN = 256 * 1024
 SLASH_SKILL = re.compile(r"^/([\w.-]+:[\w.-]+)")
 SLASH_ANY = re.compile(r"^/([^\s/]+)")
 BASE_DIR = re.compile(r"Base directory for this skill: ([^\s\\\"]+)")
+HEREDOC = re.compile(r"<<(-?)[ \t]*(?:'(\w+)'|\"(\w+)\"|(\w+))[^\n]*\n")
+INLINE_ARG = re.compile(r"\b(?:python3?|bash|node|ruby|perl)\s+-[ce]\s+(\"(?:[^\"\\]|\\.)*\"|'[^']*')", re.S)
+PATH_TOKEN = re.compile(r"[^\s'\"<>|;&()=]+")
+EDIT_TOOLS = ("Edit", "Write", "MultiEdit")
 GUIDELINE_NAMES = ("CLAUDE.md", "AGENTS.md", ".claude/CLAUDE.md")
 
 
@@ -171,6 +177,127 @@ def _guidelines(hdir, cwd: str, hash_of) -> list[dict]:
     return out
 
 
+def inline_body(command: str) -> str | None:
+    """명령에 들어 있는 heredoc·`-c`/`-e` 인라인 스크립트 본문. 없으면 None."""
+    m = HEREDOC.search(command)
+    if m:
+        dash, delim = m.group(1), m.group(2) or m.group(3) or m.group(4)
+        body = []
+        for line in command[m.end():].splitlines(keepends=True):
+            stripped = line.rstrip("\r\n")
+            if (stripped.lstrip("\t") if dash else stripped) == delim:
+                break
+            body.append(line)
+        return "".join(body)
+    m = INLINE_ARG.search(command)
+    return m.group(1)[1:-1] if m else None
+
+
+def skill_scripts(command: str, skill_path: str | None) -> list[str]:
+    """명령 안의 경로 중 skill_path 아래 실제 파일."""
+    if not skill_path:
+        return []
+    root = os.path.realpath(skill_path) + os.sep
+    out: list[str] = []
+    for tok in PATH_TOKEN.findall(command):
+        p = os.path.expanduser(tok)
+        if tok not in out and os.path.isfile(p) and os.path.realpath(p).startswith(root):
+            out.append(tok)
+    return out
+
+
+def is_tracked_file(path: str) -> bool:
+    """스킬 파일 또는 지침 파일인지."""
+    p = str(path).replace(os.sep, "/")
+    name = p.rsplit("/", 1)[-1]
+    if name == "SKILL.md" or ("/skills/" in p and not p.endswith("/skills/")):
+        return True
+    if any(p == r or p.endswith("/" + r) for r in apply_target.RULE_FILES):
+        return True
+    return "/.claude/rules/" in p and name.endswith(".md")
+
+
+def _save_inline(hdir, body: str) -> str:
+    data = body.encode("utf-8")
+    f = Path(hdir) / "scripts" / f"{hashlib.sha1(data).hexdigest()}.txt"
+    if not f.exists():
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with open(f, "wb") as out:
+            out.write(data)
+    return str(f)
+
+
+def _cur_skill(data, hdir, hash_of):
+    state = skill_state(hdir)
+    return state, _skill_field(hdir, state, data.get("transcript_path", ""), hash_of)
+
+
+def _bash(data, hdir, pos, at, hash_of) -> list[dict]:
+    command = (data.get("tool_input") or {}).get("command")
+    if not isinstance(command, str):
+        return []
+    state, skill = _cur_skill(data, hdir, hash_of)
+    spath = state.get("path") if state else None
+    scripts = [{"path": p, "hash": hash_of(p)} for p in skill_scripts(command, spath)]
+    rec = _record("bash", data, hdir, pos, at, skill, command, {"scripts": scripts})
+    body = inline_body(command)
+    if body is not None:
+        rec["file"] = _save_inline(hdir, body)
+    return [rec]
+
+
+def _failure(data, hdir, pos, at, hash_of) -> list[dict]:
+    if data.get("is_interrupt"):
+        return []
+    err = data.get("error")
+    err = err if isinstance(err, str) else ""
+    text = str(data.get("tool_name") or "") + "\n" + "\n".join(err.splitlines()[:20])
+    meta = {"input": json.dumps(data.get("tool_input"), ensure_ascii=False)[:600]}
+    return [_record("failure", data, hdir, pos, at, _cur_skill(data, hdir, hash_of)[1], text, meta)]
+
+
+def _answers(data) -> dict | None:
+    resp = data.get("tool_response")
+    for src in (resp, data.get("tool_input")):
+        ans = src.get("answers") if isinstance(src, dict) else None
+        if isinstance(ans, dict):
+            return ans
+    return None
+
+
+def _ask(data, hdir, pos, at, hash_of) -> list[dict]:
+    questions = (data.get("tool_input") or {}).get("questions")
+    if not isinstance(questions, list):
+        return []
+    answers = _answers(data)
+    missing = answers is None
+    parts = []
+    for q in questions:
+        if not isinstance(q, dict):
+            continue
+        lines = [f"Q: {q.get('question', '')}"]
+        for o in q.get("options") or []:
+            lines.append(f"- {o.get('label', '') if isinstance(o, dict) else o}")
+        ans = (answers or {}).get(q.get("question"))
+        if ans is None:
+            missing = True
+        else:
+            lines.append("답: " + (", ".join(map(str, ans)) if isinstance(ans, list) else str(ans)))
+        parts.append("\n".join(lines))
+    meta = {"answer_missing": True} if missing else {}
+    return [_record("ask", data, hdir, pos, at, _cur_skill(data, hdir, hash_of)[1], "\n".join(parts), meta)]
+
+
+def _skill_edit(data, hdir, pos, at, hash_of) -> list[dict]:
+    path = (data.get("tool_input") or {}).get("file_path")
+    if not isinstance(path, str) or not is_tracked_file(path):
+        return []
+    rec = _record("skill_edit", data, hdir, pos, at, _cur_skill(data, hdir, hash_of)[1], path,
+                  {"hash_after": hash_of(path)})
+    rec["file"] = path
+    return [rec]
+
+
 def _record(kind, data, hdir, pos, at, skill, text, meta=None, flags=None) -> dict:
     return {
         "id": "",
@@ -238,6 +365,14 @@ def handle(event: str, data: dict, *, pos: int | None = None, at: str | None = N
     records: list[dict] = []
     if event == "UserPromptSubmit":
         records = _prompt(data, hdir, pos, at, hash_of, cfg)
+    elif event == "PreToolUse" and data.get("tool_name") == "Bash":
+        records = _bash(data, hdir, pos, at, hash_of)
+    elif event == "PostToolUseFailure":
+        records = _failure(data, hdir, pos, at, hash_of)
+    elif event == "PostToolUse" and data.get("tool_name") == "AskUserQuestion":
+        records = _ask(data, hdir, pos, at, hash_of)
+    elif event == "PostToolUse" and data.get("tool_name") in EDIT_TOOLS:
+        records = _skill_edit(data, hdir, pos, at, hash_of)
     elif event == "PreToolUse" and data.get("tool_name") == "Skill":
         name = (data.get("tool_input") or {}).get("skill")
         if isinstance(name, str) and name:
