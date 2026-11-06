@@ -112,7 +112,7 @@
 ### 성능·저장
 
 - 훅은 파일에 한 줄 덧붙이는 것과 해시 계산만 한다. LLM·네트워크 호출 없음. 실패해도 항상 `exit 0`, 오류는 `hook-errors.log`.
-- 매 프롬프트·매 Bash 호출에 붙으므로 훅은 `uv run` 없이 표준 라이브러리만 쓰는 `python3` 로 실행한다(내 판단). 설정 읽기가 필요하면 YAML 대신 JSON 을 쓴다.
+- 훅과 스크립트는 기존처럼 `uv run --script` 로 실행한다(사용자 결정). 설정은 `${CLAUDE_PLUGIN_DATA}/config.yaml` 이다(옛 `scoring.yaml` 은 읽지 않는다).
 - 근거·inline 스크립트 사본은 세션 디렉터리(`harness/`)에 두어 기록과 같이 `cleanupPeriodDays` 로 지워진다. 판정된 관찰·묶음·스킬 사본·결정은 `${CLAUDE_PLUGIN_DATA}` 에 둔다. 둘 다 push 되는 저장소에는 넣지 않는다.
 
 ## 6. 스킬 버전 추적
