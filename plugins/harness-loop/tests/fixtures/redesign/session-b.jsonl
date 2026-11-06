@@ -1,0 +1,6 @@
+{"type": "user", "timestamp": "2026-10-25T09:00:01.000Z", "cwd": "{REPO}", "message": {"role": "user", "content": "ADR 번호가 또 틀렸어, 다음 번호를 써야지"}}
+{"type": "assistant", "timestamp": "2026-10-25T09:00:02.000Z", "cwd": "{REPO}", "message": {"role": "assistant", "content": [{"type": "text", "text": "고치겠습니다."}]}}
+{"type": "user", "timestamp": "2026-10-30T09:00:03.000Z", "cwd": "{REPO}", "message": {"role": "user", "content": "이번에도 ADR 번호를 확인해"}}
+{"type": "assistant", "timestamp": "2026-10-30T09:00:04.000Z", "cwd": "{REPO}", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "b1", "name": "Skill", "input": {"skill": "release"}}]}}
+{"type": "user", "timestamp": "2026-10-30T09:00:05.000Z", "cwd": "{REPO}", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "b1", "is_error": false, "content": "Launching skill: release"}]}}
+{"type": "user", "timestamp": "2026-10-30T09:00:06.000Z", "cwd": "{REPO}", "isMeta": true, "message": {"role": "user", "content": [{"type": "text", "text": "Base directory for this skill: {REPO}/skills/a\n\n# release"}]}}

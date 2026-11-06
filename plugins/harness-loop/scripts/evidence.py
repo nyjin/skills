@@ -140,11 +140,12 @@ def _skill_field(hdir, state: dict | None, transcript_path: str, hash_of) -> dic
     }
 
 
-def _guidelines(hdir, cwd: str, hash_of) -> list[dict]:
-    """지침 파일 해시. 세션 harness/guideline-cache.json 에 (mtime, size)별 해시와 cwd 의 git 루트를 캐시한다."""
+def _guidelines(hdir, cwd: str, hash_of, cache_on: bool = True) -> list[dict]:
+    """지침 파일 해시. 세션 harness/guideline-cache.json 에 (mtime, size)별 해시와 cwd 의 git 루트를 캐시한다.
+    cache_on=False 면 캐시를 읽지도 쓰지도 않는다(백필처럼 hash_of 가 시각에 따라 달라질 때)."""
     cache_path = Path(hdir) / "guideline-cache.json"
     try:
-        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+        cache = json.loads(cache_path.read_text(encoding="utf-8")) if cache_on else {}
     except (OSError, ValueError):
         cache = {}
     files, roots = cache.setdefault("files", {}), cache.setdefault("roots", {})
@@ -172,7 +173,7 @@ def _guidelines(hdir, cwd: str, hash_of) -> list[dict]:
             files[key] = hit
             dirty = True
         out.append({"path": str(p), "hash": hit["hash"]})
-    if dirty:
+    if dirty and cache_on:
         paths.atomic_write(cache_path, json.dumps(cache, ensure_ascii=False))
     return out
 
@@ -333,7 +334,7 @@ def _start_skill(data, hdir, name, pos, at, hash_of) -> dict:
     return _record("skill_start", data, hdir, pos, at, skill, name)
 
 
-def _prompt(data, hdir, pos, at, hash_of, cfg) -> list[dict]:
+def _prompt(data, hdir, pos, at, hash_of, cfg, cache) -> list[dict]:
     text = data.get("prompt")
     if not isinstance(text, str) or text.startswith("<") or text.startswith(tr.CONTINUED):
         return []
@@ -352,13 +353,14 @@ def _prompt(data, hdir, pos, at, hash_of, cfg) -> list[dict]:
             state["prompts_since"] = state.get("prompts_since", 0) + 1
             _save_state(hdir, state)
     else:
-        meta["guidelines"] = _guidelines(hdir, data.get("cwd") or os.getcwd(), hash_of)
+        meta["guidelines"] = _guidelines(hdir, data.get("cwd") or os.getcwd(), hash_of, cache)
     skill = _skill_field(hdir, state, data.get("transcript_path", ""), hash_of)
     flags = {"after_rejection": after_rejection(data.get("transcript_path", ""), pos)}
     return [_record("prompt", data, hdir, pos, at, skill, text, meta, flags)]
 
 
-def handle(event: str, data: dict, *, pos: int | None = None, at: str | None = None, hash_of=versions.remember) -> list[dict]:
+def handle(event: str, data: dict, *, pos: int | None = None, at: str | None = None, hash_of=versions.remember,
+           cache: bool = True) -> list[dict]:
     if os.environ.get("HARNESS_RETRO") == "1" or data.get("agent_id"):
         return []
     transcript_path = data.get("transcript_path")
@@ -376,7 +378,7 @@ def handle(event: str, data: dict, *, pos: int | None = None, at: str | None = N
     cfg = paths.load_config()
     records: list[dict] = []
     if event == "UserPromptSubmit":
-        records = _prompt(data, hdir, pos, at, hash_of, cfg)
+        records = _prompt(data, hdir, pos, at, hash_of, cfg, cache)
     elif event == "PreToolUse" and data.get("tool_name") == "Bash":
         records = _bash(data, hdir, pos, at, hash_of)
     elif event == "PostToolUseFailure":

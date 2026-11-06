@@ -223,6 +223,21 @@ def test_guideline_hash_cached_when_unchanged(session, tmp_path):
     assert len(calls) == n + 1
 
 
+def test_guideline_hash_not_cached_when_cache_off(session, tmp_path):
+    proj = tmp_path / "repo3"
+    proj.mkdir()
+    (proj / "CLAUDE.md").write_text("a\n")
+    answers = iter(["h1", "h2"])
+
+    def go():
+        return evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=proj, prompt="hi"),
+                               hash_of=lambda p: next(answers), cache=False)
+
+    [r1], [r2] = go(), go()
+    assert r1["meta"]["guidelines"][0]["hash"] == "h1" and r2["meta"]["guidelines"][0]["hash"] == "h2"
+    assert not (paths.harness_path(session) / "guideline-cache.json").exists()
+
+
 def test_after_rejection_false_when_big_line_straddles_window(session):
     with open(session, "a") as f:
         f.write(tool_result("The user doesn't want to proceed", True))
