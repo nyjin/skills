@@ -165,6 +165,7 @@ def test_hooks_json_events_and_commands():
                 assert h["timeout"] == 5
 
 
+@pytest.mark.skipif(os.environ.get("HARNESS_PERF") != "1", reason="uv 기동 시간 측정은 HARNESS_PERF=1 일 때만")
 def test_hook_p95_under_100ms(session, tmp_path):
     env, _ = subprocess_env(tmp_path)
     env["HARNESS_PROJECTS_ROOT"] = os.environ["HARNESS_PROJECTS_ROOT"]
@@ -178,5 +179,16 @@ def test_hook_p95_under_100ms(session, tmp_path):
         subprocess.run(["uv", "run", "--script", str(HOOK)], input=raw, capture_output=True, text=True, env=env, check=True)
         times.append(time.perf_counter() - t)
     times = sorted(times[1:])
-    print("p95", times[37])
-    assert times[37] < 0.1
+    assert times[37] < 0.1, f"p95 {times[37]:.3f}s"
+
+
+def test_truncated_hook_errors_log_resets_seen(evidence_pending):
+    d = paths.data_dir()
+    (d / "hook-errors.seen").write_text("5")
+    (d / "hook-errors.log").write_text("a\n")
+    assert hook.run(start()) is not None
+    assert (d / "hook-errors.seen").read_text() == "1"
+    (d / "notice-day").unlink()
+    (d / "hook-errors.log").write_text("a\nb\n")
+    text = json.loads(hook.run(start()))["hookSpecificOutput"]["additionalContext"]
+    assert text.endswith(" (훅 오류 1건, hook-errors.log)")

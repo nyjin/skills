@@ -52,6 +52,9 @@ def session_start_text() -> str | None:
         seen = int((d / "hook-errors.seen").read_text().strip())
     except (OSError, ValueError):
         seen = 0
+    if errors < seen:
+        seen = errors
+        paths.atomic_write(d / "hook-errors.seen", str(errors))
     new_errors = errors - seen
     n = pending_count()
     if n <= 0 and new_errors <= 0:
