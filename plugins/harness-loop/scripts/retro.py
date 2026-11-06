@@ -82,6 +82,55 @@ def cmd_gate(a, cfg):
     return out
 
 
+def cmd_observe(a, cfg):
+    result = _read_json(a.file)
+    if a.pending:
+        wanted = [e.get("id") for e in _read_json(a.pending).get("evidence") or []]
+        got = {e.get("evidence_id") for e in result.get("observations") or [] if isinstance(e, dict)}
+        missing = [i for i in wanted if i not in got]
+        if missing:
+            raise ValueError(f"판정하지 않은 근거 {len(missing)}건: {' '.join(missing)}")
+    return observe.save(result)
+
+
+def _replay_gate_schema() -> dict:
+    item = json.loads(observe.SCHEMA.read_text(encoding="utf-8"))["properties"]["observations"]["items"]
+    return {"type": "object", "required": ["rubric_version", "results"], "properties": {
+        "rubric_version": {"type": "integer"},
+        "results": {"type": "array", "items": {
+            "type": "object", "required": ["group", "observations"], "properties": {
+                "group": {"type": "string", "minLength": 1},
+                "observations": {"type": "array", "items": item},
+                "group_fields": {"type": "object"}}}}}}
+
+
+def cmd_replay_gate(a, cfg):
+    """다시 판정한 관찰을 보관본 근거와 합쳐 관문에 걸고 replay-schema 결과를 쓴다."""
+    data = _read_json(a.file)
+    observe.validate(data, _replay_gate_schema())
+    results = []
+    for i, r in enumerate(data["results"]):
+        inp = paths.data_dir() / "replay" / r["group"] / "input.json"
+        if not inp.is_file():
+            raise ValueError(f"$.results[{i}].group: 보관본이 없는 묶음 {r['group']}")
+        archived = _read_json(inp)
+        by_id = {e.get("evidence_id"): e for e in archived.get("observations") or []}
+        obs = []
+        for j, e in enumerate(r["observations"]):
+            if e["evidence_id"] not in by_id:
+                raise ValueError(f"$.results[{i}].observations[{j}]: 보관본에 없는 evidence_id {e['evidence_id']}")
+            if e["type"] == "repeat" and not e.get("purpose"):
+                raise ValueError(f"$.results[{i}].observations[{j}].purpose: repeat 는 purpose 가 필요합니다")
+            src = by_id[e["evidence_id"]].get("evidence") or by_id[e["evidence_id"]].get("observation") or {}
+            obs.append({**e, **{f: src.get(f) for f in observe.COPY_FIELDS},
+                        "project": observe.project_of(src.get("cwd") or "")})
+        surfaces = rubric.gate_one(archived["group"], {"observations": obs, "group": r.get("group_fields") or {}})
+        results.append({"group": r["group"], "surfaces": surfaces})
+    out = {"rubric_version": data["rubric_version"], "results": results}
+    Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    return out
+
+
 def cmd_replay_inputs(a, cfg):
     base = paths.data_dir() / "replay"
     return [str(p) for g, v in decide.labels().items()
@@ -96,7 +145,7 @@ def cmd_rubric_apply(a, cfg):
 
 COMMANDS = {
     "pending": cmd_pending,
-    "observe": lambda a, cfg: observe.save(_read_json(a.file)),
+    "observe": cmd_observe,
     "context": cmd_context,
     "groups": lambda a, cfg: {"changed": groups.merge(_read_json(a.file))},
     "gate": cmd_gate,
@@ -106,6 +155,7 @@ COMMANDS = {
     "rubric-candidates": lambda a, cfg: rubric.candidates(),
     "rubric-apply": cmd_rubric_apply,
     "replay-score": lambda a, cfg: rubric.replay_score(_read_json(a.current), _read_json(a.candidate)),
+    "replay-gate": cmd_replay_gate,
     "replay-inputs": cmd_replay_inputs,
     "backfill": lambda a, cfg: backfill.run(a.days),
 }
@@ -117,7 +167,9 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("pending")
     s.add_argument("--out", required=True)
     s.add_argument("--limit", type=int)
-    sub.add_parser("observe").add_argument("--file", required=True)
+    s = sub.add_parser("observe")
+    s.add_argument("--file", required=True)
+    s.add_argument("--pending")
     sub.add_parser("context")
     sub.add_parser("groups").add_argument("--file", required=True)
     sub.add_parser("gate")
@@ -142,6 +194,9 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("replay-score")
     s.add_argument("--current", required=True)
     s.add_argument("--candidate", required=True)
+    s = sub.add_parser("replay-gate")
+    s.add_argument("--file", required=True)
+    s.add_argument("--out", required=True)
     sub.add_parser("replay-inputs")
     sub.add_parser("backfill").add_argument("--days", type=int)
     return p

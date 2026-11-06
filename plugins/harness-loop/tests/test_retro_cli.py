@@ -148,3 +148,63 @@ def test_cli_subprocess_smoke():
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout) == {"positive": 0, "negative": 0, "precision": None}
+
+
+def test_observe_pending_requires_every_evidence_id(tmp_path, capsys):
+    hdir = paths.projects_root() / "p" / "s9" / "harness"
+    hdir.mkdir(parents=True)
+    recs = [{"id": f"e{i}", "kind": "prompt", "at": NOW, "session": "s9", "transcript": "", "pos": 0, "cwd": "/w/o/p",
+             "skill": None, "text": "t", "file": None, "flags": {}, "meta": {}} for i in (1, 2)]
+    (hdir / "evidence.jsonl").write_text("".join(json.dumps(r) + "\n" for r in recs), encoding="utf-8")
+    pend = write(tmp_path / "pending.json", {"evidence": recs, "examples": []})
+    only_second = write(tmp_path / "o.json", {"observations": [
+        {"evidence_id": "e2", "type": "correction", "verdict": False, "reason": "아님"}]})
+    code, cap = cli_fail(capsys, "observe", "--file", only_second, "--pending", pend)
+    assert code == 1 and cap.out == "" and cap.err.rstrip().endswith("판정하지 않은 근거 1건: e1")
+    assert not (paths.data_dir() / "observations.jsonl").exists()
+    assert not (hdir / "evidence.cursor").exists()
+    both = write(tmp_path / "o2.json", {"observations": [
+        {"evidence_id": e, "type": "correction", "verdict": False, "reason": "아님"} for e in ("e1", "e2")]})
+    assert cli(capsys, "observe", "--file", both, "--pending", pend) == {"saved": 2, "skipped": 0}
+
+
+def _archive(gid, eid, at="2025-01-01T00:00:00+09:00"):
+    ev = {"id": eid, "kind": "prompt", "at": at, "session": "s1", "cwd": "/w/org/proj-a", "skill": None,
+          "text": "t", "file": None, "meta": {}}
+    inp = paths.data_dir() / "replay" / gid / "input.json"
+    inp.parent.mkdir(parents=True, exist_ok=True)
+    write(inp, {"group": group(gid, "fix", [eid], finding="wrong"),
+                "observations": [{"evidence_id": eid, "observation": None, "evidence": ev, "excerpt": ""}],
+                "file_versions": {}, "rubric": {"version": 1, "text": ""}})
+
+
+def test_replay_gate_applies_gate_to_rejudged(tmp_path, capsys):
+    _archive("g1", "a1")
+    _archive("g2", "b1")
+    entry = {"type": "failure", "reason": "r"}
+    data = {"rubric_version": 2, "results": [
+        {"group": "g1", "observations": [{**entry, "evidence_id": "a1", "verdict": True}]},
+        {"group": "g2", "observations": [{**entry, "evidence_id": "b1", "verdict": False}]}]}
+    out = tmp_path / "gated.json"
+    res = cli(capsys, "replay-gate", "--file", write(tmp_path / "rj.json", data), "--out", out)
+    assert res == {"rubric_version": 2,
+                   "results": [{"group": "g1", "surfaces": True}, {"group": "g2", "surfaces": False}]}
+    assert json.loads(out.read_text()) == res
+    data["results"][0]["group_fields"] = {"verified": None}
+    res = cli(capsys, "replay-gate", "--file", write(tmp_path / "rj.json", data), "--out", out)
+    assert res["results"][0]["surfaces"] is False
+
+
+def test_replay_gate_rejects_bad_input(tmp_path, capsys):
+    _archive("g1", "a1")
+    bad = {"rubric_version": 1, "results": [{"group": "g1", "observations": [
+        {"evidence_id": "zz", "type": "failure", "verdict": True, "reason": "r"}]}]}
+    out = tmp_path / "o.json"
+    code, cap = cli_fail(capsys, "replay-gate", "--file", write(tmp_path / "b.json", bad), "--out", out)
+    assert code == 1 and "zz" in cap.err
+    bad["results"][0]["group"] = "없음"
+    code, cap = cli_fail(capsys, "replay-gate", "--file", write(tmp_path / "b.json", bad), "--out", out)
+    assert code == 1 and "보관본" in cap.err
+    code, cap = cli_fail(capsys, "replay-gate", "--file", write(tmp_path / "b.json", {"results": []}), "--out", out)
+    assert code == 1 and "rubric_version" in cap.err
+    assert not out.exists()

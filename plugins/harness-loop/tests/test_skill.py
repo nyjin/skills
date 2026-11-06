@@ -1,14 +1,16 @@
+import argparse
 import re
 from pathlib import Path
 
 import yaml
 
+import retro
+
 PLUGIN = Path(__file__).resolve().parents[1]
 SKILL = PLUGIN / "skills/retro/SKILL.md"
 TRIGGERS = ("회고", "retro", "개선점 정리", "이 세션 돌아보기", "판정하지 않은 근거")
 PREFIX = 'CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py"'
-SUBCOMMANDS = {"pending", "observe", "context", "groups", "gate", "decide", "ticket-file", "metrics",
-               "rubric-candidates", "rubric-apply", "replay-score", "replay-inputs", "backfill"}
+SUBCOMMANDS = set(next(a for a in retro.parser()._actions if isinstance(a, argparse._SubParsersAction)).choices)
 CONFIG_KEYS = ("eval_markers", "window_days", "script_min_count", "script_min_sessions", "correction_min_count",
                "guideline_min_sessions", "repeat_edit_min", "label_examples", "rubric_min_evidence",
                "replay_min_labels", "judge_batch")
@@ -49,7 +51,7 @@ def test_script_paths_use_plugin_root():
 def test_commands_use_prefix_and_known_subcommands():
     _, _, body = _parts()
     found = set()
-    for m in re.finditer(r"retro\.py", body):
+    for m in re.finditer(r"scripts/retro\.py", body):
         assert body[: m.end() + 1].endswith(PREFIX), body[max(0, m.start() - 80): m.end() + 20]
         sub = re.match(r'"\s+(<하위 명령>|[\w-]+)', body[m.end():])
         assert sub, body[m.start(): m.end() + 30]
@@ -58,7 +60,7 @@ def test_commands_use_prefix_and_known_subcommands():
         assert sub.group(1) in SUBCOMMANDS, sub.group(1)
         found.add(sub.group(1))
     assert found >= {"pending", "observe", "context", "groups", "gate", "decide", "ticket-file",
-                     "rubric-candidates", "rubric-apply", "replay-score", "replay-inputs", "backfill"}
+                     "rubric-candidates", "rubric-apply", "replay-gate", "replay-score", "replay-inputs", "backfill"}
 
 
 def test_no_harness_retro_and_no_old_scripts():
@@ -72,6 +74,7 @@ def test_judges_use_opus_and_rubric_apply_needs_confirmation():
     _, _, body = _parts()
     assert 'model: "opus"' in body
     assert "--confirmed" in body
+    assert "--pending" in body
     assert "dropped_positives" in body
 
 
