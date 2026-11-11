@@ -87,3 +87,11 @@ def test_transcribe_first_success_does_not_retry():
     e = engine_with([GOOD])
     assert len(e.transcribe(AUDIO)) == 2
     assert len(e._asr.calls) == 1
+
+
+def test_truncation_detected_within_last_minute():
+    assert _truncation([seg(0, 580)], 600.0, lambda: [(0, 580), (585, 595)]) is not None
+
+
+def test_no_truncation_within_last_minute_without_later_speech():
+    assert _truncation([seg(0, 580)], 600.0, lambda: [(0, 580)]) is None

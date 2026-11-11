@@ -7,10 +7,17 @@ from asrlib.audio import SR
 
 MAX_TOKENS = 16384
 RETRY_REPETITION_PENALTY = 1.1  # VibeVoice 이슈 #373 반복 루프 대응
-TRUNCATION_MARGIN = 60.0  # 마지막 구간 끝이 조각 끝보다 이만큼 앞이면 끊김을 의심한다
+TRUNCATION_MARGIN = 10.0  # 마지막 구간 끝이 조각 끝보다 이만큼 앞이면 끊김을 의심한다
+MLX_CACHE_LIMIT_GB = 2  # MLX 가 풀어 둔 버퍼를 붙잡아 두는 캐시 상한. 피크 메모리를 줄인다.
 SPEECH_AFTER_MARGIN = 1.0  # VAD 구간이 마지막 구간 끝보다 이만큼 넘게 이어지면 뒤에 발화가 있다고 본다
 
 _TAG = re.compile(r"\[[^\]]*\]")
+
+
+def _limit_cache() -> None:
+    """모델을 처음 올릴 때 부른다. 여러 번 불러도 같다."""
+    import mlx.core as mx
+    mx.set_cache_limit(MLX_CACHE_LIMIT_GB * 1024**3)
 
 
 class TranscriptionFailed(Exception):
@@ -47,6 +54,7 @@ class Engine:
     def speech_intervals(self, audio: np.ndarray) -> list[tuple[float, float]]:
         if self._vad is None:
             from mlx_audio.vad import load
+            _limit_cache()
             self._vad = load(self.vad_repo)
         stamps = self._vad.get_speech_timestamps(audio, sample_rate=SR, return_seconds=True)
         return [(float(s["start"]), float(s["end"])) for s in stamps]
@@ -54,6 +62,7 @@ class Engine:
     def _generate(self, audio: np.ndarray, **kwargs):
         if self._asr is None:
             from mlx_audio.stt import load
+            _limit_cache()
             self._asr = load(self.asr_repo)
         return self._asr.generate(audio, sampling_rate=SR, max_tokens=MAX_TOKENS, **kwargs)
 
@@ -80,6 +89,7 @@ class Engine:
     def embed(self, audio: np.ndarray) -> np.ndarray:
         if self._ecapa is None:
             from mlx_audio.codec.models.ecapa_tdnn.speaker import EcapaSpeakerEmbeddingExtractor
+            _limit_cache()
             self._ecapa = EcapaSpeakerEmbeddingExtractor.from_pretrained(self.ecapa_repo)
         v = np.asarray(self._ecapa.encode(audio), dtype=np.float32)
         return v / np.linalg.norm(v)
