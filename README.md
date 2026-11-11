@@ -72,7 +72,7 @@ uv run pytest -m "not slow"   # mermaid 렌더링 제외
 
 ### 설치
 
-플러그인이 아니라 스킬 폴더 링크로 설치합니다.
+플러그인이 아니라 스킬 폴더 링크로 설치합니다. tech-writing 플러그인에는 들어 있지 않습니다(`marketplace.json` 의 `skills` 가 `skills/tech-writer` 만 싣습니다).
 
 ```bash
 ln -s ~/src/skills/skills/asr ~/.claude/skills/asr

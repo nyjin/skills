@@ -7,6 +7,7 @@
     {
       "name": "tech-writing",
       "source": "./",
+      "skills": ["./skills/tech-writer"],
       "description": "독자에 맞춰 한국어 기술 문서를 구성·작성·개선한다.",
       "version": "0.2.0",
       "author": { "name": "yeonjin.roh" },
