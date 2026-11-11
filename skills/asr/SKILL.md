@@ -7,21 +7,21 @@ description: 녹음·음성 파일을 화자별로 나눈 한국어 전사본(�
 
 녹음 파일 하나를 화자별로 나눈 한국어 전사본(`.md`)과 데이터(`.json`)로 만든다. 모든 처리는 이 Mac 안에서 이뤄지며, 녹음과 전사본을 외부로 보내지 않는다. 이 스킬은 정확한 화자별 전사본까지만 책임진다. 요약이나 평가를 함께 요청받으면 전사를 마친 뒤 그 일은 다른 스킬에 넘긴다.
 
-경로는 설치 위치 기준이다.
+아래 명령의 `<스킬 디렉터리>` 는 이 스킬을 불렀을 때 표시되는 "Base directory for this skill" 경로다. 링크로 설치했든 플러그인으로 설치했든 그 절대 경로로 바꿔 쓴다(예: `~/.claude/skills/asr`).
 
-- 스킬: `~/.claude/skills/asr`
-- Python: `~/.local/share/asr/venv/bin/python` (스킬 전용 가상환경)
+- 스크립트: `<스킬 디렉터리>/scripts/`
+- Python: `~/.local/share/asr/venv/bin/python` (스킬 전용 가상환경, 위치 고정)
 
 ## 1. 환경을 점검한다
 
 ```bash
-bash ~/.claude/skills/asr/scripts/check_env.sh
+bash "<스킬 디렉터리>/scripts/check_env.sh"
 ```
 
 출력은 `KEY=VALUE` 줄이고, 마지막 줄 `STATUS` 로 다음 할 일을 정한다.
 
 - `STATUS=ready`: 2단계로 간다.
-- `STATUS=missing`: `~/.claude/skills/asr/references/install.md` 를 따라 설치를 고지하고 동의를 받는다. 동의 없이는 설치하지 않고, 설치하지 않았으면 2단계로 가지 않는다.
+- `STATUS=missing`: `<스킬 디렉터리>/references/install.md` 를 따라 설치를 고지하고 동의를 받는다. 동의 없이는 설치하지 않고, 설치하지 않았으면 2단계로 가지 않는다.
 - `STATUS=unsupported`: 아래 문구를 보여 주고 멈춘다. 설치도 전사도 하지 않는다.
   - OS 나 칩이 원인이면: `이 스킬은 Apple Silicon(M1 이상) Mac 전용입니다. 현재 환경(<os>/<arch>)은 지원하지 않습니다.` (`<os>`, `<arch>` 는 출력의 `OS=`, `ARCH=` 값)
   - 메모리가 원인이면: `UNSUPPORTED_REASON=` 의 값(`메모리 <N>GB — 10분 조각 처리에 최소 24GB가 필요합니다.`)
@@ -29,15 +29,16 @@ bash ~/.claude/skills/asr/scripts/check_env.sh
 ## 2. 전사한다
 
 ```bash
-~/.local/share/asr/venv/bin/python ~/.claude/skills/asr/scripts/transcribe.py "<녹음 경로>" --cwd "$PWD"
+~/.local/share/asr/venv/bin/python "<스킬 디렉터리>/scripts/transcribe.py" "<녹음 경로>" --cwd "$PWD"
 ```
 
 - 경로에 공백이나 한글이 있을 수 있으니 반드시 따옴표로 감싼다.
-- 실측으로 12분 녹음에 약 3분 걸린다. 몇 분 이상 걸릴 녹음은 Bash `run_in_background` 로 돌리고, 시작할 때 예상 시간을 알린다.
+- 실측으로 12분 녹음에 약 3분, 51분 녹음에 약 17분 걸린다. 몇 분 이상 걸릴 녹음은 Bash `run_in_background` 로 돌리고, 시작할 때 예상 시간을 알린다.
 - 진행 상황(`조각 n/N 처리 중 …`)은 stderr 로, 요약 JSON 은 stdout 으로 나온다.
 - 결과 파일은 녹음과 같은 폴더에 만든다. 그 폴더에 쓸 수 없거나 `~/Library` 아래(음성 메모 보관함 등)면 `--cwd` 폴더에 만든다. 같은 이름이 있으면 덮어쓰지 않고 `이름 (2)` 처럼 번호를 붙인다.
 - 원본 녹음은 읽기만 한다.
-- 종료 코드 2 는 입력 오류다(파일 없음, 디코딩 실패 등). stderr 메시지를 그대로 보여 주고 멈춘다.
+- 종료 코드 2 는 입력·저장 오류다(파일 없음, 디코딩 실패, 결과 폴더에 쓸 수 없음 등). 저장할 폴더는 전사 전에 확인한다. stderr 메시지를 그대로 보여 주고 멈춘다.
+- 종료 코드 3 은 전사 엔진 오류다. 대개 메모리 부족이다. stderr 메시지(다른 앱을 닫고 다시 실행, 그래도 같으면 메모리가 요구 사양보다 작음)를 그대로 보여 주고 멈춘다.
 
 요약 JSON 의 키는 다음과 같다.
 
@@ -77,7 +78,7 @@ bash ~/.claude/skills/asr/scripts/check_env.sh
 사용자가 이름을 주면(예: "화자1은 김철수, 화자3은 박지민") 다시 분석하지 않고 이름만 바꾼다. 2단계의 `.json` 경로에 화자 번호마다 `--set` 을 하나씩 준다.
 
 ```bash
-~/.local/share/asr/venv/bin/python ~/.claude/skills/asr/scripts/rename.py "<json 경로>" --set "1=김철수" --set "3=박지민"
+~/.local/share/asr/venv/bin/python "<스킬 디렉터리>/scripts/rename.py" "<json 경로>" --set "1=김철수" --set "3=박지민"
 ```
 
 - `.json` 의 이름만 고치고 같은 이름의 `.md` 를 다시 만든다.

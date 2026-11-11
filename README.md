@@ -94,6 +94,13 @@ ln -s ~/src/skills/skills/asr ~/.claude/skills/asr
 
 ```bash
 uv run --no-project --with pytest --with numpy pytest skills/asr/tests -m "not slow" -q   # 단위 테스트
+bash skills/asr/tests/test_check_env.sh                                                   # 환경 점검 스크립트 테스트
+```
+
+MLX 통합 테스트는 설치를 마친 뒤 스킬 전용 가상환경에 pytest 를 한 번 넣고 돌립니다. 모델을 실제로 올리므로 메모리를 많이 씁니다. 한 번에 하나만 실행합니다.
+
+```bash
+~/.local/share/asr/venv/bin/pip install pytest                                            # 처음 한 번
 ~/.local/share/asr/venv/bin/python -m pytest skills/asr/tests -m slow -q                  # MLX 통합 테스트
 ```
 

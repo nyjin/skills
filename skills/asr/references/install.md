@@ -10,7 +10,7 @@
 | `missing` | 10 | 아래 3~4절 순서로 설치를 안내하고 동의를 받는다. |
 | `unsupported` | 20 | 6절 문구를 보여 주고 멈춘다. 설치하지 않는다. |
 
-`missing` 일 때 빠진 항목은 `FFMPEG`, `PYTHON`, `VENV`, `MLX_AUDIO`, `MODEL_VIBEVOICE`, `MODEL_VAD`, `MODEL_ECAPA` 키로 알 수 있다. `install.sh` 가 같은 출력을 읽어 빠진 것만 설치한다.
+`missing` 일 때 빠진 항목은 `FFMPEG`, `PYTHON`, `VENV`, `MLX_AUDIO`, `MODEL_VIBEVOICE`, `MODEL_VAD`, `MODEL_ECAPA` 키로 알 수 있다. `MLX_AUDIO` 는 import 가 안 되면 `absent`, 0.6.2 보다 낮으면 그 버전 값이며 둘 다 빠진 것으로 본다. `install.sh` 가 같은 출력을 읽어 빠진 것만 설치한다.
 
 ## 2. 진행 순서
 
@@ -32,15 +32,19 @@
 
 ## 3. 고지 문안 템플릿
 
-`<>` 안은 `--dry-run` 출력과 `check_env` 값으로 채운다. 빠진 항목만 적는다.
+`<>` 안은 `--dry-run` 출력과 `check_env` 값으로 채운다. 빠진 항목만 적는다. `[...]` 는 해당할 때만 넣는다. `FFMPEG=absent` 나 `PYTHON=absent` 면 Homebrew 설치 줄을 반드시 넣는다. `--dry-run` 의 예상 용량 합계는 Homebrew 패키지를 뺀 값이다.
 
 ```
 녹음을 화자별로 나눠 전사하려면 아래 항목을 이 Mac에 설치해야 합니다.
 
 - 설치 항목: <빠진 항목 목록. 예: 가상환경, mlx-audio 0.6.5, 전사 모델 VibeVoice-ASR-8bit, VAD 모델, 목소리 지문 모델>
-- 예상 용량: 약 <합계>GB (디스크 여유 <DISK_FREE_GB>GB)
+[ffmpeg·Python 3.12 가 없을 때] - Homebrew 로 설치: <ffmpeg, python@3.12 중 빠진 것> (`brew install ffmpeg`, `brew install python@3.12`)
+- 예상 용량: 약 <합계>GB (디스크 여유 <DISK_FREE_GB>GB)[Homebrew 설치가 있을 때] — Homebrew 패키지 용량은 합계에 넣지 않았습니다
 - 설치 위치: 가상환경 <venv 경로, 기본 ~/.local/share/asr/venv>, 모델 <HF 캐시, 기본 ~/.cache/huggingface/hub>
-- 제공 기능: 한국어 녹음의 화자 구분 전사본(마크다운) 생성. 모든 처리는 이 Mac 안에서만 이뤄지고 녹음·전사본은 외부로 나가지 않습니다.
+- 제공 기능:
+  - 한국어 받아쓰기, 화자분리, 타임스탬프
+  - 긴 녹음 처리와 조각 간 화자 연결
+  - Apple Silicon GPU 가속
 - 소요 시간: 모델 다운로드가 대부분입니다. 실측 약 6MB/s, 9.5GB 기준 수십 분입니다. 이미 받은 모델이 있으면 그만큼 줄어듭니다.
 
 설치할까요?
@@ -62,11 +66,14 @@
 
 ## 6. 미지원 환경 안내
 
-`STATUS=unsupported` 면 `UNSUPPORTED_REASON` 을 함께 보여 주고, 아래 문구로 멈춘다.
+`STATUS=unsupported` 면 원인에 따라 아래 문구 하나를 보여 주고 멈춘다. `install.sh` 는 이 환경에서 아무것도 설치하지 않고 exit 20 한다.
 
-> 이 스킬은 Apple Silicon(M1 이상) Mac 전용입니다. 현재 환경(<OS>/<ARCH>)은 지원하지 않습니다.
+- OS 나 칩이 원인이면(`UNSUPPORTED_REASON` 이 macOS·Apple Silicon 이야기):
 
-`<OS>`, `<ARCH>` 는 `check_env` 출력의 `OS=`, `ARCH=` 값이다. `install.sh` 는 이 환경에서 아무것도 설치하지 않고 exit 20 한다.
+  > 이 스킬은 Apple Silicon(M1 이상) Mac 전용입니다. 현재 환경(<OS>/<ARCH>)은 지원하지 않습니다.
+
+  `<OS>`, `<ARCH>` 는 `check_env` 출력의 `OS=`, `ARCH=` 값이다.
+- 메모리가 원인이면 `UNSUPPORTED_REASON=` 의 값만 보여 준다(`메모리 <N>GB — 10분 조각 처리에 최소 24GB가 필요합니다.`). Apple Silicon 문구는 붙이지 않는다.
 
 ## 7. Homebrew 가 없을 때
 
