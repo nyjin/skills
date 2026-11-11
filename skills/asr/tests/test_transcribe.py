@@ -36,11 +36,20 @@ class FakeEngine:
     def __init__(self, script):
         self.script = script
         self.calls = 0
+        self.releases = 0
+        self.vad_lengths = []
         self._chunk_audio = None
         self._chunk_items = []
 
     def speech_intervals(self, audio):
+        self.vad_lengths.append(len(audio))
         return []
+
+    def memory_report(self, reset_peak=False):
+        return ""
+
+    def release(self):
+        self.releases += 1
 
     def transcribe(self, audio):
         item = self.script[self.calls]
@@ -327,3 +336,41 @@ def test_save_failure_exits_2(short_copy, tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(transcribe, "Engine", lambda: FakeEngine([[(0.5, 4.0, 0, 0, "안녕")]]))
     assert main([str(short_copy), "--cwd", str(tmp_path)]) == 2
     assert "저장하지 못했습니다" in capsys.readouterr().err
+
+
+class WindowEngine:
+    """speech_intervals 가 받은 배열 길이를 적고, 창마다 미리 정한 구간(창 기준 초)을 돌려준다."""
+
+    def __init__(self, per_window):
+        self.per_window = per_window
+        self.lengths = []
+
+    def speech_intervals(self, audio):
+        self.lengths.append(len(audio))
+        return self.per_window[len(self.lengths) - 1]
+
+
+def test_vad_runs_per_window_and_joins_at_edges():
+    audio = np.zeros(int(1500 * 16000), dtype=np.float32)
+    engine = WindowEngine([
+        [(10.0, 20.0), (590.0, 600.0)],  # 창 경계 600 에 닿은 발화
+        [(0.4, 5.0), (100.0, 110.0)],    # 같은 발화가 새 창에서 0.4초 늦게 잡힌 부분
+        [(0.8, 3.0)],                    # 경계 1200 에서 늦게 잡힌 새 창의 첫 구간이지만 앞 구간이 경계에 닿지 않았다
+    ])
+    out = transcribe._speech_intervals(engine, audio)
+
+    assert engine.lengths == [600 * 16000, 600 * 16000, 300 * 16000]
+    assert out == [(10.0, 20.0), (590.0, 605.0), (700.0, 710.0), (1200.8, 1203.0)]
+
+
+def test_cache_released_before_every_chunk(long_copy, tmp_path):
+    engine = FakeEngine([
+        [(10, 20, 0, 0, "앞")],
+        TranscriptionFailed("끊김"),
+        [(50, 60, 0, 0, "뒤")],
+    ])
+    run(str(long_copy), str(tmp_path), engine)
+
+    assert engine.releases == 3  # 실패한 조각 다음 조각도 같은 기준선에서 시작한다
+    # 1500초 녹음 전체를 VAD 에 한 번에 넘기지 않는다
+    assert engine.vad_lengths == [600 * 16000, 600 * 16000, 300 * 16000]

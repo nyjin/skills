@@ -12,9 +12,11 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from asrlib.audio import ENHANCE_FILTERS, SR, AudioError, decode, integrated_lufs, needs_enhancement  # noqa: E402
+from asrlib.audio import ENHANCE_FILTERS, SR, AudioError, decode_mapped, integrated_lufs, needs_enhancement  # noqa: E402
 from asrlib.chunking import keep_windows, plan_chunks  # noqa: E402
 from asrlib.engine import Engine, TranscriptionFailed  # noqa: E402
 from asrlib.speakers import assign_labels, consolidate, link_chunk, local_speakers, overlap_votes  # noqa: E402
@@ -22,6 +24,28 @@ from asrlib.transcript import _ts, display_name, first_lines, output_paths, save
 
 SILENCE_LUFS = -70.0  # ebur128 절대 게이트. 이 값이면 게이트를 넘은 구간이 없다(무음).
 STRADDLE_SEC = 0.5  # 뒤 조각 발화가 앞 조각이 남긴 끝보다 이만큼 넘게 이어지면 남긴다
+VAD_WINDOW_SEC = 600.0  # VAD 에 한 번에 넘기는 길이. 녹음 전체를 한꺼번에 MLX 에 올리지 않는다.
+VAD_JOIN_SEC = 1.0  # 창 경계에서 이 안으로 맞닿은 앞뒤 발화 구간은 하나로 잇는다.
+# 새 창은 VAD 상태가 처음부터 시작해 이어지던 발화를 수백 ms 늦게 잡을 수 있다. 그 틈이 가짜 무음(자를 자리)이 되지 않게 한다.
+
+
+def _speech_intervals(engine, audio) -> list[tuple[float, float]]:
+    """녹음을 VAD_WINDOW_SEC 창으로 나눠 VAD 를 돌리고 원본 기준 구간으로 모은다.
+
+    창 경계에 걸친 발화는 양쪽 창에서 경계에 닿은 두 구간으로 나오므로 다시 잇는다.
+    """
+    step = int(VAD_WINDOW_SEC * SR)
+    out: list[tuple[float, float]] = []
+    for a in range(0, len(audio), step):
+        edge = a / SR
+        for i, (s, e) in enumerate(engine.speech_intervals(np.array(audio[a:a + step]))):
+            s, e = s + edge, e + edge
+            if (i == 0 and out and out[-1][1] >= edge - VAD_JOIN_SEC
+                    and s <= edge + VAD_JOIN_SEC):
+                out[-1] = (out[-1][0], max(out[-1][1], e))
+            else:
+                out.append((s, e))
+    return out
 
 
 def _kept(segments: list[dict], ok_chunks: list) -> list[dict]:
@@ -67,6 +91,13 @@ def _recount(speakers: dict, kept: list[dict]) -> None:
         del speakers[sid]
 
 
+def _log_memory(engine, where: str) -> None:
+    """메모리 사용량을 진행 로그에 남기고, 다음 구간의 피크를 새로 재도록 피크를 되돌린다."""
+    report = engine.memory_report(reset_peak=True)
+    if report:
+        print(f"  메모리({where}, GiB) {report}", file=sys.stderr, flush=True)
+
+
 def run(input_path: str, cwd: str, engine) -> dict:
     if not os.path.isfile(input_path):
         raise AudioError(f"파일을 찾을 수 없습니다: {input_path}")
@@ -82,13 +113,13 @@ def run(input_path: str, cwd: str, engine) -> dict:
     enhanced = None
     if math.isfinite(lufs) and lufs > SILENCE_LUFS and needs_enhancement(lufs):
         enhanced = {"lufs_before": round(lufs, 1), "filters": ENHANCE_FILTERS}
-        audio = decode(input_path, ENHANCE_FILTERS)
+        audio = decode_mapped(input_path, ENHANCE_FILTERS)
     else:
-        audio = decode(input_path)
+        audio = decode_mapped(input_path)
     duration = len(audio) / SR
 
     # ④ 조각 나누기
-    chunks = plan_chunks(duration, engine.speech_intervals(audio))
+    chunks = plan_chunks(duration, _speech_intervals(engine, audio))
 
     # ⑤ 조각별 전사와 화자 연결
     speakers: dict = {}
@@ -100,7 +131,9 @@ def run(input_path: str, cwd: str, engine) -> dict:
     for chunk in chunks:
         print(f"조각 {chunk.index + 1}/{len(chunks)} 처리 중 "
               f"({_ts(chunk.start)}–{_ts(chunk.end)})", file=sys.stderr, flush=True)
-        chunk_audio = audio[int(round(chunk.start * SR)):int(round(chunk.end * SR))]
+        engine.release()  # 앞 단계(VAD·앞 조각)가 남긴 캐시를 놓고 같은 기준선에서 시작한다
+        _log_memory(engine, f"조각 {chunk.index + 1} 시작")
+        chunk_audio = np.array(audio[int(round(chunk.start * SR)):int(round(chunk.end * SR))])
         try:
             segs = engine.transcribe(chunk_audio)
         except TranscriptionFailed as e:
@@ -122,6 +155,7 @@ def run(input_path: str, cwd: str, engine) -> dict:
                       "text": s["text"], "chunk": chunk.index} for s in absolute]
         ok_chunks.append(chunk)
         prev_ok = True
+        _log_memory(engine, f"조각 {chunk.index + 1} 끝")
 
     # 겹침 중복 제거 → 발화량 재계산 → ⑥ 통합·번호
     kept = sorted(_kept(segments, ok_chunks), key=lambda s: s["start"])

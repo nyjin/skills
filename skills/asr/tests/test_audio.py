@@ -1,6 +1,7 @@
 import hashlib
 import shutil
 import subprocess
+import tempfile
 
 import numpy as np
 import pytest
@@ -11,6 +12,7 @@ from asrlib.audio import (
     SR,
     AudioError,
     decode,
+    decode_mapped,
     integrated_lufs,
     needs_enhancement,
 )
@@ -38,6 +40,25 @@ def test_decode_fixture():
     x = decode(str(FIXTURE))
     assert x.dtype == np.float32
     assert abs(len(x) / SR - 22.2) <= 0.1
+
+
+def test_decode_mapped_matches_decode_and_leaves_no_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    x = decode_mapped(str(FIXTURE), ENHANCE_FILTERS)
+    assert isinstance(x, np.memmap)
+    assert np.array_equal(x, decode(str(FIXTURE), ENHANCE_FILTERS))
+    assert list(tmp_path.iterdir()) == []  # 매핑한 뒤 임시 파일은 바로 지운다
+
+
+def test_decode_mapped_bad_file_leaves_no_file(tmp_path, monkeypatch):
+    p = tmp_path / "not_audio.txt"
+    p.write_text("audio 아님")
+    tmp = tmp_path / "tmp"
+    tmp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp))
+    with pytest.raises(AudioError):
+        decode_mapped(str(p))
+    assert list(tmp.iterdir()) == []
 
 
 def test_decode_path_with_space(tmp_path):

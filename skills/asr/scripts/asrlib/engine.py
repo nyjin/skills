@@ -1,4 +1,6 @@
 """mlx-audio 래퍼. mlx 를 import 하는 유일한 모듈이며, import 는 메서드 안에서만 한다."""
+import ctypes
+import os
 import re
 
 import numpy as np
@@ -18,6 +20,18 @@ def _limit_cache() -> None:
     """모델을 처음 올릴 때 부른다. 여러 번 불러도 같다."""
     import mlx.core as mx
     mx.set_cache_limit(MLX_CACHE_LIMIT_GB * 1024**3)
+
+
+def _footprint() -> tuple[int, int] | None:
+    """(현재, 수명 최대) phys_footprint 바이트. Activity Monitor 의 '메모리' 값과 같다. macOS 전용."""
+    buf = (ctypes.c_uint64 * 40)()  # rusage_info_v4: uuid 16바이트 뒤 uint64 들
+    try:
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        if libc.proc_pid_rusage(os.getpid(), 4, ctypes.byref(buf)) != 0:
+            return None
+    except (OSError, AttributeError):
+        return None
+    return buf[2 + 7], buf[2 + 28]  # ri_phys_footprint, ri_lifetime_max_phys_footprint
 
 
 class TranscriptionFailed(Exception):
@@ -50,6 +64,26 @@ class Engine:
         self._asr = None
         self._vad = None
         self._ecapa = None
+
+    def memory_report(self, reset_peak: bool = False) -> str:
+        """진행 로그용 메모리 한 줄(GiB). reset_peak 이면 MLX 피크를 지금 값으로 되돌린다."""
+        import mlx.core as mx
+        g = 1024**3
+        parts = [f"active={mx.get_active_memory() / g:.2f}", f"cache={mx.get_cache_memory() / g:.2f}",
+                 f"peak={mx.get_peak_memory() / g:.2f}"]
+        fp = _footprint()
+        if fp:
+            parts += [f"footprint={fp[0] / g:.2f}", f"max_footprint={fp[1] / g:.2f}"]
+        if reset_peak:
+            mx.reset_peak_memory()
+        return " ".join(parts)
+
+    def release(self) -> None:
+        """조각 사이에 부른다. 조각에 쓴 MLX 버퍼(캐시)를 놓아, 다음 조각이 같은 기준선에서 시작한다."""
+        import gc
+        import mlx.core as mx
+        gc.collect()
+        mx.clear_cache()
 
     def speech_intervals(self, audio: np.ndarray) -> list[tuple[float, float]]:
         if self._vad is None:
