@@ -116,7 +116,7 @@ skills/asr/
     - OS 가 Darwin 이 아니다.
     - `sysctl -n hw.optional.arm64` 가 1 이 아니다. Rosetta 셸도 잡으려고 `uname -m` 대신 이 값을 본다.
     - 메모리가 24GB 미만이다.
-      - 근거: 10분 조각은 실측 기준 약 14GB 이고, OS 몫까지 여유를 둔 값이다.
+      - 근거: 10분 조각의 프로세스 피크 footprint 는 실측 약 17.3~17.6GiB 다(모델 가중치 8.9 + 조각 처리 5.3 + MLX 캐시 상한 2 + 그 밖 약 1.3). OS 몫까지 여유를 둔 값이다.
       - 사유 문구: `메모리 <N>GB — 10분 조각 처리에 최소 24GB가 필요합니다.`
   - `PYTHON` 탐색 순서: `python3.12`, `python3.13`, `python3` 순으로 찾아 3.12 이상인 첫 번째를 쓴다.
   - 모델 `present` 조건: 세 가지를 모두 만족해야 한다.
@@ -516,10 +516,10 @@ skills/asr/
 - [ ] **Step 3: 12분 실녹음으로 검증한다.**
   - 입력은 사용자 녹음 복제본이다. 외부 반출 금지.
   - 명령: `transcribe.py /Users/yeonjin.roh/src/interview/vibevoice-test/memo12.m4a --cwd /tmp/asr-real`
-  - 기대: 화자 2명, `failed_ranges` 비어 있음, 피크 메모리 16GB 이하(`/usr/bin/time -l`)
+  - 기대: 화자 2명, `failed_ranges` 비어 있음, 피크 메모리(`/usr/bin/time -l` peak memory footprint) 약 17.3GiB
 - [ ] **Step 4: 긴 녹음 검증**
   - 입력: 51분 녹음 복제본
     - `cp ~/"Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20260804 104510.m4a" /tmp/asr-real/long.m4a`
-  - 기대: 조각 6개 이상, 모든 조각 ≤600초(json `chunks`), 원본 sha256 불변, 피크 메모리 16GB 이하
+  - 기대: 조각 6개 이상, 모든 조각 ≤600초(json `chunks`), 원본 sha256 불변, 피크 메모리 약 17.6GiB(12분 녹음과 0.3GiB 안쪽 차이)
   - 화자 수와 연결 품질은 사용자가 `.md` 를 보고 판단한다.
 - [ ] **Step 5: 전체 단위 테스트를 다시 돌리고 커밋한다.** `docs: asr 스킬 SKILL.md 와 사용 안내 추가`

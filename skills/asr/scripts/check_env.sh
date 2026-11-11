@@ -4,7 +4,7 @@
 # 테스트용 덮어쓰기: ASR_UNAME_S, ASR_ARM64(0/1), ASR_MEM_BYTES, ASR_HF_HUB, ASR_VENV, ASR_PATH_OVERRIDE
 set -uo pipefail
 
-MIN_MEM_GB=24  # 12분 녹음 실측 피크 footprint 17.3GiB(캐시 상한 2GB) + OS 여유 6GiB 를 RAM 등급으로 올림
+MIN_MEM_GB=24  # 실측 피크 footprint 12분 17.3GiB·51분 17.6GiB(캐시 상한 2GB) + OS 여유 6GiB 를 RAM 등급으로 올림
 MIN_MLX_AUDIO=0.6.2
 HF_HUB="${ASR_HF_HUB:-$HOME/.cache/huggingface/hub}"
 VENV_DIR="${ASR_VENV:-$HOME/.local/share/asr/venv}"
