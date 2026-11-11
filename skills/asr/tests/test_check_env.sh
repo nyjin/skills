@@ -41,14 +41,14 @@ run ASR_ARM64=0
 has STATUS=unsupported && [ "$CODE" -eq 20 ]
 check "intel is unsupported" $?
 
-# 3. low memory is unsupported
+# 3. low memory warns but is not unsupported
 run ASR_MEM_BYTES=17179869184
-has STATUS=unsupported && has_re '^UNSUPPORTED_REASON=.*16GB' && [ "$CODE" -eq 20 ]
-check "low memory is unsupported" $?
+has_re '^MEM_WARNING=.*16GB.*24GB' && has STATUS=missing && ! has_re '^UNSUPPORTED_REASON=' && [ "$CODE" -eq 10 ]
+check "low memory warns but is not unsupported" $?
 
 # 4. empty hub is missing
 run
-has MODEL_VIBEVOICE=missing && has STATUS=missing && [ "$CODE" -eq 10 ]
+has MODEL_VIBEVOICE=missing && has STATUS=missing && ! has_re '^MEM_WARNING=' && [ "$CODE" -eq 10 ]
 check "empty hub is missing" $?
 
 # 가짜 모델 캐시 만들기

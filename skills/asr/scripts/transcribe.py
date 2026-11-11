@@ -216,7 +216,7 @@ def main(argv=None) -> int:
         return 2
     except (RuntimeError, MemoryError) as e:  # MLX/Metal 메모리 할당 실패는 RuntimeError 로 온다
         print("전사 엔진이 멈췄습니다. 메모리가 부족했을 수 있습니다. 다른 앱을 닫고 다시 실행해 주세요. "
-              "그래도 같으면 이 Mac 의 메모리가 요구 사양보다 작은 것입니다.\n"
+              "그래도 같으면 이 Mac 의 메모리가 권장(24GB)보다 작은 것입니다.\n"
               f"원인: {type(e).__name__}: {e}", file=sys.stderr)
         return 3
     print(json.dumps(summary, ensure_ascii=False, indent=2))

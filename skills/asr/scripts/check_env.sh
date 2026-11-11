@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # 환경 점검. stdout 에 KEY=VALUE 를 한 줄씩 내고 마지막 줄은 STATUS=ready|missing|unsupported.
-# 종료 코드: ready 0 / missing 10 / unsupported 20.
+# 종료 코드: ready 0 / missing 10 / unsupported 20. 메모리가 권장보다 작으면 MEM_WARNING= 을 내고 막지는 않는다.
 # 테스트용 덮어쓰기: ASR_UNAME_S, ASR_ARM64(0/1), ASR_MEM_BYTES, ASR_HF_HUB, ASR_VENV, ASR_PATH_OVERRIDE
 set -uo pipefail
 
-MIN_MEM_GB=24  # 실측 피크 footprint 12분 17.3GiB·51분 17.6GiB(캐시 상한 2GB) + OS 여유 6GiB 를 RAM 등급으로 올림
+RECOMMENDED_MEM_GB=24  # 권장값. 실측 피크 footprint 12분 17.3GiB·51분 17.6GiB(캐시 상한 2GB) + OS 여유 6GiB 를 RAM 등급으로 올림
 MIN_MLX_AUDIO=0.6.2
 HF_HUB="${ASR_HF_HUB:-$HOME/.cache/huggingface/hub}"
 VENV_DIR="${ASR_VENV:-$HOME/.local/share/asr/venv}"
@@ -29,13 +29,14 @@ if [ "$os" != Darwin ]; then
   reason="OS 가 $os 입니다. macOS 전용입니다."
 elif [ "$arm64" != 1 ]; then
   reason="Apple Silicon(M1 이상)이 아닙니다."
-elif [ "$mem_gb" -lt "$MIN_MEM_GB" ]; then
-  reason="메모리 ${mem_gb}GB — 10분 조각 처리에 최소 ${MIN_MEM_GB}GB가 필요합니다."
 fi
 if [ -n "$reason" ]; then
   echo "UNSUPPORTED_REASON=$reason"
   echo "STATUS=unsupported"
   exit 20
+fi
+if [ "$mem_gb" -lt "$RECOMMENDED_MEM_GB" ]; then
+  echo "MEM_WARNING=메모리 ${mem_gb}GB — ${RECOMMENDED_MEM_GB}GB 이상을 권장합니다. 전사 중 느려지거나 메모리 부족으로 멈출 수 있습니다."
 fi
 
 missing=0
