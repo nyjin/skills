@@ -24,6 +24,11 @@ def _normalize(v: np.ndarray) -> np.ndarray:
     return v / np.linalg.norm(v)
 
 
+def _usable_print(v: np.ndarray) -> bool:
+    """NaN·inf 가 없고 길이가 0 이 아니어야 지문으로 쓴다. 아니면 지문이 없는 것으로 본다."""
+    return bool(np.all(np.isfinite(v))) and float(np.linalg.norm(v)) > 0
+
+
 def _cos(a, b) -> float:
     a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
     return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))
@@ -61,13 +66,18 @@ def local_speakers(segs: list[dict], audio: np.ndarray, sr: int, offset: float,
                 # 한 구간이 상한보다 길면 그 구간만 상한 길이로 잘라 쓴다.
                 b = a + int(MAX_PRINT_SEC * sr)
                 dur = (b - a) / sr
-            embs.append(np.asarray(embed(audio[a:b]), dtype=float))
+            emb = np.asarray(embed(audio[a:b]), dtype=float)
+            if not _usable_print(emb):
+                continue
+            embs.append(emb)
             weights.append(dur)
             total += dur
 
         print_ = None
         if embs:
-            print_ = _normalize(np.average(np.stack(embs), axis=0, weights=weights))
+            avg = np.average(np.stack(embs), axis=0, weights=weights)
+            if _usable_print(avg):
+                print_ = _normalize(avg)
         result[local] = LocalSpeaker(local, print_, float(speech_sec), float(first_start))
     return result
 

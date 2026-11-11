@@ -183,3 +183,23 @@ def test_assign_labels_skip_merged():
     assert speakers["S1"]["label_no"] == 1
     assert speakers["S4"]["label_no"] == 2
     assert "label_no" not in speakers["S3"]
+
+
+def test_local_speakers_drops_non_finite_and_zero_prints():
+    segs = [{"start": 0.0, "end": 3.0, "speaker_id": 0, "text": "가"},
+            {"start": 0.0, "end": 3.0, "speaker_id": 1, "text": "나"}]
+    audio = np.zeros(5 * SR, dtype=np.float32)
+    nan = np.full(DIM, np.nan)
+    result = local_speakers(segs, audio, SR, 0.0, lambda x: nan)
+    assert result[0].voiceprint is None
+    result = local_speakers(segs, audio, SR, 0.0, lambda x: np.zeros(DIM))
+    assert result[0].voiceprint is None and result[1].voiceprint is None
+
+
+def test_local_speakers_drops_print_that_averages_to_zero():
+    segs = [{"start": 0.0, "end": 3.0, "speaker_id": 0, "text": "가"},
+            {"start": 3.0, "end": 6.0, "speaker_id": 0, "text": "나"}]
+    audio = np.zeros(7 * SR, dtype=np.float32)
+    prints = iter([unit(0, noise=0), -unit(0, noise=0)])
+    result = local_speakers(segs, audio, SR, 0.0, lambda x: next(prints))
+    assert result[0].voiceprint is None
