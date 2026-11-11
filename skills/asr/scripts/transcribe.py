@@ -40,7 +40,11 @@ def _kept(segments: list[dict], ok_chunks: list) -> list[dict]:
 
 
 def _recount(speakers: dict, kept: list[dict]) -> None:
-    """발화량과 첫 등장을 중복 제거 뒤 남은 발화로 다시 센다. 첫 등장은 늦추지 않는다."""
+    """발화량과 첫 등장을 중복 제거 뒤 남은 발화로 다시 센다. 첫 등장은 늦추지 않는다.
+
+    남은 발화가 없는 화자는 명부에서 지운다(번호·통합 대상에서 빠지고 지문도 남기지 않는다).
+    links 의 연결 기록은 그대로 둔다.
+    """
     by_sid: dict[str, list[dict]] = {}
     for seg in kept:
         by_sid.setdefault(seg["speaker"], []).append(seg)
@@ -48,6 +52,8 @@ def _recount(speakers: dict, kept: list[dict]) -> None:
         entry = speakers[sid]
         entry["speech_sec"] = sum(s["end"] - s["start"] for s in segs)
         entry["first_seen"] = min(entry["first_seen"], min(s["start"] for s in segs))
+    for sid in [sid for sid in speakers if sid not in by_sid]:
+        del speakers[sid]
 
 
 def run(input_path: str, cwd: str, engine) -> dict:

@@ -179,9 +179,9 @@ def test_overlap_not_duplicated(long_copy, tmp_path):
 def test_failed_chunk_marked(long_copy, tmp_path):
     before = _sha256(long_copy)
     engine = FakeEngine([
-        [(10, 20, 0, 0, "앞 조각")],
+        [(10, 20, 0, 0, "앞 조각"), (580, 590, 0, 0, "앞 조각 겹침")],
         TranscriptionFailed("전사가 끊겼습니다"),
-        [(300, 310, 0, 0, "뒤 조각")],
+        [(10, 20, 0, 0, "뒤 조각 겹침"), (300, 310, 0, 0, "뒤 조각")],
     ])
     summary = run(str(long_copy), str(tmp_path), engine)
 
@@ -192,9 +192,35 @@ def test_failed_chunk_marked(long_copy, tmp_path):
     md = (tmp_path / "long.md").read_text(encoding="utf-8")
     assert "> ⚠ [00:09:15–00:19:15]" in md
     assert "앞 조각" in md and "뒤 조각" in md
+    # 실패한 조각과 겹친 구간(원본 580초, 1120초)은 이웃 조각의 발화로 남는다.
+    assert "앞 조각 겹침" in md and "뒤 조각 겹침" in md
     doc = load(summary["json"])
     assert doc["failed_ranges"] == summary["failed_ranges"]
     assert len(summary["speakers"]) == 1
+
+
+def test_speaker_without_kept_segments_dropped(long_copy, tmp_path):
+    before = _sha256(long_copy)
+    # 조각 0: B(10~20) → S1, A(565~580) → S2.
+    # 조각 1: A 를 local 0(570~580, 겹침 투표 승) 과 local 5(565~570, 새 목소리) 로 쪼갠다.
+    #   local 5 → S3 이지만 565 < 577.5 경계라 발화가 하나도 남지 않는다.
+    #   C(755~765) → S4.
+    engine = FakeEngine([
+        [(10, 20, 0, 1, "B 발화"), (565, 580, 1, 0, "A 발화")],
+        [(10, 15, 5, 2, "쪼개진 앞부분"), (15, 25, 0, 0, "A 겹침"), (200, 210, 1, 3, "C 발화")],
+        [(300, 310, 0, 3, "C 끝")],
+    ])
+    summary = run(str(long_copy), str(tmp_path), engine)
+
+    assert _sha256(long_copy) == before
+    doc = load(summary["json"])
+    assert "S3" not in doc["speakers"]
+    assert any(ln["speaker"] == "S3" for ln in doc["links"])  # 연결 기록은 남긴다
+    labels = sorted(e["label_no"] for e in doc["speakers"].values() if "merged_into" not in e)
+    assert labels == [1, 2, 3]
+    assert [s["label"] for s in summary["speakers"]] == ["화자 1", "화자 2", "화자 3"]
+    assert all(s["first_lines"] for s in summary["speakers"])
+    assert "쪼개진 앞부분" not in (tmp_path / "long.md").read_text(encoding="utf-8")
 
 
 def test_all_silence(long_copy, tmp_path):
