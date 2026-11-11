@@ -10,6 +10,8 @@
 | `missing` | 10 | 아래 3~4절 순서로 설치를 안내하고 동의를 받는다. |
 | `unsupported` | 20 | 6절 문구를 보여 주고 멈춘다. 설치하지 않는다. |
 
+메모리가 24GB 보다 작으면 `MEM_WARNING=` 줄이 나온다. 그 값을 한 번 알리고 STATUS 대로 진행한다. 막지 않는다.
+
 `missing` 일 때 빠진 항목은 `FFMPEG`, `PYTHON`, `VENV`, `MLX_AUDIO`, `MODEL_VIBEVOICE`, `MODEL_VAD`, `MODEL_ECAPA` 키로 알 수 있다. `MLX_AUDIO` 는 import 가 안 되면 `absent`, 0.6.2 보다 낮으면 그 버전 값이며 둘 다 빠진 것으로 본다. `install.sh` 가 같은 출력을 읽어 빠진 것만 설치한다.
 
 ## 2. 진행 순서
@@ -66,14 +68,11 @@
 
 ## 6. 미지원 환경 안내
 
-`STATUS=unsupported` 면 원인에 따라 아래 문구 하나를 보여 주고 멈춘다. `install.sh` 는 이 환경에서 아무것도 설치하지 않고 exit 20 한다.
+`STATUS=unsupported` 는 macOS 가 아니거나 Apple Silicon 이 아닐 때만 나온다. 아래 문구를 보여 주고 멈춘다. `install.sh` 는 이 환경에서 아무것도 설치하지 않고 exit 20 한다.
 
-- OS 나 칩이 원인이면(`UNSUPPORTED_REASON` 이 macOS·Apple Silicon 이야기):
+> 이 스킬은 Apple Silicon(M1 이상) Mac 전용입니다. 현재 환경(<OS>/<ARCH>)은 지원하지 않습니다.
 
-  > 이 스킬은 Apple Silicon(M1 이상) Mac 전용입니다. 현재 환경(<OS>/<ARCH>)은 지원하지 않습니다.
-
-  `<OS>`, `<ARCH>` 는 `check_env` 출력의 `OS=`, `ARCH=` 값이다.
-- 메모리가 원인이면 `UNSUPPORTED_REASON=` 의 값만 보여 준다(`메모리 <N>GB — 10분 조각 처리에 최소 24GB가 필요합니다.`). Apple Silicon 문구는 붙이지 않는다.
+`<OS>`, `<ARCH>` 는 `check_env` 출력의 `OS=`, `ARCH=` 값이다. 메모리가 작은 것은 미지원이 아니다(1절 `MEM_WARNING`).
 
 ## 7. Homebrew 가 없을 때
 
