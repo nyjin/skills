@@ -85,5 +85,17 @@ has STATUS=ready && has MLX_AUDIO=0.6.5 && has VENV=present && has FFMPEG=presen
   && has "PYTHON=$BIN/python3.12" && [ "$CODE" -eq 0 ]
 check "all present is ready" $?
 
+# 7. old mlx-audio is missing
+printf '#!/bin/sh\necho 0.5.0\n' > "$TMP/venv/bin/python"
+run ASR_HF_HUB="$HUB" ASR_VENV="$TMP/venv" ASR_PATH_OVERRIDE="$BIN:/usr/bin:/bin"
+has STATUS=missing && has MLX_AUDIO=0.5.0 && [ "$CODE" -eq 10 ]
+check "old mlx-audio is missing" $?
+
+# 8. mlx-audio that fails to import is absent
+printf '#!/bin/sh\necho 0.6.5\nexit 1\n' > "$TMP/venv/bin/python"
+run ASR_HF_HUB="$HUB" ASR_VENV="$TMP/venv" ASR_PATH_OVERRIDE="$BIN:/usr/bin:/bin"
+has STATUS=missing && has MLX_AUDIO=absent && [ "$CODE" -eq 10 ]
+check "mlx-audio import failure is absent" $?
+
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

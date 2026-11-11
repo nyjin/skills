@@ -5,6 +5,7 @@
 set -uo pipefail
 
 MIN_MEM_GB=24
+MIN_MLX_AUDIO=0.6.2
 HF_HUB="${ASR_HF_HUB:-$HOME/.cache/huggingface/hub}"
 VENV_DIR="${ASR_VENV:-$HOME/.local/share/asr/venv}"
 [ -n "${ASR_PATH_OVERRIDE:-}" ] && PATH="$ASR_PATH_OVERRIDE"
@@ -56,17 +57,28 @@ done
 if [ -n "$python_path" ]; then echo "PYTHON=$python_path"; else echo "PYTHON=absent"; missing=1; fi
 
 # 설치
+# mlx-audio: import 가 돼야 하고 버전이 MIN_MLX_AUDIO 이상이어야 한다.
+# import 실패면 absent, 버전이 낮으면 그 버전을 내고 둘 다 missing 이다.
+version_ge() { # version_ge <버전> <최소 버전> — 앞 세 자리를 숫자로 비교
+  local a b c x y z
+  IFS=. read -r a b c <<<"$1"
+  IFS=. read -r x y z <<<"$2"
+  a=${a//[^0-9]/}; b=${b//[^0-9]/}; c=${c//[^0-9]/}
+  [ "${a:-0}" -ne "$x" ] && { [ "${a:-0}" -gt "$x" ]; return; }
+  [ "${b:-0}" -ne "$y" ] && { [ "${b:-0}" -gt "$y" ]; return; }
+  [ "${c:-0}" -ge "$z" ]
+}
 mlx_audio=absent
 if [ -x "$VENV_DIR/bin/python" ]; then
   echo "VENV=present"
-  v="$("$VENV_DIR/bin/python" -c "import importlib.metadata as m; print(m.version('mlx-audio'))" 2>/dev/null)" \
+  v="$("$VENV_DIR/bin/python" -c "import mlx_audio, importlib.metadata as m; print(m.version('mlx-audio'))" 2>/dev/null | tail -n1)" \
     && [ -n "$v" ] && mlx_audio="$v"
 else
   echo "VENV=absent"
   missing=1
 fi
 echo "MLX_AUDIO=$mlx_audio"
-[ "$mlx_audio" = absent ] && missing=1
+{ [ "$mlx_audio" = absent ] || ! version_ge "$mlx_audio" "$MIN_MLX_AUDIO"; } && missing=1
 
 # 모델: 필수 파일이 심볼릭 링크까지 실제 파일로 풀리고, blobs 에 *.incomplete 가 없어야 present
 model_present() { # model_present <org--name> <config.json 필요 여부 0/1> <필수 파일 glob>
