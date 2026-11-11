@@ -8,6 +8,7 @@ from asrlib.audio import SR
 MAX_TOKENS = 16384
 RETRY_REPETITION_PENALTY = 1.1  # VibeVoice 이슈 #373 반복 루프 대응
 TRUNCATION_MARGIN = 60.0  # 마지막 구간 끝이 조각 끝보다 이만큼 앞이면 끊김을 의심한다
+SPEECH_AFTER_MARGIN = 1.0  # VAD 구간이 마지막 구간 끝보다 이만큼 넘게 이어지면 뒤에 발화가 있다고 본다
 
 _TAG = re.compile(r"\[[^\]]*\]")
 
@@ -27,7 +28,7 @@ def _truncation(raw_segments: list, duration: float, speech) -> str | None:
     last_end = max((float(s.get("end", 0.0)) for s in raw_segments), default=0.0)
     if last_end >= duration - TRUNCATION_MARGIN:
         return None
-    if any(start > last_end for start, _ in speech()):
+    if any(end > last_end + SPEECH_AFTER_MARGIN for _, end in speech()):
         return f"전사가 {last_end:.1f}초에서 끊겼습니다(조각 길이 {duration:.1f}초, 뒤에 발화 있음)"
     return None
 
@@ -73,7 +74,7 @@ class Engine:
             {"start": float(s["start"]), "end": float(s["end"]),
              "speaker_id": int(s["speaker_id"]), "text": s.get("text", "")}
             for s in result.segments
-            if s.get("speaker_id") is not None
+            if s.get("speaker_id") is not None and "start" in s and "end" in s
         ]
 
     def embed(self, audio: np.ndarray) -> np.ndarray:
