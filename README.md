@@ -64,6 +64,39 @@ uv run pytest -m "not slow"   # mermaid 렌더링 제외
 
 본보기(`references/exemplars/`)를 쓸 때 분석한 한국어 참고 문서 목록은 `skills/tech-writer/references/exemplar-notes.md`에 있습니다. 본보기는 분석한 패턴을 바탕으로 새로 썼습니다.
 
+## asr: 화자별 녹음 전사
+
+`skills/asr/` 는 녹음 파일을 화자별로 나눈 한국어 전사본(마크다운)으로 만드는 Claude Code 스킬입니다. 회의·면접 녹음을 받아 화자분리와 타임스탬프를 붙이고, 원하면 화자에 실제 이름을 붙입니다. VibeVoice-ASR 을 MLX 로 이 Mac 안에서만 돌리며, 녹음과 전사본은 외부로 나가지 않습니다. 요약과 평가는 하지 않습니다.
+
+**지원 환경:** Apple Silicon(M1 이상) Mac, 메모리 24GB 이상.
+
+### 설치
+
+플러그인이 아니라 스킬 폴더 링크로 설치합니다.
+
+```bash
+ln -s ~/src/skills/skills/asr ~/.claude/skills/asr
+```
+
+처음 실행하면 스킬이 환경을 점검하고, 빠진 구성 요소(ffmpeg, Python 3.12, 가상환경 `~/.local/share/asr/venv`, 모델 약 10GB)를 알린 뒤 동의를 받아 설치합니다. 자세한 절차는 `skills/asr/references/install.md` 에 있습니다.
+
+### 사용
+
+녹음 파일을 주며 전사를 요청하면 발동합니다.
+
+- "~/Downloads/회의.m4a 전사해 줘"
+- "이 면접 녹음 누가 뭐라고 했는지 정리해 줘"
+- "화자1은 김철수, 화자2는 박지민으로 바꿔 줘"
+
+전사본은 녹음과 같은 폴더에 `<녹음 이름>.md`, `<녹음 이름>.json` 으로 저장합니다. 그 폴더에 쓸 수 없거나 음성 메모 보관함이면 현재 폴더에 저장합니다.
+
+### 테스트
+
+```bash
+uv run --no-project --with pytest --with numpy pytest skills/asr/tests -m "not slow" -q   # 단위 테스트
+~/.local/share/asr/venv/bin/python -m pytest skills/asr/tests -m slow -q                  # MLX 통합 테스트
+```
+
 ## 라이선스
 
 MIT
