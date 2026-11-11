@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from conftest import FIXTURE
 
+import transcribe
 from asrlib.engine import TranscriptionFailed
 from asrlib.transcript import display_name, load
 from transcribe import main, run
@@ -260,3 +261,69 @@ def test_quiet_file_enhanced(tmp_path):
 def test_cli_missing_input_exits_2(tmp_path, capsys):
     assert main([str(tmp_path / "없는 파일.m4a"), "--cwd", str(tmp_path)]) == 2
     assert "파일을 찾을 수 없습니다" in capsys.readouterr().err
+
+
+def _texts(doc):
+    return [s["text"] for s in doc["segments"]]
+
+
+def test_overlap_jitter_not_lost(long_copy, tmp_path):
+    # 경계 577.5 를 사이에 두고 같은 발화가 조각 0 에서는 577.9, 조각 1 에서는 577.3 에 시작한다.
+    engine = FakeEngine([
+        [(10, 20, 0, 0, "A 시작"), (577.9, 585, 0, 0, "흔들린 발화")],
+        [(22.3, 30, 0, 0, "흔들린 발화"), (100, 110, 1, 1, "B 등장")],
+        [(50, 60, 0, 0, "A 끝")],
+    ])
+    summary = run(str(long_copy), str(tmp_path), engine)
+
+    assert _texts(load(summary["json"])).count("흔들린 발화") == 1
+
+
+def test_overlap_straddle_not_lost(long_copy, tmp_path):
+    # 조각 0 은 [570,579] [579,592] 로 나누고, 조각 1 은 같은 말을 [570,592] 하나로 낸다.
+    engine = FakeEngine([
+        [(10, 20, 0, 0, "A 시작"), (570, 579, 0, 0, "전반부"), (579, 592, 0, 0, "후반부")],
+        [(15, 37, 0, 0, "전반부와 후반부 합본"), (100, 110, 1, 1, "B 등장")],
+        [(50, 60, 0, 0, "A 끝")],
+    ])
+    summary = run(str(long_copy), str(tmp_path), engine)
+
+    texts = _texts(load(summary["json"]))
+    assert "전반부와 후반부 합본" in texts  # 중복은 감수하고 잃지 않는다
+    assert "전반부" in texts
+
+
+def test_cli_engine_memory_error_exits_3(short_copy, tmp_path, capsys, monkeypatch):
+    error = RuntimeError("[metal::malloc] Attempting to allocate 30000000000 bytes")
+    monkeypatch.setattr(transcribe, "Engine", lambda: FakeEngine([error]))
+    assert main([str(short_copy), "--cwd", str(tmp_path)]) == 3
+    err = capsys.readouterr().err
+    assert "메모리" in err and "metal::malloc" in err
+    assert not (tmp_path / "test_ko.json").exists()
+
+
+def test_unwritable_output_dir_fails_before_transcribing(tmp_path, capsys, monkeypatch):
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    src = locked / "test_ko.wav"
+    shutil.copy(FIXTURE, src)
+    engine = FakeEngine([])
+    monkeypatch.setattr(transcribe, "Engine", lambda: engine)
+    locked.chmod(0o500)
+    try:
+        code = main([str(src), "--cwd", str(tmp_path / "없는 폴더")])
+    finally:
+        locked.chmod(0o700)
+    assert code == 2
+    assert engine.calls == 0
+    assert "쓸 수 없습니다" in capsys.readouterr().err
+
+
+def test_save_failure_exits_2(short_copy, tmp_path, capsys, monkeypatch):
+    def broken_save(*args):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(transcribe, "save", broken_save)
+    monkeypatch.setattr(transcribe, "Engine", lambda: FakeEngine([[(0.5, 4.0, 0, 0, "안녕")]]))
+    assert main([str(short_copy), "--cwd", str(tmp_path)]) == 2
+    assert "저장하지 못했습니다" in capsys.readouterr().err

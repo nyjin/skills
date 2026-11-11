@@ -2,7 +2,8 @@
 
     python transcribe.py <audio> [--cwd DIR]
 
-요약 JSON 은 stdout, 진행 상황은 stderr 로 낸다. 종료 코드: 성공 0, 입력 오류 2.
+요약 JSON 은 stdout, 진행 상황은 stderr 로 낸다.
+종료 코드: 성공 0, 입력·저장 오류 2, 메모리 부족 등 엔진 오류 3.
 """
 import argparse
 import json
@@ -20,22 +21,32 @@ from asrlib.speakers import assign_labels, consolidate, link_chunk, local_speake
 from asrlib.transcript import _ts, display_name, first_lines, output_paths, save  # noqa: E402
 
 SILENCE_LUFS = -70.0  # ebur128 절대 게이트. 이 값이면 게이트를 넘은 구간이 없다(무음).
+STRADDLE_SEC = 0.5  # 뒤 조각 발화가 앞 조각이 남긴 끝보다 이만큼 넘게 이어지면 남긴다
 
 
 def _kept(segments: list[dict], ok_chunks: list) -> list[dict]:
-    """겹친 구간의 중복을 뺀다. 시작 시각이 자기 조각의 남길 구간 [s, e) 에 든 발화만 남긴다.
+    """겹친 구간의 중복을 뺀다. 빠뜨리느니 중복을 남긴다.
 
-    실패한 조각은 빼고 경계를 잡아, 이웃 조각이 덮은 발화를 잃지 않는다.
+    경계 b 는 이웃한 성공 조각 사이 겹침의 중점이다(실패한 조각은 빼고 잡는다).
+    앞 조각은 b 앞에서 시작한 발화를 남긴다. 뒤 조각은 b 이후에 시작한 발화와,
+    b 앞에서 시작했어도 앞 조각이 남긴 발화의 끝(E)보다 STRADDLE_SEC 넘게 이어지는
+    발화를 남긴다. 두 조각의 시각이 조금 어긋나거나 구간을 다르게 나눠도 잃지 않는다.
     """
     if not ok_chunks:
         return []
-    windows = dict(zip((c.index for c in ok_chunks), keep_windows(ok_chunks)))
-    last = ok_chunks[-1].index
-    kept = []
+    windows = keep_windows(ok_chunks)
+    by_chunk: dict[int, list[dict]] = {}
     for seg in segments:
-        s, e = windows[seg["chunk"]]
-        if s <= seg["start"] < e or (seg["chunk"] == last and seg["start"] == e):
-            kept.append(seg)
+        by_chunk.setdefault(seg["chunk"], []).append(seg)
+    kept = []
+    prev_end = 0.0  # 앞 조각이 남긴 발화의 가장 늦은 끝(E). 없으면 0.
+    for i, (chunk, (s, e)) in enumerate(zip(ok_chunks, windows)):
+        last = i == len(ok_chunks) - 1
+        mine = [seg for seg in by_chunk.get(chunk.index, [])
+                if (seg["start"] >= s or seg["end"] > prev_end + STRADDLE_SEC)
+                and (seg["start"] < e or (last and seg["start"] == e))]
+        kept += mine
+        prev_end = max((seg["end"] for seg in mine), default=0.0)
     return kept
 
 
@@ -59,6 +70,12 @@ def _recount(speakers: dict, kept: list[dict]) -> None:
 def run(input_path: str, cwd: str, engine) -> dict:
     if not os.path.isfile(input_path):
         raise AudioError(f"파일을 찾을 수 없습니다: {input_path}")
+    # 전사에 몇 분씩 쓰기 전에 저장할 폴더부터 확인한다.
+    json_path, md_path = output_paths(input_path, cwd)
+    out_dir = json_path.parent
+    if not (out_dir.is_dir() and os.access(out_dir, os.W_OK)):
+        raise AudioError(f"결과를 저장할 폴더에 쓸 수 없습니다: {out_dir}. "
+                         "--cwd 로 쓸 수 있는 폴더를 지정해 주세요.")
 
     # ③ 음질 판정. 무음(-70 이하·-inf)은 보정할 것이 없다.
     lufs = integrated_lufs(input_path)
@@ -128,8 +145,10 @@ def run(input_path: str, cwd: str, engine) -> dict:
         "failed_ranges": [{**f, "start": round(f["start"], 3), "end": round(f["end"], 3)}
                           for f in failed_ranges],
     }
-    json_path, md_path = output_paths(input_path, cwd)
-    save(doc, json_path, md_path)
+    try:
+        save(doc, json_path, md_path)
+    except OSError as e:
+        raise AudioError(f"결과를 저장하지 못했습니다({json_path}): {e}") from e
 
     # ⑧ 요약
     lines = first_lines(doc)
@@ -161,6 +180,11 @@ def main(argv=None) -> int:
     except AudioError as e:
         print(e, file=sys.stderr)
         return 2
+    except (RuntimeError, MemoryError) as e:  # MLX/Metal 메모리 할당 실패는 RuntimeError 로 온다
+        print("전사 엔진이 멈췄습니다. 메모리가 부족했을 수 있습니다. 다른 앱을 닫고 다시 실행해 주세요. "
+              "그래도 같으면 이 Mac 의 메모리가 요구 사양보다 작은 것입니다.\n"
+              f"원인: {type(e).__name__}: {e}", file=sys.stderr)
+        return 3
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 
