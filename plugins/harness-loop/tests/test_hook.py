@@ -101,7 +101,7 @@ def test_trailing_non_judgeable_lines_advance_cursor(tmp_projects):
     h = tmp_projects / "-p" / "sess3" / "harness"
     h.mkdir(parents=True)
     (h / "evidence.cursor").write_text("1")
-    (h / "evidence.jsonl").write_text(ev("a") + ev("b", "skill_start") + ev("c", "skill_start") + '{"id":"partial"')
+    (h / "evidence.jsonl").write_text(ev("a") + ev("b", "skill_start") + ev("c", "other") + '{"id":"partial"')
     bump(h / "evidence.jsonl")
     assert observe.pending_count(skip_unchanged=True) == 0
     assert (h / "evidence.cursor").read_text() == "3"

@@ -186,7 +186,7 @@ def test_merge_rejects_empty_group_id(obs_factory):
     assert groups.load() == {}
 
 
-def test_last_decisions_placeholder_is_empty():
+def test_last_decisions_empty_without_decisions_file():
     assert groups._last_decisions() == {}
 
 
@@ -231,7 +231,7 @@ def test_conflicting_choice_drops(obs_factory):
     assert groups.gate(NOW)["dropped"] == [{"id": "g", "reason": "conflicting_choice"}]
 
 
-def test_conflicts_with_only_false_observation_does_not_drop(obs_factory):
+def test_empty_conflicts_does_not_drop(obs_factory):
     a, b = obs_factory("decision_pattern", session="s1"), obs_factory("decision_pattern", session="s2")
     group_ = group("g", "skill_supplement", [a, b], finding="missing", conflicts=[])
     groups.merge(result(group_))
