@@ -34,7 +34,7 @@ def write(path, obj):
 def test_cli_pipeline_end_to_end(redesign_sessions, tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(paths, "now", lambda: NOW)
     repo = redesign_sessions["repo"]
-    assert cli(capsys, "backfill") == {"sessions": 2, "records": 13}
+    assert cli(capsys, "backfill") == {"sessions": 2, "records": 12}
 
     batch = tmp_path / "batch.json"
     assert cli(capsys, "pending", "--out", batch, "--limit", 0)["remaining"] == 9

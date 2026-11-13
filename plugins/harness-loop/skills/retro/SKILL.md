@@ -153,7 +153,6 @@ harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem
 | 자리 | 값 |
 |---|---|
 | `<context 파일>` | `<tmp>/harness-context.json` |
-| `<스냅샷 디렉터리>` | `${CLAUDE_PLUGIN_DATA}/skill-snapshots` |
 | `<스키마 파일>` | `${CLAUDE_PLUGIN_ROOT}/defaults/groups-schema.json` |
 | `<결과 파일>` | `<tmp>/harness-groups.json` |
 
@@ -188,9 +187,8 @@ harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem
 - `rework` 항목은 `rework_kind` 를 결정 대상 뒤 괄호에 쓰고, `recurrence` 가 있으면 `- 재발 관찰: <id 목록>` 한 줄을 더한다.
 - `apply_target.kind` 가 `plugin_cache` 인 항목은 `- 외부 플러그인 캐시: 직접 고치지 않음` 한 줄을 더한다.
 - 항목 뒤에 `보류 N건, 버림 M건(<reason>별 개수)` 한 줄을 쓴다. 보류는 `held` 만 센다. 버림은 `dropped` 중 `reason` 이 `decided` 인 것을 빼고 센다. 셋 다 0 이면 쓰지 않는다.
-- `notices` 가 있으면 그 뒤에 한 줄에 하나씩 그대로 쓴다. 고치거나 줄이지 않는다.
 - `rubric-candidates` 출력의 `ready` 에 true 인 kind 가 있으면 `rubric 보강 후보 있음(<kind> N건) — "보강할게"로 진행` 한 줄을 쓴다.
-- `report` 가 비면 `결정 대상 없음` 한 줄을 쓰고 위의 보류·버림, `notices`, rubric 줄만 쓴다.
+- `report` 가 비면 `결정 대상 없음` 한 줄을 쓰고 위의 보류·버림, rubric 줄만 쓴다.
 - `report` 가 있으면 끝에 `결정을 입력하세요. 예: 1 수락, 2 거절 사소함` 한 줄을 쓴다.
 
 ## 결정

@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 import time
@@ -10,11 +9,6 @@ import evidence
 import paths
 
 from .conftest import SESSION_A
-
-
-def blob(text):
-    data = text.encode()
-    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
 def records(transcript):
@@ -37,7 +31,6 @@ def test_backfill_matches_live_records(redesign_sessions, tmp_projects):
     live = tmp_projects / "-live" / f"{SESSION_A}.jsonl"
     live.parent.mkdir()
     base = {"session_id": SESSION_A, "transcript_path": str(live), "cwd": str(repo)}
-    skill_md = f"{repo}/skills/a/SKILL.md"
     q = {"question": "ADR 번호를 어디서 찾을까요?", "options": [{"label": "docs/adr"}, {"label": "위키"}]}
     hooks = {  # 훅이 그 줄을 쓴 직후 받는 입력(줄 번호는 1부터)
         1: ("UserPromptSubmit", {"prompt": "릴리스 노트 써줘"}),
@@ -48,8 +41,6 @@ def test_backfill_matches_live_records(redesign_sessions, tmp_projects):
         9: ("UserPromptSubmit", {"prompt": "아니, ADR 번호는 docs/adr 에서 다음 번호를 찾아야 해"}),
         11: ("PostToolUse", {"tool_name": "AskUserQuestion", "tool_input": {"questions": [q]}, "tool_use_id": "a4",
                              "tool_response": {"questions": [q], "answers": {q["question"]: "docs/adr"}}}),
-        16: ("PostToolUse", {"tool_name": "Write", "tool_input": {"file_path": skill_md, "content": "v1\n"},
-                             "tool_response": {}, "tool_use_id": "a5"}),
         18: ("UserPromptSubmit", {"prompt": "그리고 번호는 세 자리로 맞춰줘"}),
         20: [("UserPromptSubmit", {"prompt": "/harness-loop:retro review"}),
              ("UserPromptExpansion", {"command_name": "harness-loop:retro", "prompt": "/harness-loop:retro review"})],
@@ -61,12 +52,12 @@ def test_backfill_matches_live_records(redesign_sessions, tmp_projects):
             at = json.loads(line)["timestamp"]
             calls = hooks.get(i, [])
             for event, extra in calls if isinstance(calls, list) else [calls]:
-                evidence.handle(event, {**base, "hook_event_name": event, **extra}, at=at, hash_of=lambda p: None)
-    assert backfill.run() == {"sessions": 2, "records": 13}
+                evidence.handle(event, {**base, "hook_event_name": event, **extra}, at=at)
+    assert backfill.run() == {"sessions": 2, "records": 12}
     got, want = records(src), records(live)
     assert summary(got) == summary(want)
     assert [r["kind"] for r in got] == ["prompt", "skill_start", "bash", "failure", "prompt", "ask",
-                                        "skill_edit", "prompt", "prompt", "skill_start"]
+                                        "prompt", "prompt", "skill_start"]
     assert [r["pos"] for r in got] == [r["pos"] for r in want]
     correction = got[4]
     assert correction["flags"]["after_rejection"] is True
@@ -141,22 +132,13 @@ def test_backfill_default_ignores_installed_at_but_skips_live(redesign_sessions)
 
 def test_backfill_runs_under_harness_retro(redesign_sessions, monkeypatch):
     monkeypatch.setenv("HARNESS_RETRO", "1")
-    assert backfill.run()["records"] == 13
+    assert backfill.run()["records"] == 12
     assert os.environ["HARNESS_RETRO"] == "1"
 
 
-def test_backfill_uses_git_hash_at_time(repo, redesign_sessions):
+def test_backfill_records_paths_without_hashes(repo, redesign_sessions):
     backfill.run()
     a, b = records(redesign_sessions["a"]), records(redesign_sessions["b"])
-    start, bash, edit = a[1], a[2], a[6]
-    assert start["skill"]["hash"] == blob("v1\n")
-    assert bash["meta"]["scripts"] == [{"path": os.path.realpath(repo / "skills/a/run.sh"), "hash": blob("echo run\n")}]
-    assert edit["meta"]["hash_after"] == blob("v1\n")
-
-    def guide(rec):
-        return [g["hash"] for g in rec["meta"]["guidelines"] if g["path"] == str(repo / "CLAUDE.md")]
-
-    assert guide(b[0]) == [blob("g1\n")]
-    assert guide(b[1]) == [blob("g2\n")]
-    assert b[2]["kind"] == "skill_start" and b[2]["skill"]["hash"] == blob("v2\n")
-    assert not (paths.harness_path(redesign_sessions["b"]) / "guideline-cache.json").exists()
+    assert "hash" not in a[1]["skill"] and a[1]["skill"]["path"] == f"{repo}/skills/a"
+    assert a[2]["meta"]["scripts"] == [os.path.realpath(repo / "skills/a/run.sh")]
+    assert str(repo / "CLAUDE.md") in b[0]["meta"]["guidelines"]

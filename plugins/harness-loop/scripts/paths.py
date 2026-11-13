@@ -7,6 +7,7 @@
 import json
 import os
 import shutil
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -23,7 +24,6 @@ DEFAULT_CONFIG = {
     "script_min_sessions": 2,
     "correction_min_count": 2,
     "guideline_min_sessions": 2,
-    "repeat_edit_min": 3,
     "label_examples": 10,
     "rubric_min_evidence": 3,
     "replay_min_labels": 30,
@@ -33,6 +33,21 @@ DEFAULT_CONFIG = {
 
 def now() -> str:
     return datetime.now().astimezone().isoformat()
+
+
+def repo_roots(cwd, timeout: float = 1) -> tuple[str | None, str]:
+    """(작업 트리 루트, 프로젝트 루트). 프로젝트 루트는 worktree 들이 함께 쓰는 .git 의 부모이고,
+    공용 디렉터리가 .git 이 아니면(서브모듈 등) 작업 트리 루트, git 밖이면 cwd 다. 훅에서 부르므로 제한 시간은 1초."""
+    cmd = ["git", "-C", str(cwd), "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None, str(cwd)
+    lines = (r.stdout if r.returncode == 0 else "").splitlines()
+    if len(lines) < 2:
+        return None, str(cwd)
+    common, top = Path(lines[0].strip()), lines[1].strip() or None
+    return top, str(common.parent) if common.name == ".git" else (top or str(cwd))
 
 
 def aware(text: str) -> datetime:

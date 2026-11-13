@@ -9,8 +9,7 @@
         "required": ["target_type", "target_path", "problem", "observations", "verified", "specific_facts", "failure_ref", "proposal"],
         "properties": {
           "id": {"type": "string", "minLength": 1},
-          "target_type": {"type": "string", "enum": ["script", "skill_supplement", "guideline_supplement", "fix", "rework"]},
-          "rework_kind": {"type": "string", "enum": ["recurrence", "verified_recurrence", "repeat_edit"]},
+          "target_type": {"type": "string", "enum": ["script", "skill_supplement", "guideline_supplement", "fix"]},
           "target_path": {"type": "string", "minLength": 1},
           "skill_root": {"type": "string", "minLength": 1},
           "problem": {"type": "string", "minLength": 1},
@@ -34,9 +33,7 @@
               "opinion": {"type": "string"},
               "diff": {"type": "string"}
             }
-          },
-          "fix_version": {"type": "string", "minLength": 1},
-          "edits": {"type": "array", "items": {"type": "string", "minLength": 1}}
+          }
         }
       }
     }

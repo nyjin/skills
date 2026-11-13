@@ -12,7 +12,7 @@ TRIGGERS = ("회고", "retro", "개선점 정리", "이 세션 돌아보기", "�
 PREFIX = 'CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py"'
 SUBCOMMANDS = set(next(a for a in retro.parser()._actions if isinstance(a, argparse._SubParsersAction)).choices)
 CONFIG_KEYS = ("eval_markers", "window_days", "script_min_count", "script_min_sessions", "correction_min_count",
-               "guideline_min_sessions", "repeat_edit_min", "label_examples", "rubric_min_evidence",
+               "guideline_min_sessions", "label_examples", "rubric_min_evidence",
                "replay_min_labels", "judge_batch")
 
 
@@ -100,8 +100,3 @@ def test_backfill_default_window_and_cli_fields_referenced():
     assert "backfill --days <N>" in body and "인자에 없으면 14" in body
     for field in ("repeat_stats", "recent_purposes"):
         assert field in body, field
-
-
-def test_report_shows_notices_verbatim():
-    _, _, body = _parts()
-    assert any("notices" in l and "그대로" in l for l in body.splitlines())

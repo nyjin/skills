@@ -8,7 +8,6 @@ import pytest
 
 import evidence
 import paths
-import versions
 
 FIXTURES = Path(__file__).parent / "fixtures" / "payloads"
 SID = "abcd1234-0000-0000-0000-000000000000"
@@ -41,7 +40,6 @@ def tool_result(content, is_error=False):
 
 
 def prompt(session, text, **kw):
-    kw.setdefault("hash_of", versions.blob_hash)
     return evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, prompt=text), **kw)
 
 
@@ -90,11 +88,11 @@ def test_skill_state_from_skill_call_and_base_dir(session, tmp_path):
     with open(session, "a") as f:
         f.write(tool_result(f"Launching skill\nBase directory for this skill: {sk}\n\nbody"))
     [s] = evidence.handle("PreToolUse", fixture("PreToolUse-Skill", transcript_path=str(session), cwd=str(tmp_path)),
-                          pos=pos, hash_of=versions.blob_hash)
+                          pos=pos)
     assert s["kind"] == "skill_start" and s["skill"]["name"] == "tech-writing:write"
     [r] = prompt(session, "다시 해")
     assert r["skill"]["name"] == "tech-writing:write" and r["skill"]["prompts_since"] == 1
-    assert r["skill"]["path"].endswith("skills/write") and r["skill"]["hash"] == versions.blob_hash(sk / "SKILL.md")
+    assert r["skill"]["path"].endswith("skills/write")
     assert r["meta"]["guidelines"] == []
     state = evidence.skill_state(paths.harness_path(session))
     assert state["path"].endswith("skills/write") and state["prompts_since"] == 1
@@ -120,7 +118,7 @@ def test_prompt_expansion_defensive(session):
     assert r["skill"]["name"] == "foo:bar"
 
 
-def test_prompt_outside_skill_records_guideline_hashes(session, tmp_path):
+def test_prompt_outside_skill_records_guideline_paths(session, tmp_path):
     proj = tmp_path / "repo"
     (proj / ".claude" / "rules").mkdir(parents=True)
     (proj / "CLAUDE.md").write_text("rules\n")
@@ -128,64 +126,34 @@ def test_prompt_outside_skill_records_guideline_hashes(session, tmp_path):
     (tmp_path / "home" / ".claude").mkdir(parents=True)
     (tmp_path / "home" / ".claude" / "CLAUDE.md").write_text("global\n")
     subprocess.run(["git", "init", "-q", str(proj)], check=True)
-    [r] = evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=proj, prompt="hi"),
-                          hash_of=versions.blob_hash)
-    got = {Path(g["path"]).resolve(): g["hash"] for g in r["meta"]["guidelines"]}
-    assert got == {
-        (proj / "CLAUDE.md").resolve(): versions.blob_hash(proj / "CLAUDE.md"),
-        (proj / ".claude/rules/a.md").resolve(): versions.blob_hash(proj / ".claude/rules/a.md"),
-        (tmp_path / "home/.claude/CLAUDE.md").resolve(): versions.blob_hash(tmp_path / "home/.claude/CLAUDE.md"),
+    [r] = evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=proj, prompt="hi"))
+    assert all(isinstance(g, str) for g in r["meta"]["guidelines"])
+    assert {Path(g).resolve() for g in r["meta"]["guidelines"]} == {
+        (proj / "CLAUDE.md").resolve(),
+        (proj / ".claude/rules/a.md").resolve(),
+        (tmp_path / "home/.claude/CLAUDE.md").resolve(),
     }
+    assert "hash" not in (r["skill"] or {})
 
 
-def test_prompt_in_skill_still_records_guideline_hashes(session, tmp_path):
+def test_prompt_in_skill_still_records_guideline_paths(session, tmp_path):
     proj = tmp_path / "gp"
     proj.mkdir()
     (proj / "CLAUDE.md").write_text("g\n")
-    evidence.handle("PreToolUse", fixture("PreToolUse-Skill", transcript_path=str(session), cwd=str(proj)),
-                    hash_of=versions.blob_hash)
-    [r] = evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=proj, prompt="다시"),
-                          hash_of=versions.blob_hash)
+    evidence.handle("PreToolUse", fixture("PreToolUse-Skill", transcript_path=str(session), cwd=str(proj)))
+    [r] = evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=proj, prompt="다시"))
     assert r["skill"]["name"] == "tech-writing:write"
-    assert r["meta"]["guidelines"] == [{"path": str(proj.resolve() / "CLAUDE.md"),
-                                        "hash": versions.blob_hash(proj / "CLAUDE.md")}]
+    assert set(r["skill"]) == {"name", "path", "prompts_since"}
+    assert r["meta"]["guidelines"] == [str(proj.resolve() / "CLAUDE.md")]
 
 
-def test_skill_and_script_hash_cached_when_unchanged(session, tmp_path):
-    sk = tmp_path / "plug" / "skills" / "demo"
-    (sk / "scripts").mkdir(parents=True)
-    (sk / "SKILL.md").write_text("# demo\n")
-    (sk / "scripts" / "run.py").write_text("print(1)\n")
-    evidence.set_skill(paths.harness_dir(session), "demo", str(sk), 0)
-    calls = []
-
-    def stub(p):
-        calls.append(os.path.realpath(p))
-        return "h"
-
-    def go():
-        return evidence.handle("PreToolUse", bash(f"python3 {sk}/scripts/run.py", session), hash_of=stub)
-
-    [r1] = go()
-    skill_md, script = os.path.realpath(sk / "SKILL.md"), os.path.realpath(sk / "scripts" / "run.py")
-    assert calls.count(skill_md) == 1 and calls.count(script) == 1
-    [r2] = go()
-    assert calls.count(skill_md) == 1 and calls.count(script) == 1
-    assert r2["skill"]["hash"] == "h" and r2["meta"]["scripts"] == [{"path": script, "hash": "h"}]
-    (sk / "SKILL.md").write_text("# demo changed\n")
-    go()
-    assert calls.count(skill_md) == 2 and calls.count(script) == 1
-
-
-def test_skill_hash_not_cached_when_cache_off(session, tmp_path):
-    sk = tmp_path / "plug" / "skills" / "demo"
-    sk.mkdir(parents=True)
-    (sk / "SKILL.md").write_text("# demo\n")
-    evidence.set_skill(paths.harness_dir(session), "demo", str(sk), 0)
-    answers = iter(["h1", "h2"])
-    [r1], [r2] = (evidence.handle("PreToolUse", bash("ls", session), hash_of=lambda p: next(answers), cache=False)
-                  for _ in range(2))
-    assert (r1["skill"]["hash"], r2["skill"]["hash"]) == ("h1", "h2")
+def test_edit_tools_record_nothing(session, tmp_path):
+    f = tmp_path / "x" / "skills" / "s" / "SKILL.md"
+    f.parent.mkdir(parents=True)
+    f.write_text("v")
+    for tool in ("Edit", "Write", "MultiEdit"):
+        d = payload("PostToolUse", session, tool_name=tool, tool_input={"file_path": str(f)})
+        assert evidence.handle("PostToolUse", d) == []
 
 
 def test_project_root_shared_by_subdir_and_worktree(session, tmp_path):
@@ -202,7 +170,7 @@ def test_project_root_shared_by_subdir_and_worktree(session, tmp_path):
     subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(wt)], check=True, capture_output=True)
     outside = tmp_path / "plain"
     outside.mkdir()
-    recs = [evidence.handle("PreToolUse", bash("ls", session, cwd=c), hash_of=versions.blob_hash)[0]
+    recs = [evidence.handle("PreToolUse", bash("ls", session, cwd=c))[0]
             for c in (repo, repo / "sub", wt, outside)]
     projects = [observe.project_of(r) for r in recs]
     assert projects[0] == projects[1] == projects[2] == str(repo.resolve())
@@ -211,8 +179,7 @@ def test_project_root_shared_by_subdir_and_worktree(session, tmp_path):
 
 def test_no_guideline_files_no_entries(session, tmp_path):
     (tmp_path / "empty").mkdir()
-    [r] = evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=tmp_path / "empty", prompt="hi"),
-                          hash_of=versions.blob_hash)
+    [r] = evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=tmp_path / "empty", prompt="hi"))
     assert r["meta"].get("guidelines", []) == []
 
 
@@ -233,7 +200,7 @@ def test_after_rejection_only_last_result(session):
 
 def test_missing_transcript_records_pos_zero(tmp_projects):
     t = tmp_projects / "-proj" / f"{SID}.jsonl"
-    [r] = evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", t, prompt="hi"), hash_of=versions.blob_hash)
+    [r] = evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", t, prompt="hi"))
     assert r["pos"] == 0
 
 
@@ -244,7 +211,7 @@ def bash(cmd, session, cwd=None):
 def _worker(args):
     session, n = args
     for i in range(n):
-        evidence.handle("PreToolUse", bash(f"echo {i}", Path(session)), hash_of=versions.blob_hash)
+        evidence.handle("PreToolUse", bash(f"echo {i}", Path(session)))
 
 
 def test_concurrent_appends_stay_valid_jsonl(session):
@@ -271,42 +238,15 @@ def test_never_matching_skill_stops_rescanning(session):
     assert not r2["skill"]["path"] and not evidence.skill_state(hdir)["path"]
 
 
-def test_guideline_hash_cached_when_unchanged(session, tmp_path):
-    proj = tmp_path / "repo2"
-    proj.mkdir()
-    (proj / "CLAUDE.md").write_text("a\n")
+def test_roots_cached_per_cwd(session, tmp_path, monkeypatch):
     calls = []
-
-    def stub(p):
-        calls.append(str(p))
-        return "h"
-
-    def go():
-        return evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=proj, prompt="hi"), hash_of=stub)
-
-    go()
-    n = len(calls)
-    assert n >= 1
-    [r] = go()
-    assert len(calls) == n and r["meta"]["guidelines"][0]["hash"] == "h"
-    (proj / "CLAUDE.md").write_text("changed content\n")
-    go()
-    assert len(calls) == n + 1
-
-
-def test_guideline_hash_not_cached_when_cache_off(session, tmp_path):
-    proj = tmp_path / "repo3"
-    proj.mkdir()
-    (proj / "CLAUDE.md").write_text("a\n")
-    answers = iter(["h1", "h2"])
-
-    def go():
-        return evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=proj, prompt="hi"),
-                               hash_of=lambda p: next(answers), cache=False)
-
-    [r1], [r2] = go(), go()
-    assert r1["meta"]["guidelines"][0]["hash"] == "h1" and r2["meta"]["guidelines"][0]["hash"] == "h2"
-    assert not (paths.harness_path(session) / "guideline-cache.json").exists()
+    real = paths.repo_roots
+    monkeypatch.setattr(paths, "repo_roots", lambda cwd, timeout=1: calls.append(str(cwd)) or real(cwd, timeout))
+    for _ in range(2):
+        evidence.handle("UserPromptSubmit", payload("UserPromptSubmit", session, cwd=tmp_path, prompt="hi"))
+    assert len(calls) == 1
+    cache = json.loads((paths.harness_path(session) / "guideline-cache.json").read_text())
+    assert set(cache) == {"roots", "projects"}
 
 
 def test_after_rejection_false_when_big_line_straddles_window(session):
@@ -343,8 +283,8 @@ def test_inline_body(cmd, body):
 
 def test_bash_saves_inline_script_once(session):
     cmd = "python3 - <<'EOF'\nprint(1)\nEOF"
-    [a] = evidence.handle("PreToolUse", bash(cmd, session), hash_of=versions.blob_hash)
-    [b] = evidence.handle("PreToolUse", bash(cmd, session), hash_of=versions.blob_hash)
+    [a] = evidence.handle("PreToolUse", bash(cmd, session))
+    [b] = evidence.handle("PreToolUse", bash(cmd, session))
     assert a["kind"] == "bash" and a["text"] == cmd
     assert a["file"] == b["file"]
     assert len(list((paths.harness_path(session) / "scripts").iterdir())) == 1
@@ -352,19 +292,19 @@ def test_bash_saves_inline_script_once(session):
 
 
 def test_plain_bash_has_no_file(session):
-    [r] = evidence.handle("PreToolUse", bash("ls -la", session), hash_of=versions.blob_hash)
+    [r] = evidence.handle("PreToolUse", bash("ls -la", session))
     assert r["file"] is None and r["meta"]["scripts"] == []
 
 
 def test_inline_body_crlf_and_long(session):
     cmd = "python3 - <<'EOF'\r\n" + "x=1\r\n" * 5000 + "EOF"
-    [r] = evidence.handle("PreToolUse", bash(cmd, session), hash_of=versions.blob_hash)
+    [r] = evidence.handle("PreToolUse", bash(cmd, session))
     assert len(r["text"]) == 2000
     data = Path(r["file"]).read_bytes()
     assert data.count(b"x=1\r\n") == 5000
 
 
-def test_bash_records_skill_script_hash(session, tmp_path):
+def test_bash_records_skill_script_path(session, tmp_path):
     sk = tmp_path / "plug" / "skills" / "demo"
     (sk / "scripts").mkdir(parents=True)
     (sk / "scripts" / "run.py").write_text("print(1)\n")
@@ -372,16 +312,16 @@ def test_bash_records_skill_script_hash(session, tmp_path):
     other = tmp_path / "other.py"
     other.write_text("x")
     cmd = f"python3 {sk}/scripts/run.py {other} {sk}/scripts/missing.py"
-    [r] = evidence.handle("PreToolUse", bash(cmd, session), hash_of=versions.blob_hash)
+    [r] = evidence.handle("PreToolUse", bash(cmd, session))
     real = os.path.realpath(sk / "scripts" / "run.py")
-    assert r["meta"]["scripts"] == [{"path": real, "hash": versions.blob_hash(real)}]
+    assert r["meta"]["scripts"] == [real]
     assert evidence.skill_scripts(cmd, None) == []
 
 
 def test_failure_with_eval_marker_creates_skip(session):
     d = payload("PostToolUseFailure", session, tool_name="Bash", tool_input={"command": "x"},
                 error="Exit code 1\n트리거 측정 중 입니다")
-    assert evidence.handle("PostToolUseFailure", d, hash_of=versions.blob_hash) == []
+    assert evidence.handle("PostToolUseFailure", d) == []
     assert (paths.harness_path(session) / "skip").exists()
     assert not (paths.harness_path(session) / "evidence.jsonl").exists()
     assert prompt(session, "다음") == []
@@ -390,12 +330,12 @@ def test_failure_with_eval_marker_creates_skip(session):
 def test_failure_record_and_interrupt_skipped(session):
     err = "\n".join(f"line{i}" for i in range(30))
     d = payload("PostToolUseFailure", session, tool_name="Bash", tool_input={"command": "x" * 900}, error=err)
-    [r] = evidence.handle("PostToolUseFailure", d, hash_of=versions.blob_hash)
+    [r] = evidence.handle("PostToolUseFailure", d)
     assert r["kind"] == "failure"
     assert r["text"] == "Bash\n" + "\n".join(f"line{i}" for i in range(20))
     assert len(r["meta"]["input"]) == 600
     d["is_interrupt"] = True
-    assert evidence.handle("PostToolUseFailure", d, hash_of=versions.blob_hash) == []
+    assert evidence.handle("PostToolUseFailure", d) == []
 
 
 def _ask(session, **kw):
@@ -405,44 +345,21 @@ def _ask(session, **kw):
 
 def test_ask_record_text(session):
     d = _ask(session, tool_response={"answers": {"어느 쪽?": "B"}}, tool_use_id="toolu_9")
-    [r] = evidence.handle("PostToolUse", d, hash_of=versions.blob_hash)
+    [r] = evidence.handle("PostToolUse", d)
     assert r["kind"] == "ask"
     assert r["text"] == "Q: 어느 쪽?\n- A\n- B\n답: B"
     assert "answer_missing" not in r["meta"]
     assert r["meta"]["tool_use_id"] == "toolu_9"
     d = _ask(session)
     d["tool_input"]["answers"] = {"어느 쪽?": "A"}
-    [r] = evidence.handle("PostToolUse", d, hash_of=versions.blob_hash)
+    [r] = evidence.handle("PostToolUse", d)
     assert r["text"].endswith("답: A")
 
 
 def test_ask_without_answer_marks_missing(session):
-    [r] = evidence.handle("PostToolUse", _ask(session, tool_response="whatever"), hash_of=versions.blob_hash)
+    [r] = evidence.handle("PostToolUse", _ask(session, tool_response="whatever"))
     assert r["meta"]["answer_missing"] is True
     assert r["text"] == "Q: 어느 쪽?\n- A\n- B"
-
-
-def test_skill_edit_for_skill_and_guideline_files_only(session, tmp_path):
-    def edit(tool, rel):
-        f = tmp_path / rel
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text("v")
-        d = payload("PostToolUse", session, tool_name=tool, tool_input={"file_path": str(f)})
-        return f, evidence.handle("PostToolUse", d, hash_of=versions.blob_hash)
-
-    for tool, rel in [("Edit", "x/skills/s/SKILL.md"), ("Write", "r/CLAUDE.md"), ("MultiEdit", "r/.claude/rules/x.md"),
-                      ("Edit", "r/.claude/CLAUDE.md"), ("Edit", "p/skills/s/scripts/a.py"), ("Edit", "q/SKILL.md"),
-                      ("Edit", "repo/skills/x/scripts/run.py")]:
-        if "skills/" in rel and not rel.endswith("SKILL.md"):
-            (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
-            (tmp_path / rel.split("/scripts")[0] / "SKILL.md").write_text("s")
-        f, [r] = edit(tool, rel)
-        assert r["kind"] == "skill_edit" and r["file"] == str(f)
-        assert r["meta"]["hash_after"] == versions.blob_hash(f)
-    for rel in ("skills/repo/src/a.py", "src/a.py", "r/.claude/rules/x.txt", "r/NOTCLAUDE.md"):
-        assert edit("Edit", rel)[1] == []
-    d = payload("PostToolUse", session, tool_name="Read", tool_input={"file_path": str(tmp_path / "r/CLAUDE.md")})
-    assert evidence.handle("PostToolUse", d, hash_of=versions.blob_hash) == []
 
 
 def test_skill_scripts_tilde_and_relative(tmp_path, monkeypatch):

@@ -1,6 +1,5 @@
 import json
 import os
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -10,29 +9,6 @@ import observe
 import paths
 
 NOW = "2026-11-06T12:00:00+09:00"
-
-
-def git(repo, *args, env=None):
-    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True,
-                       env={**os.environ, **(env or {})})
-    return r.stdout
-
-
-def commit(repo, msg, when):
-    git(repo, "commit", "-qam", msg, env={"GIT_COMMITTER_DATE": when, "GIT_AUTHOR_DATE": when})
-
-
-@pytest.fixture
-def repo(tmp_path):
-    r = tmp_path / "repo"
-    (r / "skills/a").mkdir(parents=True)
-    git(r, "init", "-q")
-    git(r, "config", "user.email", "t@t")
-    git(r, "config", "user.name", "t")
-    (r / "skills/a/SKILL.md").write_text("v1\n")
-    git(r, "add", ".")
-    commit(r, "init", "2026-10-20T00:00:00+00:00")
-    return r
 
 
 def group(gid, target_type, obs, finding="missing", target_path="/x/skills/a/SKILL.md", **extra):
@@ -125,69 +101,12 @@ def test_window_excludes_old_observations(obs_factory):
     assert ids(out, "held") == ["g"]
 
 
-def _skill(repo):
-    path = repo / "skills/a"
-    return {"name": "a", "path": str(path), "hash": git(repo, "hash-object", str(path / "SKILL.md")).strip()}
-
-
-def test_rework_recurrence_only_after_fix_version(repo, obs_factory):
-    target = str(repo / "skills/a/SKILL.md")
-    v1 = obs_factory("correction", at="2026-10-25T10:00:00+09:00", skill=_skill(repo))
-    groups.merge(result(group("g", "rework", [v1], target_path=target, rework_kind="recurrence",
-                              fix_version="0" * 40)))
-    (repo / "skills/a/SKILL.md").write_text("v2\n")
-    commit(repo, "fix", "2026-11-01T00:00:00+00:00")
-    v2_hash = git(repo, "rev-parse", "HEAD:skills/a/SKILL.md").strip()
-    groups.merge(result(group("g", "rework", [v1], target_path=target, rework_kind="recurrence",
-                              fix_version=v2_hash)))
-    assert ids(groups.gate(NOW), "held") == ["g"]
-    v2 = obs_factory("correction", at="2026-11-03T10:00:00+09:00", skill=_skill(repo))
-    groups.merge(result(group("g", "rework", [v2], target_path=target, rework_kind="recurrence",
-                              fix_version=v2_hash)))
-    out = groups.gate(NOW)
-    assert ids(out, "report") == ["g"]
-    assert out["report"][0]["recurrence"] == [v2]
-
-
-def test_rework_repeat_edit_needs_edits_in_history(repo, obs_factory):
-    target = str(repo / "skills/a/SKILL.md")
-    hashes = [git(repo, "rev-parse", "HEAD:skills/a/SKILL.md").strip()]
-    for i, day in ((2, "2026-10-21"), (3, "2026-10-22")):
-        (repo / "skills/a/SKILL.md").write_text(f"v{i}\n")
-        commit(repo, f"v{i}", f"{day}T00:00:00+00:00")
-        hashes.append(git(repo, "rev-parse", "HEAD:skills/a/SKILL.md").strip())
-    a = obs_factory("correction")
-    groups.merge(result(group("g", "rework", [a], target_path=target, rework_kind="repeat_edit", edits=hashes[:2])))
-    assert ids(groups.gate(NOW), "held") == ["g"]
-    groups.merge(result(group("g", "rework", [a], target_path=target, rework_kind="repeat_edit", edits=hashes)))
-    assert ids(groups.gate(NOW), "report") == ["g"]
-
-
-def test_rework_untracked_dropped_with_notice(tmp_path, obs_factory):
-    root = tmp_path / "plain/skills/a"
-    root.mkdir(parents=True)
-    (root / "SKILL.md").write_text("x\n")
-    a = obs_factory("correction")
-    groups.merge(result(group("g", "rework", [a], target_path=str(root / "SKILL.md"), rework_kind="recurrence",
-                              fix_version="abc", skill_root=str(root))))
-    out = groups.gate(NOW)
-    assert out["dropped"] == [{"id": "g", "reason": "untracked"}]
-    assert len(out["notices"]) == 1
-    assert out["notices"][0].startswith(f"버전 추적 불가: {root} 는 git 저장소가 아니라")
-    assert out["notices"][0].endswith("해당 스킬: a")
-
-
-def test_report_and_held_untracked_notice_once_per_root(tmp_path, obs_factory):
-    root = tmp_path / "plain/skills/a"
-    root.mkdir(parents=True)
+def test_gate_has_no_notices_or_rework(obs_factory):
     a = obs_factory("failure")
-    b = obs_factory("correction")
-    groups.merge(result(group("f", "fix", [a], finding="wrong", target_path=str(root / "SKILL.md"), skill_root=str(root)),
-                        group("s", "skill_supplement", [b], finding="no_instruction",
-                              target_path=str(root / "SKILL.md"), skill_root=str(root))))
+    groups.merge(result(group("f", "fix", [a], finding="wrong", target_path="/nowhere/SKILL.md")))
     out = groups.gate(NOW)
-    assert ids(out, "report") == ["f"] and out["held"] == ["s"]
-    assert len(out["notices"]) == 1 and str(root) in out["notices"][0]
+    assert set(out) == {"report", "held", "dropped"}
+    assert ids(out, "report") == ["f"]
 
 
 def test_merge_rejects_false_or_unknown_observations(obs_factory):
@@ -199,8 +118,13 @@ def test_merge_rejects_false_or_unknown_observations(obs_factory):
         groups.merge(result(group("g", "fix", [t, "없는-id"], finding="wrong")))
     with pytest.raises(ValueError):
         groups.merge(result({"id": "g", "target_type": "fix"}))
+    assert groups.load() == {}
+
+
+def test_merge_rejects_rework_target(obs_factory):
+    t = obs_factory("failure")
     with pytest.raises(ValueError):
-        groups.merge(result(group("g", "rework", [t])))
+        groups.merge(result(group("g", "rework", [t], rework_kind="recurrence", fix_version="abc")))
     assert groups.load() == {}
 
 
@@ -268,39 +192,3 @@ def test_skill_supplement_counts_only_corrections(obs_factory):
     a, b = obs_factory("failure"), obs_factory("failure")
     groups.merge(result(group("g", "skill_supplement", [a, b], finding="no_instruction")))
     assert ids(groups.gate(NOW), "held") == ["g"]
-
-
-def test_repeat_edit_counts_distinct_edits(repo, obs_factory):
-    target = str(repo / "skills/a/SKILL.md")
-    h1 = git(repo, "rev-parse", "HEAD:skills/a/SKILL.md").strip()
-    (repo / "skills/a/SKILL.md").write_text("v2\n")
-    commit(repo, "v2", "2026-10-21T00:00:00+00:00")
-    h2 = git(repo, "rev-parse", "HEAD:skills/a/SKILL.md").strip()
-    a = obs_factory("correction")
-    groups.merge(result(group("g", "rework", [a], target_path=target, rework_kind="repeat_edit", edits=[h1, h1, h2])))
-    assert ids(groups.gate(NOW), "held") == ["g"]
-
-
-def test_rework_tilde_target_is_expanded(obs_factory):
-    home_repo = Path.home() / "r"
-    (home_repo / "skills/a").mkdir(parents=True)
-    git(home_repo, "init", "-q")
-    git(home_repo, "config", "user.email", "t@t")
-    git(home_repo, "config", "user.name", "t")
-    (home_repo / "skills/a/SKILL.md").write_text("v1\n")
-    git(home_repo, "add", ".")
-    commit(home_repo, "init", "2026-10-20T00:00:00+00:00")
-    v1 = git(home_repo, "rev-parse", "HEAD:skills/a/SKILL.md").strip()
-    a = obs_factory("correction", skill=_skill(home_repo))
-    groups.merge(result(group("g", "rework", [a], target_path="~/r/skills/a/SKILL.md", rework_kind="recurrence",
-                              fix_version=v1)))
-    out = groups.gate(NOW)
-    assert ids(out, "report") == ["g"] and out["report"][0]["recurrence"] == [a] and out["notices"] == []
-
-
-def test_untracked_notice_expands_tilde(obs_factory):
-    (Path.home() / "plain").mkdir(parents=True)
-    a = obs_factory("failure")
-    groups.merge(result(group("g", "fix", [a], finding="wrong", target_path="~/plain/SKILL.md")))
-    out = groups.gate(NOW)
-    assert ids(out, "report") == ["g"] and str(Path.home() / "plain") in out["notices"][0]

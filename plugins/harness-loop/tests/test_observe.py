@@ -36,7 +36,7 @@ def two_sessions(tmp_projects):
         ("prompt", "2026-11-01T10:00:00+09:00", {}),
         ("skill_start", "2026-11-01T10:01:00+09:00", {}),
         ("bash", "2026-11-01T10:05:00+09:00", {}),
-        ("skill_edit", "2026-11-01T10:06:00+09:00", {}),
+        ("skill_start", "2026-11-01T10:06:00+09:00", {}),
     ])
     hb, rb = make_session(tmp_projects, "pb", "bbbbbbbb2", "/w/org/proj-b", [
         ("prompt", "2026-11-01T10:02:00+09:00", {}),

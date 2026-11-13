@@ -24,7 +24,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "AskUserQuestion|Edit|Write|MultiEdit",
+        "matcher": "AskUserQuestion",
         "hooks": [{"type": "command", "command": "uv run --script \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"", "timeout": 5}]
       }
     ],

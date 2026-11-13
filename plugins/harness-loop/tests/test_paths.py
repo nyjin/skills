@@ -87,3 +87,22 @@ def test_log_error_never_raises(monkeypatch):
 
     monkeypatch.setattr(paths, "data_dir", boom)
     paths.log_error("hook", ValueError("y"))
+
+
+def test_repo_roots_shared_by_subdir_and_worktree_and_plain_dir(tmp_path):
+    import subprocess
+
+    repo = tmp_path / "main"
+    (repo / "sub").mkdir(parents=True)
+    for args in (("init", "-q"), ("config", "user.email", "t@t"), ("config", "user.name", "t")):
+        subprocess.run(["git", "-C", str(repo), *args], check=True)
+    (repo / "f").write_text("x\n")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "init"], check=True)
+    wt = tmp_path / "wt"
+    subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(wt)], check=True, capture_output=True)
+    assert paths.repo_roots(repo / "sub") == (str(repo.resolve()), str(repo.resolve()))
+    assert paths.repo_roots(wt) == (str(wt.resolve()), str(repo.resolve()))
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert paths.repo_roots(plain) == (None, str(plain))

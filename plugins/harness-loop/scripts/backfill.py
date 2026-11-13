@@ -16,10 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence
 import paths
 import transcript as tr
-import versions
 
 PRE_TOOLS = ("Skill", "Bash")
-POST_TOOLS = ("AskUserQuestion", *evidence.EDIT_TOOLS)
 LIVE_SEC = 600
 
 
@@ -88,7 +86,7 @@ def events(path: Path):
                         common = {**base, "tool_name": name, "tool_input": inp, "tool_use_id": b.get("tool_use_id")}
                         if b.get("is_error"):
                             yield "PostToolUseFailure", {**common, "error": body, "is_interrupt": body.startswith(tr.INTERRUPT)}, pos, at
-                        elif name in POST_TOOLS:
+                        elif name == "AskUserQuestion":
                             resp = d.get("toolUseResult")
                             yield "PostToolUse", {**common, "tool_response": resp if isinstance(resp, dict) else {}}, pos, at
                 slash = tr._slash_text(content) if (d.get("origin") or {}).get("kind", "human") == "human" else None
@@ -122,8 +120,7 @@ def run(days: int | None = None) -> dict:
                 continue
             sessions += 1
             for event, data, pos, at in events(path):
-                records += len(evidence.handle(event, data, pos=pos, at=at, cache=False,
-                                               hash_of=lambda p, at=at: versions.hash_at(p, at)))
+                records += len(evidence.handle(event, data, pos=pos, at=at))
     finally:
         if saved is not None:
             os.environ["HARNESS_RETRO"] = saved

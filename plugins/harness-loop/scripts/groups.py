@@ -12,11 +12,9 @@ from pathlib import Path
 
 import observe
 import paths
-import versions
 
 SCHEMA = Path(__file__).resolve().parents[1] / "defaults" / "groups-schema.json"
-EPOCH = "1970-01-01T00:00:00+00:00"
-# 설계 7장 "관찰 → 결정 대상": 파일 검증 결과별로 허용하는 결정 대상(rework 는 검사하지 않음)
+# 설계 7장 "관찰 → 결정 대상": 파일 검증 결과별로 허용하는 결정 대상
 ALLOWED = {
     "missing": {"skill_supplement", "guideline_supplement", "script"},
     "no_instruction": {"skill_supplement", "guideline_supplement"},
@@ -50,8 +48,6 @@ def merge(result: dict) -> list[str]:
     for i, g in enumerate(result["groups"]):
         if g["verified"] is not None and not isinstance(g["verified"], dict):
             raise ValueError(f"$.groups[{i}].verified: object 또는 null 이어야 합니다")
-        if g["target_type"] == "rework" and not g.get("rework_kind"):
-            raise ValueError(f"$.groups[{i}].rework_kind: rework 는 rework_kind 가 필요합니다")
         bad = [e for e in g["observations"] if e not in true_ids]
         if bad:
             raise ValueError(f"$.groups[{i}].observations: 참 관찰이 아닌 evidence_id {bad[0]}")
@@ -92,51 +88,6 @@ def _real(p: str) -> str:
     return os.path.realpath(os.path.expanduser(p))
 
 
-def obs_hash(obs: dict, target_path: str) -> str | None:
-    """관찰 당시 대상 파일의 해시: 스킬 SKILL.md 면 skill.hash, 아니면 meta.scripts·meta.guidelines 중 같은 경로."""
-    real = _real(target_path)
-    skill = obs.get("skill") or {}
-    if skill.get("path") and real in (_real(skill["path"]), _real(os.path.join(skill["path"], "SKILL.md"))):
-        if skill.get("hash"):
-            return skill["hash"]
-    meta = obs.get("meta") or {}
-    for key in ("scripts", "guidelines"):
-        for e in meta.get(key) or []:
-            if isinstance(e, dict) and e.get("path") and _real(e["path"]) == real and e.get("hash"):
-                return e["hash"]
-    return None
-
-
-def _root_and_name(group: dict) -> tuple[str, str]:
-    """git 밖 안내용 (스킬 루트, 이름). skill_root 가 없으면 대상 파일의 디렉터리와 파일 이름."""
-    if group.get("skill_root"):
-        root = os.path.expanduser(group["skill_root"])
-        return root, os.path.basename(root.rstrip("/"))
-    target = os.path.expanduser(group["target_path"])
-    return os.path.dirname(target), os.path.basename(target)
-
-
-def _rework(group: dict, obs: list[dict], proceed: dict | None, cfg: dict) -> tuple[bool, dict]:
-    """rework 관문. (넘었는지, 보고 필드).
-
-    proceed 결정이 있으면 obs 는 이미 결정 뒤 것뿐이라 해시가 있는 관찰을 모두 재발로 센다.
-    없으면 fix_version 의 versions.history 순서 이후(같은 버전 포함) 해시를 가진 관찰만 센다."""
-    target = _real(group["target_path"])
-    hist = [e["hash"] for e in versions.history(target, EPOCH)]
-    if group["rework_kind"] == "repeat_edit":
-        edits = set(group.get("edits") or [])
-        return bool(edits) and edits <= set(hist) and len(edits) >= cfg["repeat_edit_min"], {}
-    if proceed:
-        rec = [o["evidence_id"] for o in obs if obs_hash(o, target)]
-        return bool(rec), ({"recurrence": rec} if rec else {})
-    base = group.get("fix_version")
-    if base not in hist:
-        return False, {}
-    start = hist.index(base)
-    rec = [o["evidence_id"] for o in obs if (h := obs_hash(o, target)) in hist and hist.index(h) >= start]
-    return bool(rec), ({"recurrence": rec} if rec else {})
-
-
 def judge_group(group: dict, observations_by_id: dict, decisions: dict, cfg: dict, now: str) -> tuple[str, str | None, dict]:
     """묶음 하나를 관문에 건다. ("report"|"held"|"dropped", 버림 이유, 보고 필드)."""
     true_obs = [observations_by_id[e] for e in group["observations"]
@@ -150,7 +101,7 @@ def judge_group(group: dict, observations_by_id: dict, decisions: dict, cfg: dic
     if decisions.get(group["id"]):
         return "dropped", "decided", {}
     ttype = group["target_type"]
-    if ttype != "rework" and ttype not in ALLOWED.get(group["verified"].get("finding"), set()):
+    if ttype not in ALLOWED.get(group["verified"].get("finding"), set()):
         return "dropped", "inconsistent", {}
 
     cut = paths.aware(now) - timedelta(days=cfg["window_days"])
@@ -159,11 +110,6 @@ def judge_group(group: dict, observations_by_id: dict, decisions: dict, cfg: dic
              "projects": len({o.get("project") for o in obs})}
     types = {o.get("type") for o in obs}
     count, sessions = extra["count"], extra["sessions"]
-    if ttype == "rework":
-        if versions.git_root(_real(group["target_path"])) is None:
-            return "dropped", "untracked", extra
-        ok, more = _rework(group, obs, None, cfg)
-        return ("report" if ok else "held"), None, {**extra, **more}
     if ttype == "script":
         ok = count >= cfg["script_min_count"] and sessions >= cfg["script_min_sessions"]
     elif ttype in ("skill_supplement", "fix") and "approval_question" in types:
@@ -185,22 +131,13 @@ def gate(now: str | None = None) -> dict:
     cfg = paths.load_config()
     by_id = {o["evidence_id"]: o for o in observe.observations() if o.get("verdict") is True and o.get("evidence_id")}
     decisions = _last_decisions()
-    out = {"report": [], "held": [], "dropped": [], "notices": []}
-    untracked: dict[str, list[str]] = {}
+    out = {"report": [], "held": [], "dropped": []}
     for gid, group in load().items():
         status, reason, extra = judge_group(group, by_id, decisions, cfg, now)
         if status == "dropped":
             out["dropped"].append({"id": gid, "reason": reason})
-            if reason != "untracked":
-                continue
         elif status == "report":
             out["report"].append({**group, **extra})
         else:
             out["held"].append(gid)
-        if reason == "untracked" or versions.git_root(_real(group["target_path"])) is None:
-            root, name = _root_and_name(group)
-            names = untracked.setdefault(root, [])
-            if name not in names:
-                names.append(name)
-    out["notices"] = versions.untracked_notice(untracked)
     return out

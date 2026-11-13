@@ -10,7 +10,7 @@ from pathlib import Path
 import paths
 
 JUDGEABLE = ("prompt", "bash", "failure", "ask")
-META_KINDS = ("skill_start", "skill_edit")
+META_KINDS = ("skill_start",)
 COPY_FIELDS = ("session", "at", "cwd", "skill", "file", "text", "meta")
 WINDOW = 256 * 1024
 FORWARD = 64 * 1024

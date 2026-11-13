@@ -92,7 +92,7 @@ def test_pending_count_subtracts_cursor_and_skips_skip(evidence_pending, tmp_pro
 
 def test_hook_and_observe_count_only_judgeable_kinds(evidence_pending):
     with open(evidence_pending / "evidence.jsonl", "a") as f:
-        f.write(ev("d", "skill_start") + ev("e", "skill_edit"))
+        f.write(ev("d", "skill_start"))
     bump(evidence_pending / "evidence.jsonl")
     assert observe.pending_count(skip_unchanged=True) == observe.pending_count() == len(observe.pending(10)) == 2
 
@@ -101,7 +101,7 @@ def test_trailing_non_judgeable_lines_advance_cursor(tmp_projects):
     h = tmp_projects / "-p" / "sess3" / "harness"
     h.mkdir(parents=True)
     (h / "evidence.cursor").write_text("1")
-    (h / "evidence.jsonl").write_text(ev("a") + ev("b", "skill_start") + ev("c", "skill_edit") + '{"id":"partial"')
+    (h / "evidence.jsonl").write_text(ev("a") + ev("b", "skill_start") + ev("c", "skill_start") + '{"id":"partial"')
     bump(h / "evidence.jsonl")
     assert observe.pending_count(skip_unchanged=True) == 0
     assert (h / "evidence.cursor").read_text() == "3"
@@ -193,7 +193,7 @@ def test_hooks_json_events_and_commands():
         "UserPromptSubmit": [None],
         "UserPromptExpansion": [None],
         "PreToolUse": ["Skill|Bash"],
-        "PostToolUse": ["AskUserQuestion|Edit|Write|MultiEdit"],
+        "PostToolUse": ["AskUserQuestion"],
         "PostToolUseFailure": [None],
     }
     for groups in spec.values():
