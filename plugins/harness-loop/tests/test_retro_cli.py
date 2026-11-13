@@ -176,7 +176,7 @@ def _archive(gid, eid, at="2025-01-01T00:00:00+09:00"):
     inp.parent.mkdir(parents=True, exist_ok=True)
     write(inp, {"group": group(gid, "fix", [eid], finding="wrong"),
                 "observations": [{"evidence_id": eid, "observation": None, "evidence": ev, "excerpt": ""}],
-                "file_versions": {}, "rubric": {"version": 1, "text": ""}})
+                "rubric": {"version": 1, "text": ""}})
 
 
 def test_replay_gate_applies_gate_to_rejudged(tmp_path, capsys):

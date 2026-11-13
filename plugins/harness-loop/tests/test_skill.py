@@ -4,6 +4,7 @@ from pathlib import Path
 
 import yaml
 
+import decide
 import retro
 
 PLUGIN = Path(__file__).resolve().parents[1]
@@ -89,10 +90,23 @@ def test_config_values_referenced_by_name_only():
         assert not re.search(rf"{key}`?\s*[:=(]?\s*\d", body), key
 
 
+def test_no_removed_features():
+    text, _, _ = _parts()
+    for word in ("proceed", "ticket", "rework", "skill-snapshots", "fix_version", "git log --find-object", "notices", "waiting"):
+        assert word not in text, word
+
+
 def test_decision_table_covers_choices():
-    _, _, body = _parts()
-    for kind in ("not-defect", "trivial", "wont-fix"):
-        assert f"--kind {kind}" in body or f"`{kind}`" in body, kind
+    text, _, _ = _parts()
+    assert "decide <id> accept" in text and "decide <id> reject" in text
+    assert all(f"`{k}`" in text for k in decide.KINDS)
+
+
+def test_prompts_defer_criteria_to_rubric():
+    # 서브에이전트 프롬프트에 분류 기준 표·짝 목록을 두지 않는다
+    text, _, _ = _parts()
+    assert "missing → skill_supplement" not in text and "bash → repeat" not in text
+    assert "recent_rules" in text and "conflicts" in text and "target_file" in text
 
 
 def test_backfill_default_window_and_cli_fields_referenced():

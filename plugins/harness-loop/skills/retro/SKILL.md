@@ -1,6 +1,6 @@
 ---
 name: retro
-description: 훅이 남긴 세션 근거를 판정하고 실제 파일로 검증해, 사용자가 결정할 스킬·지침·스크립트 개선(결정 대상)만 보고하고 진행·티켓·거절 결정을 처리한다. "회고해줘", "이 세션 회고", "retro", "개선점 정리", "이 세션 돌아보기"처럼 요청할 때, SessionStart 의 "판정하지 않은 근거 N건" 알림에 답할 때, 보고 뒤 "1 진행, 2 티켓, 3 거절 사소함"처럼 결정을 입력할 때, 보고 끝의 rubric 보강 후보 안내에 답할 때 쓴다. 인자 backfill [--days N] 을 주면 훅 설치 전 기록을 근거로 만든 뒤 회고한다.
+description: 훅이 남긴 세션 근거를 판정하고 실제 파일로 검증해, 사용자가 결정할 스킬·지침·스크립트 개선(결정 대상)과 수정안(diff)만 보고하고 수락·거절 결정을 기록한다. "회고해줘", "이 세션 회고", "retro", "개선점 정리", "이 세션 돌아보기"처럼 요청할 때, SessionStart 의 "판정하지 않은 근거 N건" 알림에 답할 때, 보고 뒤 "1 수락, 2 거절 사소함"처럼 결정을 입력할 때, "수락률 보여줘"처럼 물을 때, 보고 끝의 rubric 보강 후보 안내에 답할 때 쓴다. 인자 backfill [--days N] 을 주면 훅 설치 전 기록을 근거로 만든 뒤 회고한다.
 argument-hint: "[backfill [--days N]]"
 ---
 
@@ -33,8 +33,8 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 | 3 | 다른 retro 작업이 공용 데이터 락을 잡고 있다. 사용자에게 알리고, 잠시 뒤 다시 실행하라고 안내한 뒤 멈춘다 |
 
 - 결정은 자유 입력으로만 받는다. 선택지 질문 도구는 쓰지 않는다.
-- 승인만 받는 질문("이대로 진행할까요?")은 하지 않는다. 확인은 두 곳에서만 받는다: 티켓 등록 전 미리보기, rubric 적용으로 빠지는 양성 묶음.
-- 보고·미리보기·후보 표를 보인 뒤에는 그 턴을 끝내고 사용자 입력을 기다린다.
+- 승인만 받는 질문("이대로 진행할까요?")은 하지 않는다. 확인은 한 곳에서만 받는다: rubric 적용으로 빠지는 양성 묶음.
+- 보고·후보 표를 보인 뒤에는 그 턴을 끝내고 사용자 입력을 기다린다.
 
 ### 서브에이전트
 
@@ -49,8 +49,9 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 |---|---|---|
 | 없음 | "회고해줘", "개선점 정리", SessionStart 알림에 답함 | 기본 |
 | `backfill [--days N]` | 없음 | 백필 후 기본 |
-| 없음 | 보고 뒤 "1 진행, 2 티켓, 3 거절 사소함" 같은 입력, 티켓 미리보기 뒤 확인 | 결정 |
+| 없음 | 보고 뒤 "1 수락, 2 거절 사소함" 같은 입력 | 결정 |
 | 없음 | 보고 끝 rubric 보강 후보 안내에 "보강할게" 같은 답, 후보 표 뒤 고른 번호 | rubric 갱신 |
+| 없음 | "수락률 보여줘" 같은 질문 | 수락률: `metrics` 를 실행해 `overall`·`by_target`·`by_rubric_version` 의 `accepted`·`rejected`·`rate` 를 표로 보인다 |
 
 ## 기본 모드
 
@@ -97,18 +98,18 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 ```
 harness-loop 관찰 판정을 맡는다. 사용자에게 묻지 말고, 판정 이유는 한국어 한 줄로 쓴다.
 
-1. <rubric 파일> 을 Read 로 읽는다. 판정 기준은 이 파일만 따른다.
+1. <rubric 파일> 을 Read 로 읽는다. 판정 기준·근거 종류별 관찰 유형·문구 규칙은 이 파일의 "관찰 판정"·"관찰 제외"·"관찰로 보지 않는 경우" 절을 따른다. 다른 기준을 더하지 않는다.
 2. <근거 파일> 을 Read 로 읽는다. evidence 의 근거마다 kind·text·excerpt·skill·flags 를 보고 판정한다.
 3. excerpt 로 모자라면 근거의 transcript 에서 pos(바이트 위치) 앞뒤만 읽는다: tail -c +<시작> "<transcript>" | head -c 40000 (<시작> 은 pos-20000, 1 보다 작으면 1). transcript 전체를 읽지 않는다.
 4. examples 는 사용자가 결함 아님으로 거절한 묶음의 문제와 이유다. 같은 경우는 해당 아님으로 판정한다.
 5. <스키마 파일> 형식의 JSON 을 <결과 파일> 에 Write 로 쓴다.
 
-규칙:
-- 받은 근거 id 마다 항목을 하나 이상 쓴다. 해당하지 않으면 verdict 를 false 로 쓴다. 근거를 하나도 빼지 않는다.
+출력 규칙:
+- 받은 근거 id 마다 항목을 하나 쓴다. 해당하지 않으면 verdict 를 false 로 쓴다. 근거를 하나도 빼지 않는다.
 - 받지 않은 id 는 쓰지 않는다. evidence_id 는 근거의 id 그대로다.
-- type 은 근거 kind 로 정한다: bash → repeat, failure → failure, ask → approval_question, prompt → correction(AI 가 글로 물은 질문에 대한 답이면 approval_question).
-- type 이 repeat 이면 verdict 와 상관없이 purpose 에 명령의 목적을 짧은 문구로 쓴다. 같은 목적이면 같은 문구를 쓴다.
-- repeat 판정에는 근거의 repeat_stats(같은 inline 스크립트가 모든 세션에 나온 횟수 count·세션 수 sessions)와 파일 맨 위 recent_purposes(최근 참 반복 관찰의 목적 문구)를 함께 본다. 목적이 recent_purposes 의 문구와 같으면 그 문구를 글자 그대로 purpose 에 쓴다.
+- type 이 repeat 이면 verdict 와 상관없이 purpose 를 쓴다. 근거의 repeat_stats(같은 inline 스크립트가 모든 세션에 나온 횟수 count·세션 수 sessions)도 함께 본다.
+- type 이 decision_pattern 이고 verdict 가 true 면 rule 을 쓴다.
+- purpose·rule 은 파일 맨 위 recent_purposes·recent_rules 에 같은 뜻의 문구가 있으면 그 문구를 글자 그대로 쓴다.
 - reason 은 판정 이유 한 줄이다.
 - 마지막 답은 "완료 <판정한 근거 수>" 한 줄만 쓴다.
 ```
@@ -125,27 +126,21 @@ harness-loop 관찰 판정을 맡는다. 사용자에게 묻지 말고, 판정 �
 ```
 harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem·proposal 은 한국어로 쓴다.
 
-1. <context 파일> 을 Read 로 읽는다. rubric 경로의 파일을 Read 로 읽고 "관찰 → 결정 대상"과 "공통 확인"을 따른다.
-2. observations(참 관찰)만 묶는다. 같은 대상 파일·같은 문제끼리 한 묶음이다. groups 의 기존 묶음(decisions 에 결정이 있는 묶음 포함)과 같은 문제면 그 id 를 그대로 쓰고 새 관찰 id 만 observations 에 넣는다. 새 묶음 id 는 짧은 영어 소문자 슬러그(예: release-adr-number)로 정한다.
-3. examples 는 사용자가 내린 결정 예시다(positive 는 수락, negative 는 거절). negative 와 같은 경우는 묶음으로 올리지 않는다.
-4. 결정 대상마다 대상 파일을 실제로 Read 로 읽고 verified 를 채운다.
-   - 관찰 당시 버전: 관찰의 skill.hash 또는 meta.scripts·meta.guidelines 의 hash. 내용은 <스냅샷 디렉터리>/<hash> 를 Read 하거나, 없으면 대상 저장소에서 git cat-file -p <hash> 로 읽는다.
-   - 현재 버전: 대상 경로를 Read 로 읽는다.
-   - 수정 이력이 필요하면(재발·반복 수정) git log --find-object=<hash>, git log -p -- <경로>, git diff 를 읽는다.
-5. <스키마 파일> 형식의 JSON 을 <결과 파일> 에 Write 로 쓴다. 바뀐 묶음만 넣고, 없으면 {"groups": []} 를 쓴다.
+1. <context 파일> 을 Read 로 읽는다. rubric 경로의 파일을 Read 로 읽는다. 결정 대상, 검증 결과 코드와 허용 짝, 대상 파일과 범위, 공통 확인은 이 파일의 "결정 대상"·"파일 검증"·"공통 확인"·"결정 대상으로 올리지 않는 경우" 절을 따른다. 다른 기준을 더하지 않는다.
+2. observations(참 관찰)만 묶는다. 같은 대상 파일·같은 문제끼리 한 묶음이다. decision_pattern 관찰은 같은 rule 끼리 묶는다. 새 묶음 id 는 짧은 영어 소문자 슬러그(예: release-adr-number)로 정한다.
+3. groups 의 기존 묶음과 같은 문제면 그 id 를 그대로 쓴다. decisions 에 결정이 있는 묶음이면 다른 필드는 그대로 두고 새 관찰 id 만 observations 에 넣는다.
+4. examples 는 사용자가 내린 결정 예시다(positive 는 수락, negative 는 거절). negative 와 같은 경우는 묶음으로 올리지 않는다.
+5. 묶음마다 현재 대상 파일을 Read 로 읽어 verified 를 채운다.
+6. <스키마 파일> 형식의 JSON 을 <결과 파일> 에 Write 로 쓴다. 바뀐 묶음만 넣고, 없으면 {"groups": []} 를 쓴다.
 
 필드 규칙:
-- target_type: script | skill_supplement | guideline_supplement | fix | rework. target_path 는 고칠 파일의 절대 경로(없는 파일이면 만들 위치), 스킬이면 skill_root 에 스킬 디렉터리.
-- verified: checked_path(읽은 파일), hash(읽은 버전 해시, 현재 파일이면 빈 문자열), finding, 결함 줄을 특정했으면 line. 파일로 확인하지 못했으면 verified 를 null 로 둔다.
-- finding 과 target_type 은 아래 짝만 쓴다.
-  missing → skill_supplement | guideline_supplement | script
-  no_instruction → skill_supplement | guideline_supplement
-  wrong | ignored | has_script | asks_here → fix
-- specific_facts: 이 스킬·프로젝트에만 있는 사실(경로, 명령, 이름, 순서)을 한 개 이상 쓴다. 일반론뿐이면 그 묶음은 쓰지 않는다.
-- failure_ref: AI 가 실제로 다르게 움직인 장면의 관찰 id. 이 묶음 observations 안의 id 여야 한다.
-- proposal: scope(수정 범위), opinion(의견), diff(대상 파일 기준 unified diff).
-- guideline_supplement 는 관찰이 2개 이상 프로젝트에서 나왔으면 ~/.claude/CLAUDE.md, 한 프로젝트면 그 프로젝트의 CLAUDE.md 나 .claude/rules/ 파일을 대상으로 한다. 자동 메모리(memory/)는 읽기만 하고 대상으로 삼지 않는다.
-- rework 는 rework_kind 가 필요하다: recurrence | verified_recurrence 는 fix_version(수정한 버전의 blob 해시), repeat_edit 은 edits(같은 구간을 고친 버전들의 blob 해시 목록). git 밖 대상은 rework 로 만들지 않는다.
+- target_type 은 rubric 의 결정 대상 코드, verified.finding 은 rubric 의 검증 결과 코드다.
+- target_path 는 고칠 파일의 절대 경로(없는 파일이면 만들 위치)다. 스킬이면 skill_root 에 스킬 디렉터리를 쓴다.
+- verified: checked_path(Read 로 읽은 파일), finding, 결함 줄을 특정했으면 line. 파일로 확인하지 못했으면 verified 를 null 로 둔다.
+- specific_facts: 수정안에 쓴 이 스킬·프로젝트에만 있는 사실을 한 개 이상 쓴다. 없으면 그 묶음은 쓰지 않는다.
+- failure_ref: rubric 의 실패 근거에 해당하는 관찰 id. 이 묶음 observations 안의 id 여야 한다.
+- conflicts: decision_pattern 묶음이면 같은 상황에서 반대 선택을 한 참 decision_pattern 관찰 id 를 넣는다. 없으면 쓰지 않는다.
+- proposal: scope(수정 범위), opinion(의견), diff(현재 대상 파일 기준 unified diff).
 
 마지막 답은 "묶음 <결과 파일에 쓴 묶음 수>" 한 줄만 쓴다.
 ```
@@ -178,14 +173,12 @@ harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem
 | `skill_supplement` | 스킬 보완 |
 | `guideline_supplement` | 지침 보완 |
 | `fix` | 지침·스크립트 수정 |
-| `rework` | 수정 방식 재검토 |
 
 - 스킬 이름은 `skill_root` 의 마지막 디렉터리 이름, 없으면 `target_path` 의 파일 이름이다.
 - 근거 줄에는 묶음 `observations` 의 관찰을 `<tmp>/harness-context.json` 의 `observations` 에서 찾아 쓴다. 첫 근거는 `failure_ref` 관찰이고, 근거가 세 개를 넘으면 나머지는 `- 그 밖의 근거 N건` 한 줄로 줄인다.
 - `<위치>` 는 `repeat` 관찰이면 관찰의 `file`(저장한 스크립트 경로), 그 밖에는 `skill.path`, 없으면 `cwd` 다.
 - `verified.line` 이 없으면 `:<verified.line>` 을 뺀다.
-- `rework` 항목은 `rework_kind` 를 결정 대상 뒤 괄호에 쓰고, `recurrence` 가 있으면 `- 재발 관찰: <id 목록>` 한 줄을 더한다.
-- `apply_target.kind` 가 `plugin_cache` 인 항목은 `- 외부 플러그인 캐시: 직접 고치지 않음` 한 줄을 더한다.
+- `apply_target.kind` 가 `plugin_cache` 인 항목은 `- 외부 플러그인 캐시: 원본 저장소에서 고쳐야 함` 한 줄을 더한다.
 - 항목 뒤에 `보류 N건, 버림 M건(<reason>별 개수)` 한 줄을 쓴다. 보류는 `held` 만 센다. 버림은 `dropped` 중 `reason` 이 `decided` 인 것을 빼고 센다. 셋 다 0 이면 쓰지 않는다.
 - `rubric-candidates` 출력의 `ready` 에 true 인 kind 가 있으면 `rubric 보강 후보 있음(<kind> N건) — "보강할게"로 진행` 한 줄을 쓴다.
 - `report` 가 비면 `결정 대상 없음` 한 줄을 쓰고 위의 보류·버림, rubric 줄만 쓴다.
@@ -194,7 +187,13 @@ harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem
 ## 결정
 
 1. 입력의 번호를 직전 보고에서 찾아 그 항목의 `id` 로 바꾼다. 직전 보고가 이 대화에 없으면 `gate` 를 다시 실행해 같은 순서로 번호를 매긴다. 번호가 보고에 없거나 뜻이 모호하면 그 부분만 실행하지 않고 되묻는다.
-2. 수락은 "수락" 절, 거절은 아래 명령과 표를 따른다. 사용자 사유를 표의 `--kind` 로 바꾸고, 이유 문장은 `--reason` 에 그대로 넘긴다.
+2. 수락은 아래 명령으로 기록한다. 파일은 고치지 않는다.
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" decide <id> accept
+```
+
+3. 거절은 아래 명령과 표를 따른다. 사용자 사유를 표의 `--kind` 로 바꾸고, 이유 문장은 `--reason` 에 그대로 넘긴다.
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" decide <id> reject --kind <kind> --reason '<이유>'
@@ -209,20 +208,8 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 - 사유가 없거나 두 kind 에 걸치면 그 항목만 실행하지 않고 위 세 사유 중 무엇인지 되묻는다.
 - 이유 문장이 없으면 `--reason` 을 뺀다.
 
-3. 결과를 항목마다 한 줄로 보고한다: `<번호>. <결정> — <고친 경로 | 거절 사유>`.
-
-### 수락
-
-1. 항목의 `apply_target.kind` 가 `plugin_cache` 면 고치지 않는다. 원본 저장소에서 고쳐야 한다고 `<apply_target.real_path>` 와 함께 알린다.
-2. `proposal.diff` 를 `apply_target.real_path` 에 반영한다. `new` 면 파일을 만든다. 대상이 다른 저장소·worktree 여도 그 작업 트리를 직접 고치고 고친 경로를 알린다.
-3. 근거가 된 문제를 다시 확인한다: 고친 스크립트를 실행하거나, 고친 지시를 근거 장면에 비춰 다시 읽는다. 확인 결과를 한 줄로 알린다.
-4. 반영과 확인이 끝난 뒤에 기록한다.
-
-```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" decide <id> accept
-```
-
-5. 커밋하지 않는다. 사용자가 커밋·PR 을 요청하면 그 저장소 규칙(`apply_target.rules` 의 파일, `contribute` 스킬 등)을 따른다.
+4. 결과를 항목마다 한 줄로 보고한다: `<번호>. <수락 | 거절 사유>`.
+5. 수락한 항목이 있으면 `수정은 보고의 diff 를 보고 직접 반영하세요` 한 줄을 더한다.
 
 ## rubric 갱신
 
@@ -297,9 +284,9 @@ harness-loop replay 판정을 맡는다. 사용자에게 묻지 말고, reason �
 
 1. <rubric 파일> 을 Read 로 읽는다. 판정 기준은 이 파일만 따른다. 첫 줄 <!-- rubric-version: N --> 의 N 이 rubric 버전이다.
 2. <목록 파일> 을 Read 로 읽는다. JSON 배열의 경로마다 input.json 을 Read 로 읽는다.
-3. input.json 의 group 은 묶음, observations 는 관찰별 evidence·excerpt 목록, file_versions 는 관찰 당시 대상 파일 내용이다. observations 의 observation 에 남은 예전 verdict·reason 과 input.json 의 rubric 은 쓰지 않는다.
-4. observations 의 근거마다 이 rubric 으로 다시 판정한다. 항목 형식은 <관찰 스키마 파일> 의 observations 항목과 같다(evidence_id, type, verdict, reason, repeat 이면 purpose). 근거를 하나도 빼지 않는다.
-5. 이 rubric 의 "공통 확인"이나 "결정 대상으로 올리지 않는 경우"로 묶음이 달라지면 바뀐 필드만 group_fields 에 쓴다. 파일 검증(관찰 → 결정 대상)이 더는 성립하지 않으면 {"verified": null}, 구체성 확인을 통과하지 못하면 {"specific_facts": []} 를 쓴다. 달라진 것이 없으면 group_fields 를 쓰지 않는다.
+3. input.json 의 group 은 묶음, observations 는 관찰별 evidence·excerpt 목록, target_file 은 결정 시점 대상 파일의 path·text(없던 파일이면 text 가 null)다. observations 의 observation 에 남은 예전 verdict·reason 과 input.json 의 rubric 은 쓰지 않는다.
+4. observations 의 근거마다 이 rubric 으로 다시 판정한다. 항목 형식은 <관찰 스키마 파일> 의 observations 항목과 같다(evidence_id, type, verdict, reason, repeat 이면 purpose, 참인 decision_pattern 이면 rule). 근거를 하나도 빼지 않는다.
+5. 이 rubric 의 "공통 확인"이나 "결정 대상으로 올리지 않는 경우"로 묶음이 달라지면 바뀐 필드만 group_fields 에 쓴다. target_file 로 본 파일 검증이 더는 성립하지 않으면 {"verified": null}, 구체성 확인을 통과하지 못하면 {"specific_facts": []} 를 쓴다. 달라진 것이 없으면 group_fields 를 쓰지 않는다.
 6. 아래 JSON 을 <결과 파일> 에 Write 로 쓴다. 입력마다 results 항목을 하나씩 쓴다. 목록이 비었으면 results 를 빈 배열로 쓴다.
    {"rubric_version": N, "results": [{"group": <group.id>, "observations": [...], "group_fields": {...}}, …]}
 
