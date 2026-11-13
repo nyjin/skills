@@ -232,7 +232,11 @@ def _advance(hdir, ids: set) -> None:
 def save(result: dict) -> dict:
     validate(result, json.loads(SCHEMA.read_text(encoding="utf-8")))
     entries = result["observations"]
+    seen = set()
     for i, e in enumerate(entries):
+        if e["evidence_id"] in seen:
+            raise ValueError(f"$.observations[{i}].evidence_id: 중복된 evidence_id {e['evidence_id']}")
+        seen.add(e["evidence_id"])
         if e["type"] == "repeat" and not e.get("purpose"):
             raise ValueError(f"$.observations[{i}].purpose: repeat 는 purpose 가 필요합니다")
         check_rule(e, f"$.observations[{i}]")

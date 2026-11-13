@@ -145,9 +145,11 @@ def test_observe_is_idempotent_per_evidence(two_sessions):
     assert observe.observations(since="2026-11-02T00:00:00+09:00") == []
 
 
-def test_multiple_observations_per_evidence(two_sessions):
+def test_save_rejects_duplicate_evidence_id(two_sessions):
     r = [{"evidence_id": "aaaaaaaa-1", "type": t, "verdict": False, "reason": "r"} for t in ("correction", "approval_question")]
-    assert observe.save({"observations": r}) == {"saved": 2, "skipped": 0}
+    with pytest.raises(ValueError, match=r"\$\.observations\[1\]\.evidence_id: 중복된 evidence_id aaaaaaaa-1"):
+        observe.save({"observations": r})
+    assert observe.observations() == []
 
 
 def test_cursor_advances_only_through_judged_evidence(two_sessions):
