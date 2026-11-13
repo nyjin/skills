@@ -70,6 +70,7 @@ def merge(result: dict) -> list[str]:
             new["observations"] = list(dict.fromkeys(old["observations"] + g["observations"]))
             new["created"] = old["created"]
         else:
+            new["observations"] = list(dict.fromkeys(g["observations"]))
             new["created"] = at
         if old and {k: v for k, v in old.items() if k != "updated"} == new:
             continue
@@ -98,25 +99,27 @@ def judge_group(group: dict, observations_by_id: dict, decisions: dict, cfg: dic
     """묶음 하나를 관문에 건다. ("report"|"held"|"dropped", 버림 이유, 보고 필드)."""
     true_obs = [observations_by_id[e] for e in group["observations"]
                 if e in observations_by_id and observations_by_id[e].get("verdict") is True]
+    if decisions.get(group["id"]):
+        return "dropped", "decided", {}
     if group.get("verified") is None:
         return "dropped", "unverified", {}
     if not group.get("specific_facts"):
         return "dropped", "not_specific", {}
     if group.get("failure_ref") not in {o["evidence_id"] for o in true_obs}:
         return "dropped", "no_failure_ref", {}
-    if decisions.get(group["id"]):
-        return "dropped", "decided", {}
     finding = group["verified"].get("finding")
     ttype = group["target_type"]
     if finding == "environment":
         return "dropped", "environment", {}
     if ttype not in ALLOWED.get(finding, set()):
         return "dropped", "inconsistent", {}
-    if any(observations_by_id.get(e, {}).get("verdict") is True for e in group.get("conflicts", [])):
+    cut = paths.aware(now) - timedelta(days=cfg["window_days"])
+    in_window = lambda o: o.get("at") and paths.aware(o["at"]) >= cut  # noqa: E731
+    if any(observations_by_id.get(e, {}).get("verdict") is True and in_window(observations_by_id[e])
+           for e in group.get("conflicts", [])):
         return "dropped", "conflicting_choice", {}
 
-    cut = paths.aware(now) - timedelta(days=cfg["window_days"])
-    obs = [o for o in true_obs if o.get("at") and paths.aware(o["at"]) >= cut]
+    obs = [o for o in true_obs if in_window(o)]
     extra = {"count": len(obs), "sessions": len({o.get("session") for o in obs}),
              "projects": len({o.get("project") for o in obs})}
     if ttype == "guideline_supplement":
@@ -132,7 +135,10 @@ def judge_group(group: dict, observations_by_id: dict, decisions: dict, cfg: dic
     if "approval_question" in types:
         ok = len(obs) >= 1
     elif "decision_pattern" in types:
-        ok = pattern(of_type("decision_pattern"))
+        by_rule: dict[str, list[dict]] = {}
+        for o in of_type("decision_pattern"):
+            by_rule.setdefault(o.get("rule"), []).append(o)
+        ok = any(pattern(of) for of in by_rule.values())
     elif ttype == "script":
         ok = pattern(obs)
     elif ttype in ("skill_supplement", "guideline_supplement"):

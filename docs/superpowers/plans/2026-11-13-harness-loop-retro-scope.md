@@ -156,12 +156,12 @@ def test_merge_rejects_rework_target(obs_factory):
   - `pending` 출력에 `recent_rules`: `window_days` 안 참 `decision_pattern` 관찰의 `rule`, 최근 것부터 중복 없이 최대 50개(`recent_purposes` 와 같은 함수로 일반화).
 
 `judge_group` 순서(이 순서대로 첫 해당에서 끝):
-1. `verified` null → `unverified`; `specific_facts` 빔 → `not_specific`; `failure_ref` 가 참 관찰 아님 → `no_failure_ref`
-2. 결정 있음 → `decided`
+1. 결정 있음 → `decided`
+2. `verified` null → `unverified`; `specific_facts` 빔 → `not_specific`; `failure_ref` 가 참 관찰 아님 → `no_failure_ref`
 3. `finding == "environment"` → `environment`; 짝이 `ALLOWED` 에 없음 → `inconsistent`
-4. `conflicts` 에 참 관찰이 하나라도 → `conflicting_choice`
+4. `conflicts` 에 `window_days` 안의 참 관찰이 하나라도 → `conflicting_choice`
 5. window 안 참 관찰로 센다. `guideline_supplement` 는 대상이 `~/.claude/CLAUDE.md` 인지와 프로젝트 수 ≥ 2 가 다르면 `scope`
-6. 넘는지: 관찰 유형에 `approval_question` 있음 → 1회; `decision_pattern` 있음 → 결정 패턴 관찰만 패턴 기준; `script` → 전체 관찰 패턴 기준; `skill_supplement`·`guideline_supplement` → 교정 관찰만 패턴 기준; 그 밖(`fix`) → 1회. 패턴 기준 = 개수 ≥ `pattern_min_count` 그리고 세션 수 ≥ `pattern_min_sessions`.
+6. 넘는지: 관찰 유형에 `approval_question` 있음 → 1회; `decision_pattern` 있음 → 결정 패턴 관찰을 같은 `rule` 끼리 세어 하나라도 패턴 기준; `script` → 전체 관찰 패턴 기준; `skill_supplement`·`guideline_supplement` → 교정 관찰만 패턴 기준; 그 밖(`fix`) → 1회. 패턴 기준 = 개수 ≥ `pattern_min_count` 그리고 세션 수 ≥ `pattern_min_sessions`.
 
 `defaults/rubric.md` 전문:
 

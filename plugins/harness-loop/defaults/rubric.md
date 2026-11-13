@@ -100,7 +100,7 @@
 |---|---|
 | 스크립트화(반복 실행) | 같은 목적의 관찰 `pattern_min_count` 회 이상, `pattern_min_sessions` 개 이상 세션 |
 | 스킬 보완·지침 보완(교정) | 같은 종류의 교정 `pattern_min_count` 회 이상, `pattern_min_sessions` 개 이상 세션 |
-| 스킬 보완·지침 보완·지침·스크립트 수정(결정 패턴) | 같은 규칙의 결정 `pattern_min_count` 회 이상, `pattern_min_sessions` 개 이상 세션. 같은 상황에서 다르게 고른 관찰은 묶음의 `conflicts` 에 넣고, 하나라도 있으면 `conflicting_choice` 로 버린다 |
+| 스킬 보완·지침 보완·지침·스크립트 수정(결정 패턴) | 같은 규칙 문장(`rule`)의 결정 `pattern_min_count` 회 이상, `pattern_min_sessions` 개 이상 세션. 같은 상황에서 다르게 고른 관찰은 묶음의 `conflicts` 에 넣고, `window_days` 안에 하나라도 있으면 `conflicting_choice` 로 버린다 |
 | 스킬 보완·지침·스크립트 수정(승인용 질문) | 1회. 질문을 만든 지점을 특정해야 한다(질문 형태로 판정하므로 횟수를 보지 않는다) |
 | 지침·스크립트 수정(교정·실패·반복의 결함) | 1회. 결함 위치를 특정해야 한다 |
 

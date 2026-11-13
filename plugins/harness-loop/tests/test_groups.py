@@ -272,3 +272,33 @@ def test_decision_pattern_guideline_opposite_is_fix_only(obs_factory):
 def test_asks_user_and_opposite_are_allowed_for_fix_only():
     assert groups.ALLOWED["asks_user"] == {"fix"} and groups.ALLOWED["opposite"] == {"fix"}
     assert groups.ALLOWED["environment"] == set()
+
+
+def test_conflict_outside_window_does_not_drop(obs_factory):
+    a, b = obs_factory("decision_pattern", session="s1"), obs_factory("decision_pattern", session="s2")
+    old = obs_factory("decision_pattern", session="s3", at="2026-10-06T11:00:00+09:00")
+    groups.merge(result(group("g", "skill_supplement", [a, b], finding="missing", conflicts=[old])))
+    assert ids(groups.gate(NOW), "report") == ["g"]
+
+
+def test_decision_pattern_counts_by_rule(obs_factory):
+    a = obs_factory("decision_pattern", session="s1", rule="A 이면 X")
+    b = obs_factory("decision_pattern", session="s2", rule="B 이면 Y")
+    groups.merge(result(group("g", "skill_supplement", [a, b], finding="missing")))
+    assert ids(groups.gate(NOW), "held") == ["g"]
+    c = obs_factory("decision_pattern", session="s2", rule="A 이면 X")
+    groups.merge(result(group("g", "skill_supplement", [c], finding="missing")))
+    assert ids(groups.gate(NOW), "report") == ["g"]
+
+
+def test_merge_dedupes_observations_on_new_group(obs_factory):
+    a = obs_factory("failure")
+    groups.merge(result(group("g", "fix", [a, a], finding="wrong")))
+    assert groups.load()["g"]["observations"] == [a]
+
+
+def test_decided_checked_before_unverified(obs_factory, monkeypatch):
+    a = obs_factory("failure")
+    groups.merge(result(group("g", "fix", [a], verified=None)))
+    monkeypatch.setattr(groups, "_last_decisions", lambda: {"g": {"group": "g", "decision": "accept", "at": NOW}})
+    assert groups.gate(NOW)["dropped"] == [{"id": "g", "reason": "decided"}]
