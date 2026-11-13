@@ -51,7 +51,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 | `backfill [--days N]` | 없음 | 백필 후 기본 |
 | 없음 | 보고 뒤 "1 수락, 2 거절 사소함" 같은 입력 | 결정 |
 | 없음 | 보고 끝 rubric 보강 후보 안내에 "보강할게" 같은 답, 후보 표 뒤 고른 번호 | rubric 갱신 |
-| 없음 | "수락률 보여줘" 같은 질문 | 수락률: `metrics` 를 실행해 `overall`·`by_target`·`by_rubric_version` 의 `accepted`·`rejected`·`rate` 를 표로 보인다 |
+| 없음 | "수락률 보여줘" 같은 질문 | 수락률: `metrics` 를 실행해 `overall`·`by_target`·`by_rubric_version` 의 `accepted`·`rejected`·`rate` 를 표로 보인다. `wont_fix`(안 고침)는 따로 보이고 `rate` 에서 뺀다 |
 
 ## 기본 모드
 

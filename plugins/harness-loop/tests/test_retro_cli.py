@@ -68,7 +68,7 @@ def test_cli_pipeline_end_to_end(redesign_sessions, tmp_path, capsys, monkeypatc
     assert rec["decision"] == "accept" and rec["note"] == "맞다"
     metrics = cli(capsys, "metrics")
     assert set(metrics) == {"overall", "by_target", "by_rubric_version"}
-    assert metrics["overall"] == {"accepted": 1, "rejected": 0, "rate": 1.0}
+    assert metrics["overall"] == {"accepted": 1, "rejected": 0, "wont_fix": 0, "rate": 1.0}
     replay = cli(capsys, "replay-inputs")
     assert replay == [str(paths.data_dir() / "replay" / "release-adr-number" / "input.json")]
 
@@ -148,7 +148,7 @@ def test_cli_subprocess_smoke():
     r = subprocess.run(["uv", "run", "--script", str(PLUGIN / "scripts" / "retro.py"), "metrics"],
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
-    assert json.loads(r.stdout)["overall"] == {"accepted": 0, "rejected": 0, "rate": None}
+    assert json.loads(r.stdout)["overall"] == {"accepted": 0, "rejected": 0, "wont_fix": 0, "rate": None}
 
 
 def test_observe_pending_requires_every_evidence_id(tmp_path, capsys):

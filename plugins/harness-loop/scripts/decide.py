@@ -79,14 +79,15 @@ def split(group_id: str) -> str:
 
 
 def _tally(recs: list[dict]) -> dict:
-    acc = sum(r["decision"] == "accept" for r in recs)
-    rej = len(recs) - acc
-    return {"accepted": acc, "rejected": rej, "rate": acc / (acc + rej) if acc + rej else None}
+    acc = sum(_label(r) == "positive" for r in recs)
+    rej = sum(_label(r) == "negative" for r in recs)
+    wont = len(recs) - acc - rej
+    return {"accepted": acc, "rejected": rej, "wont_fix": wont, "rate": acc / (acc + rej) if acc + rej else None}
 
 
 def metrics() -> dict:
-    """수락률 = 수락 ÷ (수락 + 거절). wont-fix 거절은 분모에서 뺀다."""
-    recs = [r for r in last_decisions().values() if _label(r) != "excluded"]
+    """수락률 = 수락 ÷ (수락 + 거절). wont-fix 거절은 wont_fix 로 따로 세고 분모에서 뺀다."""
+    recs = list(last_decisions().values())
     by_target: dict[str, list] = {}
     by_version: dict[str, list] = {}
     for r in recs:

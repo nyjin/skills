@@ -90,14 +90,14 @@ def test_metrics_overall_by_target_and_rubric_version(obs_factory):
     _decide_all(obs_factory, [("a", "script", "accept", None), ("b", "fix", "accept", None),
                               ("c", "script", "reject", "not-defect"), ("d", "fix", "reject", "wont-fix")])
     m = decide.metrics()
-    assert m["overall"] == {"accepted": 2, "rejected": 1, "rate": 2 / 3}
-    assert m["by_target"]["script"] == {"accepted": 1, "rejected": 1, "rate": 0.5}
-    assert m["by_target"]["fix"] == {"accepted": 1, "rejected": 0, "rate": 1.0}
-    assert m["by_rubric_version"]["1"]["accepted"] == 2
+    assert m["overall"] == {"accepted": 2, "rejected": 1, "wont_fix": 1, "rate": 2 / 3}
+    assert m["by_target"]["script"] == {"accepted": 1, "rejected": 1, "wont_fix": 0, "rate": 0.5}
+    assert m["by_target"]["fix"] == {"accepted": 1, "rejected": 0, "wont_fix": 1, "rate": 1.0}
+    assert m["by_rubric_version"]["1"] == {"accepted": 2, "rejected": 1, "wont_fix": 1, "rate": 2 / 3}
 
 
 def test_metrics_rate_none_without_labels():
-    assert decide.metrics() == {"overall": {"accepted": 0, "rejected": 0, "rate": None},
+    assert decide.metrics() == {"overall": {"accepted": 0, "rejected": 0, "wont_fix": 0, "rate": None},
                                 "by_target": {}, "by_rubric_version": {}}
 
 
