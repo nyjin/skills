@@ -13,6 +13,15 @@
       "author": { "name": "yeonjin.roh" },
       "license": "MIT",
       "keywords": ["technical-writing", "documentation", "korean"]
+    },
+    {
+      "name": "harness-loop",
+      "source": "./plugins/harness-loop",
+      "description": "세션 근거를 모아 사용자가 결정할 스킬·지침·스크립트 개선만 보고한다.",
+      "version": "0.2.0",
+      "author": { "name": "yeonjin.roh" },
+      "license": "MIT",
+      "keywords": ["harness", "retro", "skills"]
     }
   ]
 }

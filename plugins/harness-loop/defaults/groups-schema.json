@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "required": ["groups"],
+  "properties": {
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target_type", "target_path", "problem", "observations", "verified", "specific_facts", "failure_ref", "proposal"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "target_type": {"type": "string", "enum": ["script", "skill_supplement", "guideline_supplement", "fix"]},
+          "target_path": {"type": "string", "minLength": 1},
+          "skill_root": {"type": "string", "minLength": 1},
+          "problem": {"type": "string", "minLength": 1},
+          "observations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "verified": {
+            "required": ["checked_path", "finding"],
+            "properties": {
+              "checked_path": {"type": "string", "minLength": 1},
+              "finding": {"type": "string", "enum": ["missing", "wrong", "ignored", "has_script", "asks_here", "no_instruction", "asks_user", "opposite", "environment"]},
+              "line": {"type": "integer"}
+            }
+          },
+          "specific_facts": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "conflicts": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "failure_ref": {"type": "string"},
+          "proposal": {
+            "type": "object",
+            "required": ["scope", "opinion", "diff"],
+            "properties": {
+              "scope": {"type": "string"},
+              "opinion": {"type": "string"},
+              "diff": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

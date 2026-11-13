@@ -1,0 +1,13 @@
+{"type": "permission-mode", "permissionMode": "default"}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": "IBS-1 티켓 내용 확인해서 후속 티켓 만들어줘"}}
+{"type": "assistant", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Skill", "input": {"skill": "ticket-creator"}}]}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "Launching skill: ticket-creator"}]}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": [{"type": "text", "text": "Base directory for this skill: /tmp/skills/ticket-creator\n\n# ticket-creator"}]}, "isMeta": true}
+{"type": "assistant", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t2", "name": "mcp__claude_ai_Atlassian__getJiraIssue", "input": {"issueIdOrKey": "IBS-1"}}]}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": [{"type": "text", "text": "Error: the app is not installed for this site\nsecond line"}], "is_error": true}]}}
+{"type": "assistant", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t3", "name": "Bash", "input": {"command": "acli jira workitem view IBS-1"}}]}}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t3", "content": "IBS-1 sample summary", "is_error": false}]}}
+{"type": "assistant", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "text", "text": "티켓 초안을 만들었습니다. 생성할까요?"}]}}
+{"type": "system", "subtype": "turn_duration", "content": ""}
+{"type": "user", "isSidechain": false, "cwd": "/tmp/proj/sub", "message": {"role": "user", "content": "아니 에픽 밑으로 넣어줘"}}
+{"type": "assistant", "isSidechain": false, "cwd": "/tmp/proj", "message": {"role": "assistant", "content": [{"type": "text", "text": "에픽 밑으로 옮기겠습니다."}]}}

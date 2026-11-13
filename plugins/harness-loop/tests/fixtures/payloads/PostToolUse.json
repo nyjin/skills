@@ -1,0 +1,1 @@
+{"session_id": "abcd1234-0000-0000-0000-000000000000", "transcript_path": "/PROJECTS/-proj/abcd1234-0000-0000-0000-000000000000.jsonl", "cwd": "/CWD", "hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {}, "tool_response": {}, "tool_use_id": "toolu_01POST"}

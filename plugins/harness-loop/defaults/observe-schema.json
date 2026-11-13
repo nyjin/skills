@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "required": ["observations"],
+  "properties": {
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["evidence_id", "type", "verdict", "reason"],
+        "properties": {
+          "evidence_id": {"type": "string", "minLength": 1},
+          "type": {"type": "string", "enum": ["correction", "repeat", "failure", "approval_question", "decision_pattern"]},
+          "verdict": {"type": "boolean"},
+          "reason": {"type": "string", "minLength": 1},
+          "purpose": {"type": "string", "minLength": 1},
+          "rule": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}
