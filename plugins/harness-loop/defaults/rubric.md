@@ -19,8 +19,8 @@
 
 | 근거 종류 | 관찰 유형 |
 |---|---|
-| `prompt` | `correction`. AI 가 글로 물은 질문에 대한 답이면 `approval_question` 또는 `decision_pattern` |
-| `bash` | `repeat` |
+| `prompt` | `correction`. AI 가 글로 물은 질문에 대한 답이면 `approval_question` 또는 `decision_pattern`. 스킬 실행 중 AI 가 스킬이 정한 절차와 다르게 움직였음을 보이면 `failure` |
+| `bash` | `repeat`. 스킬 실행 중 AI 가 스킬이 정한 절차와 다르게 움직였음을 보이면 `failure` |
 | `failure` | `failure` |
 | `ask` | `approval_question` 또는 `decision_pattern` |
 
@@ -91,6 +91,15 @@
 - 자동 메모리(`memory/`)는 검증 때 읽기만 하고 대상으로 삼지 않는다. 메모리 사이의 이동·정리는 결정 대상이 아니다.
 - 지침 보완의 범위는 관찰이 나온 프로젝트 수로 정한다: 한 프로젝트면 그 프로젝트 지침, 2개 이상 프로젝트면 `~/.claude/CLAUDE.md`. 관문이 `meta.project_root` 로 세어 맞지 않으면 `scope` 로 버린다.
 - 스킬이 대상이면 `skill_root` 에 스킬 디렉터리를 쓴다.
+
+## 묶기
+
+참 관찰만 묶는다.
+
+- 같은 대상 파일·같은 문제의 관찰끼리 한 묶음이다.
+- 결정 패턴 관찰은 같은 규칙 문장(`rule`)끼리 묶는다.
+- `conflicts` 는 묶음과 같은 상황에서 반대로 고른 참 `decision_pattern` 관찰 id 다.
+- 결정이 난 묶음과 같은 문제면 그 묶음 id 에 새 관찰만 넣고 다른 필드는 그대로 둔다.
 
 ## 관문
 

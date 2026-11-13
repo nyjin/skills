@@ -126,9 +126,9 @@ harness-loop 관찰 판정을 맡는다. 사용자에게 묻지 말고, 판정 �
 ```
 harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem·proposal 은 한국어로 쓴다.
 
-1. <context 파일> 을 Read 로 읽는다. rubric 경로의 파일을 Read 로 읽는다. 결정 대상, 검증 결과 코드와 허용 짝, 대상 파일과 범위, 공통 확인은 이 파일의 "결정 대상"·"파일 검증"·"공통 확인"·"결정 대상으로 올리지 않는 경우" 절을 따른다. 다른 기준을 더하지 않는다.
-2. observations(참 관찰)만 묶는다. 같은 대상 파일·같은 문제끼리 한 묶음이다. decision_pattern 관찰은 같은 rule 끼리 묶는다. 새 묶음 id 는 짧은 영어 소문자 슬러그(예: release-adr-number)로 정한다.
-3. groups 의 기존 묶음과 같은 문제면 그 id 를 그대로 쓴다. decisions 에 결정이 있는 묶음이면 다른 필드는 그대로 두고 새 관찰 id 만 observations 에 넣는다.
+1. <context 파일> 을 Read 로 읽는다. rubric 경로의 파일을 Read 로 읽는다. 결정 대상, 검증 결과 코드와 허용 짝, 대상 파일과 범위, 공통 확인은 이 파일의 "결정 대상"·"파일 검증"·"공통 확인"·"묶기"·"관문"·"결정 대상으로 올리지 않는 경우" 절을 따른다. 다른 기준을 더하지 않는다.
+2. observations 를 묶는다. 새 묶음 id 는 짧은 영어 소문자 슬러그(예: release-adr-number)로 정한다.
+3. groups 의 기존 묶음과 같은 문제면 그 id 를 그대로 쓴다. decisions 는 결정이 난 묶음이다.
 4. examples 는 사용자가 내린 결정 예시다(positive 는 수락, negative 는 거절). negative 와 같은 경우는 묶음으로 올리지 않는다.
 5. 묶음마다 현재 대상 파일을 Read 로 읽어 verified 를 채운다.
 6. <스키마 파일> 형식의 JSON 을 <결과 파일> 에 Write 로 쓴다. 바뀐 묶음만 넣고, 없으면 {"groups": []} 를 쓴다.
@@ -139,7 +139,7 @@ harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem
 - verified: checked_path(Read 로 읽은 파일), finding, 결함 줄을 특정했으면 line. 파일로 확인하지 못했으면 verified 를 null 로 둔다.
 - specific_facts: 수정안에 쓴 이 스킬·프로젝트에만 있는 사실을 한 개 이상 쓴다. 없으면 그 묶음은 쓰지 않는다.
 - failure_ref: rubric 의 실패 근거에 해당하는 관찰 id. 이 묶음 observations 안의 id 여야 한다.
-- conflicts: decision_pattern 묶음이면 같은 상황에서 반대 선택을 한 참 decision_pattern 관찰 id 를 넣는다. 없으면 쓰지 않는다.
+- conflicts: decision_pattern 묶음이면 rubric 의 conflicts 정의에 맞는 관찰 id 를 넣는다. 없으면 쓰지 않는다.
 - proposal: scope(수정 범위), opinion(의견), diff(현재 대상 파일 기준 unified diff).
 
 마지막 답은 "묶음 <결과 파일에 쓴 묶음 수>" 한 줄만 쓴다.

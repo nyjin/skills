@@ -114,3 +114,20 @@ def test_backfill_default_window_and_cli_fields_referenced():
     assert "backfill --days <N>" in body and "인자에 없으면 14" in body
     for field in ("repeat_stats", "recent_purposes"):
         assert field in body, field
+
+
+def _prompt(title):
+    text, _, _ = _parts()
+    return text.split(f"### {title}\n", 1)[1].split("```", 2)[1]
+
+
+def test_prompt_cited_rubric_sections_exist():
+    rubric_lines = (PLUGIN / "defaults/rubric.md").read_text(encoding="utf-8").split("\n")
+    cited = {}
+    for title in ("관찰 판정 프롬프트", "묶기·검증 프롬프트"):
+        spans = re.findall(r'((?:"[^"\n]+"·)*"[^"\n]+") 절', _prompt(title))
+        cited[title] = {n for s in spans for n in re.findall(r'"([^"]+)"', s)}
+        assert cited[title], title
+    assert {"묶기", "관문"} <= cited["묶기·검증 프롬프트"]
+    for name in set().union(*cited.values()):
+        assert f"## {name}" in rubric_lines or f"### {name}" in rubric_lines, name
