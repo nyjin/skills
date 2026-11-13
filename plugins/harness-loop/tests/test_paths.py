@@ -16,7 +16,7 @@ def test_data_dir_copies_defaults_once(tmp_path):
     (d / "config.yaml").write_text("window_days: 7\n")
     paths.data_dir()
     assert paths.load_config()["window_days"] == 7
-    assert paths.load_config()["script_min_count"] == 3
+    assert paths.load_config()["pattern_min_count"] == 2
 
 
 def test_defaults_file_matches_default_config():

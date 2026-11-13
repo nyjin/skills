@@ -11,8 +11,8 @@ SKILL = PLUGIN / "skills/retro/SKILL.md"
 TRIGGERS = ("회고", "retro", "개선점 정리", "이 세션 돌아보기", "판정하지 않은 근거")
 PREFIX = 'CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py"'
 SUBCOMMANDS = set(next(a for a in retro.parser()._actions if isinstance(a, argparse._SubParsersAction)).choices)
-CONFIG_KEYS = ("eval_markers", "window_days", "script_min_count", "script_min_sessions", "correction_min_count",
-               "guideline_min_sessions", "label_examples", "rubric_min_evidence",
+CONFIG_KEYS = ("eval_markers", "window_days", "pattern_min_count", "pattern_min_sessions",
+               "label_examples", "rubric_min_evidence",
                "replay_min_labels", "judge_batch")
 
 

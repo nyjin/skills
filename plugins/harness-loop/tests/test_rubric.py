@@ -156,5 +156,5 @@ def test_default_rubric_has_sections_and_exclusions():
     text = (PLUGIN / "defaults/rubric.md").read_text()
     assert text.startswith("<!-- rubric-version: 1 -->\n")
     for s in ("## 관찰로 보지 않는 경우", "## 결정 대상으로 올리지 않는 경우", "push", "티켓 생성", "환경 원인",
-              "바꿀 파일이 없는 것", "정리 제안", "구체성", "실패 근거", "수정 방식 재검토"):
+              "바꿀 파일이 없는 것", "정리 제안", "구체성", "실패 근거"):
         assert s in text

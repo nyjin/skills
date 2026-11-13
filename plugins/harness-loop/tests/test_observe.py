@@ -160,3 +160,17 @@ def test_cursor_advances_only_through_judged_evidence(two_sessions):
     assert (ha / "evidence.cursor").read_text() == "4"
     observe.save({"observations": [{"evidence_id": "aaaaaaaa-1", "type": "failure", "verdict": False, "reason": "r"}]})
     assert (ha / "evidence.cursor").read_text() == "4"
+
+
+def test_decision_pattern_needs_rule_when_true(two_sessions):
+    entry = {"evidence_id": "aaaaaaaa-1", "type": "decision_pattern", "verdict": True, "reason": "r"}
+    with pytest.raises(ValueError, match="rule"):
+        observe.save({"observations": [entry]})
+    assert observe.observations() == []
+    assert observe.save({"observations": [{**entry, "rule": "A 이면 B"}]}) == {"saved": 1, "skipped": 0}
+    assert observe.observations()[0]["rule"] == "A 이면 B"
+
+
+def test_false_decision_pattern_needs_no_rule(two_sessions):
+    entry = {"evidence_id": "aaaaaaaa-1", "type": "decision_pattern", "verdict": False, "reason": "r"}
+    assert observe.save({"observations": [entry]}) == {"saved": 1, "skipped": 0}

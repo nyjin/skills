@@ -264,3 +264,35 @@ def test_pending_adds_repeat_stats_and_recent_purposes(obs_factory, tmp_path, ca
     assert stats == {"t1-1": {"count": 3, "sessions": 2}, "t1-2": {"count": 3, "sessions": 2},
                      "t2-1": {"count": 3, "sessions": 2}, "t2-2": {"count": 1, "sessions": 1}, "t2-3": None}
     assert data["recent_purposes"] == ["같은 목적"]
+
+
+def test_pending_has_recent_rules(obs_factory, tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(paths, "now", lambda: NOW)
+    obs_factory("decision_pattern", at="2026-11-04T10:00:00+09:00", rule="규칙 가")
+    obs_factory("decision_pattern", at="2026-11-05T10:00:00+09:00", rule="규칙 나")
+    obs_factory("decision_pattern", at="2026-11-03T10:00:00+09:00", rule="규칙 가")
+    obs_factory("decision_pattern", at="2025-01-01T10:00:00+09:00", rule="오래된 규칙")
+    obs_factory("decision_pattern", verdict=False, rule="거짓 규칙")
+    obs_factory("repeat")
+    cli(capsys, "pending", "--out", tmp_path / "p.json")
+    data = json.loads((tmp_path / "p.json").read_text())
+    assert data["recent_rules"] == ["규칙 나", "규칙 가"]
+    assert data["recent_purposes"] == ["같은 목적"]
+
+
+def test_recent_rules_capped_at_fifty(obs_factory, monkeypatch):
+    monkeypatch.setattr(paths, "now", lambda: NOW)
+    for i in range(55):
+        obs_factory("decision_pattern", rule=f"규칙 {i}")
+    assert len(retro._recent_rules(paths.load_config())) == 50
+
+
+def test_replay_gate_rejects_true_decision_pattern_without_rule(tmp_path, capsys):
+    _archive("g1", "a1")
+    entry = {"evidence_id": "a1", "type": "decision_pattern", "verdict": True, "reason": "r"}
+    data = {"rubric_version": 2, "results": [{"group": "g1", "observations": [entry]}]}
+    out = tmp_path / "gated.json"
+    code, cap = cli_fail(capsys, "replay-gate", "--file", write(tmp_path / "rj.json", data), "--out", out)
+    assert code == 1 and "rule" in cap.err and not out.exists()
+    data["results"][0]["observations"][0]["rule"] = "A 이면 B"
+    assert cli(capsys, "replay-gate", "--file", write(tmp_path / "rj.json", data), "--out", out)["results"][0]["group"] == "g1"

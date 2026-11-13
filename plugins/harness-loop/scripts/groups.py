@@ -22,7 +22,12 @@ ALLOWED = {
     "ignored": {"fix"},
     "has_script": {"fix"},
     "asks_here": {"fix"},
+    "asks_user": {"fix"},
+    "opposite": {"fix"},
+    "environment": set(),
 }
+DROP_REASONS = ("unverified", "not_specific", "no_failure_ref", "decided", "environment", "inconsistent",
+                "conflicting_choice", "scope")
 
 
 def slug(text: str) -> str:
@@ -48,9 +53,10 @@ def merge(result: dict) -> list[str]:
     for i, g in enumerate(result["groups"]):
         if g["verified"] is not None and not isinstance(g["verified"], dict):
             raise ValueError(f"$.groups[{i}].verified: object 또는 null 이어야 합니다")
-        bad = [e for e in g["observations"] if e not in true_ids]
-        if bad:
-            raise ValueError(f"$.groups[{i}].observations: 참 관찰이 아닌 evidence_id {bad[0]}")
+        for key in ("observations", "conflicts"):
+            bad = [e for e in g.get(key, []) if e not in true_ids]
+            if bad:
+                raise ValueError(f"$.groups[{i}].{key}: 참 관찰이 아닌 evidence_id {bad[0]}")
         if not g.get("id", slug(g["problem"])):
             raise ValueError(f"$.groups[{i}].id: 빈 묶음 id 입니다")
     store = load()
@@ -100,29 +106,39 @@ def judge_group(group: dict, observations_by_id: dict, decisions: dict, cfg: dic
         return "dropped", "no_failure_ref", {}
     if decisions.get(group["id"]):
         return "dropped", "decided", {}
+    finding = group["verified"].get("finding")
     ttype = group["target_type"]
-    if ttype not in ALLOWED.get(group["verified"].get("finding"), set()):
+    if finding == "environment":
+        return "dropped", "environment", {}
+    if ttype not in ALLOWED.get(finding, set()):
         return "dropped", "inconsistent", {}
+    if any(observations_by_id.get(e, {}).get("verdict") is True for e in group.get("conflicts", [])):
+        return "dropped", "conflicting_choice", {}
 
     cut = paths.aware(now) - timedelta(days=cfg["window_days"])
     obs = [o for o in true_obs if o.get("at") and paths.aware(o["at"]) >= cut]
     extra = {"count": len(obs), "sessions": len({o.get("session") for o in obs}),
              "projects": len({o.get("project") for o in obs})}
-    types = {o.get("type") for o in obs}
-    count, sessions = extra["count"], extra["sessions"]
-    if ttype == "script":
-        ok = count >= cfg["script_min_count"] and sessions >= cfg["script_min_sessions"]
-    elif ttype in ("skill_supplement", "fix") and "approval_question" in types:
-        ok = count >= 1
-    elif ttype == "skill_supplement":
-        ok = sum(o.get("type") == "correction" for o in obs) >= cfg["correction_min_count"]
-    elif ttype == "guideline_supplement":
+    if ttype == "guideline_supplement":
         is_global = _real(group["target_path"]) == _real("~/.claude/CLAUDE.md")
         if is_global != (extra["projects"] >= 2):
             return "dropped", "scope", extra
-        ok = count >= cfg["correction_min_count"] and sessions >= cfg["guideline_min_sessions"]
+
+    def pattern(of: list[dict]) -> bool:
+        return len(of) >= cfg["pattern_min_count"] and len({o.get("session") for o in of}) >= cfg["pattern_min_sessions"]
+
+    types = {o.get("type") for o in obs}
+    of_type = lambda t: [o for o in obs if o.get("type") == t]  # noqa: E731
+    if "approval_question" in types:
+        ok = len(obs) >= 1
+    elif "decision_pattern" in types:
+        ok = pattern(of_type("decision_pattern"))
+    elif ttype == "script":
+        ok = pattern(obs)
+    elif ttype in ("skill_supplement", "guideline_supplement"):
+        ok = pattern(of_type("correction"))
     else:
-        ok = count >= 1
+        ok = len(obs) >= 1
     return ("report" if ok else "held"), None, extra
 
 

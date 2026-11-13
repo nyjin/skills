@@ -59,7 +59,7 @@ def context_examples(limit: int) -> list[dict]:
              "problem": (store.get(gid) or {}).get("problem"), "note": lab["note"]} for gid, lab in mixed[:limit]]
 
 
-RECENT_PURPOSES = 50
+RECENT_LIMIT = 50
 
 
 def _repeat_stats() -> dict[str, dict]:
@@ -72,13 +72,21 @@ def _repeat_stats() -> dict[str, dict]:
     return {name: {"count": len(dirs), "sessions": len(set(dirs))} for name, dirs in seen.items()}
 
 
-def _recent_purposes(cfg) -> list[str]:
-    """window_days 안 참 repeat 관찰의 purpose, 최근 것부터 중복 없이."""
+def _recent(cfg, type_: str, field: str) -> list[str]:
+    """window_days 안 참 type_ 관찰의 field 값, 최근 것부터 중복 없이 최대 RECENT_LIMIT 개."""
     since = (paths.aware(paths.now()) - timedelta(days=cfg["window_days"])).isoformat()
     obs = sorted((o for o in observe.observations(since)
-                  if o.get("type") == "repeat" and o.get("verdict") is True and o.get("purpose")),
+                  if o.get("type") == type_ and o.get("verdict") is True and o.get(field)),
                  key=lambda o: paths.aware(o["at"]), reverse=True)
-    return list(dict.fromkeys(o["purpose"] for o in obs))[:RECENT_PURPOSES]
+    return list(dict.fromkeys(o[field] for o in obs))[:RECENT_LIMIT]
+
+
+def _recent_purposes(cfg) -> list[str]:
+    return _recent(cfg, "repeat", "purpose")
+
+
+def _recent_rules(cfg) -> list[str]:
+    return _recent(cfg, "decision_pattern", "rule")
 
 
 def cmd_pending(a, cfg):
@@ -91,7 +99,8 @@ def cmd_pending(a, cfg):
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"evidence": batch, "examples": pending_examples(cfg["label_examples"]),
-                               "recent_purposes": _recent_purposes(cfg)},
+                               "recent_purposes": _recent_purposes(cfg),
+                               "recent_rules": _recent_rules(cfg)},
                               ensure_ascii=False, indent=2), encoding="utf-8")
     return {"count": len(batch), "file": str(out.resolve()), "remaining": observe.pending_count() - len(batch)}
 
@@ -152,6 +161,7 @@ def cmd_replay_gate(a, cfg):
                 raise ValueError(f"$.results[{i}].observations[{j}]: 보관본에 없는 evidence_id {e['evidence_id']}")
             if e["type"] == "repeat" and not e.get("purpose"):
                 raise ValueError(f"$.results[{i}].observations[{j}].purpose: repeat 는 purpose 가 필요합니다")
+            observe.check_rule(e, f"$.results[{i}].observations[{j}]")
             src = by_id[e["evidence_id"]].get("evidence") or by_id[e["evidence_id"]].get("observation") or {}
             obs.append({**e, **{f: src.get(f) for f in observe.COPY_FIELDS},
                         "project": observe.project_of(src)})

@@ -47,6 +47,12 @@ def validate(obj, schema: dict, path: str = "$") -> None:
                 validate(item, schema["items"], f"{path}[{i}]")
 
 
+def check_rule(e: dict, path: str) -> None:
+    """참 decision_pattern 관찰은 rule 이 필요하다."""
+    if e["type"] == "decision_pattern" and e["verdict"] is True and not e.get("rule"):
+        raise ValueError(f"{path}.rule: 참 decision_pattern 은 rule 이 필요합니다")
+
+
 def _rows(path) -> list[dict | None]:
     """줄마다 dict, 깨진 줄은 None(줄 번호를 유지한다)."""
     try:
@@ -229,6 +235,7 @@ def save(result: dict) -> dict:
     for i, e in enumerate(entries):
         if e["type"] == "repeat" and not e.get("purpose"):
             raise ValueError(f"$.observations[{i}].purpose: repeat 는 purpose 가 필요합니다")
+        check_rule(e, f"$.observations[{i}]")
     wanted = {e["evidence_id"] for e in entries}
     records = {}
     dirs = paths.all_harness_dirs()

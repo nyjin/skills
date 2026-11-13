@@ -41,7 +41,7 @@ def obs_factory(tmp_projects):
     n = [0]
 
     def make(type_="correction", at="2026-11-05T10:00:00+09:00", session="s1", cwd="/w/org/proj-a",
-             verdict=True, skill=None, meta=None):
+             verdict=True, skill=None, meta=None, rule="같은 상황이면 같은 선택"):
         n[0] += 1
         eid = f"{session}-{n[0]}"
         hdir = tmp_projects / "p" / session / "harness"
@@ -53,6 +53,8 @@ def obs_factory(tmp_projects):
         entry = {"evidence_id": eid, "type": type_, "verdict": verdict, "reason": "이유"}
         if type_ == "repeat":
             entry["purpose"] = "같은 목적"
+        if type_ == "decision_pattern":
+            entry["rule"] = rule
         observe.save({"observations": [entry]})
         return eid
 

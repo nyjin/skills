@@ -14,7 +14,7 @@ NOW = "2026-11-06T12:00:00+09:00"
 def group(gid, target_type, obs, finding="missing", target_path="/x/skills/a/SKILL.md", **extra):
     g = {"id": gid, "target_type": target_type, "target_path": target_path, "problem": "문제",
          "observations": obs,
-         "verified": {"checked_path": target_path, "hash": "h", "finding": finding},
+         "verified": {"checked_path": target_path, "finding": finding},
          "specific_facts": ["skills/a/SKILL.md 3단계"], "failure_ref": obs[0],
          "proposal": {"scope": "3단계", "opinion": "의견", "diff": "+ 줄"}}
     g.update(extra)
@@ -29,8 +29,8 @@ def ids(out, key):
     return [x if isinstance(x, str) else x["id"] for x in out[key]]
 
 
-def test_script_needs_three_in_two_sessions(obs_factory):
-    obs = [obs_factory("repeat", session="s1") for _ in range(3)]
+def test_script_reports_at_two_in_two_sessions(obs_factory):
+    obs = [obs_factory("repeat", session="s1") for _ in range(2)]
     groups.merge(result(group("g", "script", obs)))
     out = groups.gate(NOW)
     assert ids(out, "held") == ["g"]
@@ -39,14 +39,23 @@ def test_script_needs_three_in_two_sessions(obs_factory):
     out = groups.gate(NOW)
     assert ids(out, "report") == ["g"]
     rep = out["report"][0]
-    assert rep["count"] == 4 and rep["sessions"] == 2 and len(rep["observations"]) == 4
+    assert rep["count"] == 3 and rep["sessions"] == 2 and len(rep["observations"]) == 3
 
 
-def test_correction_supplement_needs_two(obs_factory):
-    a = obs_factory("correction")
+def test_script_two_observations_in_two_sessions_reports(obs_factory):
+    obs = [obs_factory("repeat", session="s1"), obs_factory("repeat", session="s2")]
+    groups.merge(result(group("g", "script", obs)))
+    assert ids(groups.gate(NOW), "report") == ["g"]
+
+
+def test_correction_supplement_needs_two_sessions(obs_factory):
+    a = obs_factory("correction", session="s1")
     groups.merge(result(group("g", "skill_supplement", [a], finding="no_instruction")))
     assert ids(groups.gate(NOW), "held") == ["g"]
-    b = obs_factory("correction")
+    b = obs_factory("correction", session="s1")
+    groups.merge(result(group("g", "skill_supplement", [b], finding="no_instruction")))
+    assert ids(groups.gate(NOW), "held") == ["g"]
+    b = obs_factory("correction", session="s2")
     groups.merge(result(group("g", "skill_supplement", [b], finding="no_instruction")))
     assert ids(groups.gate(NOW), "report") == ["g"]
 
@@ -94,8 +103,8 @@ def test_guideline_project_needs_two_sessions(obs_factory):
 
 
 def test_window_excludes_old_observations(obs_factory):
-    old = obs_factory("correction", at="2026-10-06T11:00:00+09:00")
-    new = obs_factory("correction", at="2026-11-05T10:00:00+09:00")
+    old = obs_factory("correction", session="s1", at="2026-10-06T11:00:00+09:00")
+    new = obs_factory("correction", session="s2", at="2026-11-05T10:00:00+09:00")
     groups.merge(result(group("g", "skill_supplement", [old, new], finding="no_instruction")))
     out = groups.gate(NOW)
     assert ids(out, "held") == ["g"]
@@ -192,3 +201,74 @@ def test_skill_supplement_counts_only_corrections(obs_factory):
     a, b = obs_factory("failure"), obs_factory("failure")
     groups.merge(result(group("g", "skill_supplement", [a, b], finding="no_instruction")))
     assert ids(groups.gate(NOW), "held") == ["g"]
+
+
+def test_decision_pattern_reports_at_two_in_two_sessions(obs_factory):
+    a, b = obs_factory("decision_pattern", session="s1"), obs_factory("decision_pattern", session="s2")
+    groups.merge(result(group("g", "skill_supplement", [a, b], finding="missing")))
+    assert ids(groups.gate(NOW), "report") == ["g"]
+
+
+def test_decision_pattern_one_session_is_held(obs_factory):
+    a, b = obs_factory("decision_pattern", session="s1"), obs_factory("decision_pattern", session="s1")
+    groups.merge(result(group("g", "skill_supplement", [a, b], finding="missing")))
+    assert ids(groups.gate(NOW), "held") == ["g"]
+
+
+def test_decision_pattern_fix_asks_user_uses_pattern_threshold(obs_factory):
+    a = obs_factory("decision_pattern", session="s1")
+    groups.merge(result(group("g", "fix", [a], finding="asks_user")))
+    assert ids(groups.gate(NOW), "held") == ["g"]
+    b = obs_factory("decision_pattern", session="s2")
+    groups.merge(result(group("g", "fix", [b], finding="asks_user")))
+    assert ids(groups.gate(NOW), "report") == ["g"]
+
+
+def test_conflicting_choice_drops(obs_factory):
+    a, b = obs_factory("decision_pattern", session="s1"), obs_factory("decision_pattern", session="s2")
+    c = obs_factory("decision_pattern", session="s3")
+    groups.merge(result(group("g", "skill_supplement", [a, b], finding="missing", conflicts=[c])))
+    assert groups.gate(NOW)["dropped"] == [{"id": "g", "reason": "conflicting_choice"}]
+
+
+def test_conflicts_with_only_false_observation_does_not_drop(obs_factory):
+    a, b = obs_factory("decision_pattern", session="s1"), obs_factory("decision_pattern", session="s2")
+    group_ = group("g", "skill_supplement", [a, b], finding="missing", conflicts=[])
+    groups.merge(result(group_))
+    assert ids(groups.gate(NOW), "report") == ["g"]
+
+
+def test_merge_rejects_conflicts_not_true_observations(obs_factory):
+    a = obs_factory("decision_pattern")
+    f = obs_factory("decision_pattern", verdict=False)
+    for bad in (f, "없는-id"):
+        with pytest.raises(ValueError, match="conflicts"):
+            groups.merge(result(group("g", "skill_supplement", [a], finding="missing", conflicts=[bad])))
+    assert groups.load() == {}
+
+
+def test_environment_finding_drops(obs_factory):
+    a = obs_factory("failure")
+    groups.merge(result(group("g", "fix", [a], finding="environment")))
+    assert groups.gate(NOW)["dropped"] == [{"id": "g", "reason": "environment"}]
+
+
+def test_general_decision_pattern_two_projects_project_target_is_scope(obs_factory):
+    a = obs_factory("decision_pattern", session="s1", cwd="/w/org/proj-a")
+    b = obs_factory("decision_pattern", session="s2", cwd="/w/org/proj-b")
+    groups.merge(result(group("g", "guideline_supplement", [a, b], target_path="/w/org/proj-a/CLAUDE.md")))
+    assert groups.gate(NOW)["dropped"] == [{"id": "g", "reason": "scope"}]
+
+
+def test_decision_pattern_guideline_opposite_is_fix_only(obs_factory):
+    a, b = obs_factory("decision_pattern", session="s1"), obs_factory("decision_pattern", session="s2")
+    groups.merge(result(group("g", "fix", [a, b], finding="opposite"),
+                        group("h", "guideline_supplement", [a, b], finding="opposite",
+                              target_path="/w/org/proj-a/CLAUDE.md")))
+    out = groups.gate(NOW)
+    assert ids(out, "report") == ["g"] and out["dropped"] == [{"id": "h", "reason": "inconsistent"}]
+
+
+def test_asks_user_and_opposite_are_allowed_for_fix_only():
+    assert groups.ALLOWED["asks_user"] == {"fix"} and groups.ALLOWED["opposite"] == {"fix"}
+    assert groups.ALLOWED["environment"] == set()
