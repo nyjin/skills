@@ -1,12 +1,11 @@
 import json
-import os
 
 import pytest
 
 import decide
 import groups
 import paths
-from .test_groups import NOW, commit, git, group, repo, result  # noqa: F401
+from .test_groups import NOW, group, result
 
 
 def merge(gid, target_type, obs, target_path, **extra):
@@ -20,15 +19,6 @@ def g(obs_factory):
     return "g"
 
 
-@pytest.fixture
-def group_in_repo(repo, obs_factory):
-    skill = repo / "skills/a/SKILL.md"
-    h = decide.versions.blob_hash(skill)
-    a = obs_factory("failure", skill={"path": str(skill.parent), "hash": h})
-    merge("g", "fix", [a], str(skill), finding="wrong")
-    return "g", skill, h
-
-
 def test_reject_requires_kind(g):
     with pytest.raises(ValueError):
         decide.record(g, "reject")
@@ -37,20 +27,34 @@ def test_reject_requires_kind(g):
     assert decide.record(g, "reject", kind="trivial", reason="사소")["kind"] == "trivial"
 
 
-def test_proceed_records_baseline_hash_and_archives(group_in_repo):
-    gid, skill, h = group_in_repo
-    rec = decide.record(gid, "proceed")
-    assert rec["baseline_hash"] == h and rec["rubric_version"] == 1
-    assert decide.last_decisions()[gid]["decision"] == "proceed"
-    assert (paths.data_dir() / "replay" / gid / "input.json").exists()
+def test_accept_records_target_type_and_archives(g):
+    rec = decide.record(g, "accept")
+    assert rec["decision"] == "accept" and rec["target_type"] == groups.load()[g]["target_type"]
+    assert set(rec) == {"group", "decision", "kind", "note", "target_type", "at", "rubric_version"}
+    assert rec["rubric_version"] == 1
+    assert decide.last_decisions()[g]["decision"] == "accept"
+    data = json.loads((paths.data_dir() / "replay" / g / "input.json").read_text())
+    assert set(data) == {"group", "observations", "target_file", "rubric"}
+    assert data["target_file"]["path"] == "/x/skills/a/SKILL.md" and data["target_file"]["text"] is None
+    assert data["rubric"]["version"] == 1 and "판정 기준" in data["rubric"]["text"]
+    assert data["observations"][0]["evidence"]["id"] == data["group"]["observations"][0]
 
 
-def test_proceed_snapshots_uncommitted_fix(group_in_repo):
-    gid, skill, _ = group_in_repo
-    skill.write_text("고친 내용\n")
-    rec = decide.record(gid, "proceed")
-    assert rec["baseline_hash"] == decide.versions.blob_hash(skill)
-    assert (paths.data_dir() / "skill-snapshots" / rec["baseline_hash"]).read_text() == "고친 내용\n"
+def test_archive_stores_target_text_at_decision_time(obs_factory, tmp_path):
+    skill = tmp_path / "skills/a/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("결정 시점\n")
+    merge("t", "fix", [obs_factory("failure")], str(skill), finding="wrong")
+    decide.record("t", "accept")
+    data = json.loads((paths.data_dir() / "replay" / "t" / "input.json").read_text())
+    assert data["target_file"] == {"path": str(skill), "text": "결정 시점\n"}
+
+
+def test_choices_are_accept_and_reject(g):
+    assert decide.CHOICES == ("accept", "reject")
+    for old in ("proceed", "ticket"):
+        with pytest.raises(ValueError):
+            decide.record(g, old)
 
 
 def test_failed_archive_records_no_decision(g, monkeypatch):
@@ -59,36 +63,42 @@ def test_failed_archive_records_no_decision(g, monkeypatch):
 
     monkeypatch.setattr(decide, "archive", boom)
     with pytest.raises(OSError):
-        decide.record(g, "ticket", ticket="IBS-1")
+        decide.record(g, "accept")
     assert decide.last_decisions() == {}
 
 
 def test_rubric_version_from_data_rubric(g):
     (paths.data_dir() / "rubric.md").write_text("<!-- rubric-version: 4 -->\n본문\n")
-    assert decide.record(g, "ticket", ticket="IBS-1")["rubric_version"] == 4
+    assert decide.record(g, "accept")["rubric_version"] == 4
 
 
-def test_plugin_cache_target_cannot_proceed(obs_factory):
-    target = os.path.expanduser("~/.claude/plugins/cache/m/p/skills/a/SKILL.md")
-    merge("c", "fix", [obs_factory("failure")], target, finding="wrong")
-    with pytest.raises(ValueError):
-        decide.record("c", "proceed")
-    assert decide.record("c", "ticket")["decision"] == "ticket"
-
-
-def test_labels_and_precision(obs_factory):
-    for gid, choice, kind in [("a", "proceed", None), ("b", "ticket", None),
-                              ("c", "reject", "trivial"), ("d", "reject", "wont-fix")]:
-        merge(gid, "fix", [obs_factory("failure")], "/x/skills/a/SKILL.md", finding="wrong")
+def _decide_all(obs_factory, rows):
+    for gid, target_type, choice, kind in rows:
+        merge(gid, target_type, [obs_factory("repeat" if target_type == "script" else "failure")],
+              "/x/skills/a/SKILL.md", finding="missing" if target_type == "script" else "wrong")
         decide.record(gid, choice, kind=kind)
+
+
+def test_labels(obs_factory):
+    _decide_all(obs_factory, [("a", "fix", "accept", None), ("c", "fix", "reject", "trivial"),
+                              ("d", "fix", "reject", "wont-fix"), ("e", "fix", "reject", "not-defect")])
     assert {k: v["label"] for k, v in decide.labels().items()} == {
-        "a": "positive", "b": "positive", "c": "negative", "d": "excluded"}
-    p = decide.precision()
-    assert (p["positive"], p["negative"]) == (2, 1) and p["precision"] == pytest.approx(2 / 3)
+        "a": "positive", "c": "negative", "d": "excluded", "e": "negative"}
 
 
-def test_precision_none_without_labels():
-    assert decide.precision()["precision"] is None and decide.last_decisions() == {}
+def test_metrics_overall_by_target_and_rubric_version(obs_factory):
+    _decide_all(obs_factory, [("a", "script", "accept", None), ("b", "fix", "accept", None),
+                              ("c", "script", "reject", "not-defect"), ("d", "fix", "reject", "wont-fix")])
+    m = decide.metrics()
+    assert m["overall"] == {"accepted": 2, "rejected": 1, "rate": 2 / 3}
+    assert m["by_target"]["script"] == {"accepted": 1, "rejected": 1, "rate": 0.5}
+    assert m["by_target"]["fix"] == {"accepted": 1, "rejected": 0, "rate": 1.0}
+    assert m["by_rubric_version"]["1"]["accepted"] == 2
+
+
+def test_metrics_rate_none_without_labels():
+    assert decide.metrics() == {"overall": {"accepted": 0, "rejected": 0, "rate": None},
+                                "by_target": {}, "by_rubric_version": {}}
 
 
 def test_split_is_stable_and_two_valued():
@@ -96,48 +106,12 @@ def test_split_is_stable_and_two_valued():
     assert decide.split("g1") == decide.split("g1")
 
 
-def test_archive_contains_no_decision_and_file_versions(group_in_repo, obs_factory):
-    gid, skill, h = group_in_repo
-    decide.record(gid, "ticket", ticket="IBS-1")
-    data = json.loads(decide.archive(gid).read_text(encoding="utf-8"))
-    assert "decision" not in data["group"] and "ticket" not in data["group"]
-    assert data["file_versions"] == {h: "v1\n"}
-    assert data["rubric"]["version"] == 1 and "판정 기준" in data["rubric"]["text"]
-    assert data["observations"][0]["evidence"]["id"] == data["group"]["observations"][0]
-
-
-def test_archive_uses_snapshot_outside_git(obs_factory, tmp_path):
-    skill = tmp_path / "loose/SKILL.md"
-    skill.parent.mkdir()
-    skill.write_text("로컬\n")
-    h = decide.versions.remember(skill)
-    a = obs_factory("failure", skill={"path": str(skill.parent), "hash": h})
-    merge("l", "fix", [a], str(skill), finding="wrong")
-    assert json.loads(decide.archive("l").read_text())["file_versions"] == {h: "로컬\n"}
-
-
-def test_ticket_file_embeds_contents_not_paths(obs_factory, tmp_path):
-    script = tmp_path / "s.txt"
-    script.write_text("echo UNIQUE_SCRIPT_BODY\n")
-    skill = tmp_path / "skills/a/SKILL.md"
-    skill.parent.mkdir(parents=True)
-    skill.write_text("\n".join(f"줄{i}" for i in range(1, 60)) + "\n")
-    a = obs_factory("repeat")
-    groups.merge(result(group("t", "script", [a], target_path=str(skill),
-                              verified={"checked_path": str(skill), "hash": "h", "finding": "missing", "line": 30})))
-    # 관찰의 file 을 스크립트 사본으로 지정
-    obs_file = paths.data_dir() / "observations.jsonl"
-    row = json.loads(obs_file.read_text())
-    row["file"] = str(script)
-    obs_file.write_text(json.dumps(row) + "\n")
-    out = decide.ticket_file("t", tmp_path / "out")
-    assert out == tmp_path / "out" / "t.md"
-    body = out.read_text(encoding="utf-8")
-    assert body.startswith("# [결정 대상] a — 문제")
-    assert "UNIQUE_SCRIPT_BODY" in body and "줄15" in body and "줄45" in body and "줄46" not in body
-    assert "+ 줄" in body and "이유" in body
-
-
-def test_gate_reflects_decisions(g):
-    decide.record(g, "reject", kind="not-defect")
-    assert groups.gate(NOW)["dropped"] == [{"id": "g", "reason": "rejected"}]
+@pytest.mark.parametrize("choice,kind", [("accept", None), ("reject", "trivial")])
+def test_decided_group_not_reported_even_with_new_observations(g, obs_factory, choice, kind):
+    decide.record(g, choice, kind=kind)
+    new = obs_factory("failure")
+    store = groups.load()
+    merge("g", "fix", store[g]["observations"] + [new], "/x/skills/a/SKILL.md", finding="wrong")
+    out = groups.gate(NOW)
+    assert g not in [r["id"] for r in out["report"]] and g not in out["held"]
+    assert {"id": g, "reason": "decided"} in out["dropped"]

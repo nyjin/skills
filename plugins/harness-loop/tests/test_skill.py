@@ -59,7 +59,7 @@ def test_commands_use_prefix_and_known_subcommands():
             continue
         assert sub.group(1) in SUBCOMMANDS, sub.group(1)
         found.add(sub.group(1))
-    assert found >= {"pending", "observe", "context", "groups", "gate", "decide", "ticket-file",
+    assert found >= {"pending", "observe", "context", "groups", "gate", "decide",
                      "rubric-candidates", "rubric-apply", "replay-gate", "replay-score", "replay-inputs", "backfill"}
 
 
@@ -93,14 +93,12 @@ def test_decision_table_covers_choices():
     _, _, body = _parts()
     for kind in ("not-defect", "trivial", "wont-fix"):
         assert f"--kind {kind}" in body or f"`{kind}`" in body, kind
-    assert "ticket-creator" in body
-    assert "--ticket" in body
 
 
 def test_backfill_default_window_and_cli_fields_referenced():
     _, _, body = _parts()
     assert "backfill --days <N>" in body and "인자에 없으면 14" in body
-    for field in ("repeat_stats", "recent_purposes", "`waiting`"):
+    for field in ("repeat_stats", "recent_purposes"):
         assert field in body, field
 
 

@@ -127,8 +127,7 @@ harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem
 
 1. <context 파일> 을 Read 로 읽는다. rubric 경로의 파일을 Read 로 읽고 "관찰 → 결정 대상"과 "공통 확인"을 따른다.
 2. observations(참 관찰)만 묶는다. 같은 대상 파일·같은 문제끼리 한 묶음이다. groups 의 기존 묶음(decisions 에 결정이 있는 묶음 포함)과 같은 문제면 그 id 를 그대로 쓰고 새 관찰 id 만 observations 에 넣는다. 새 묶음 id 는 짧은 영어 소문자 슬러그(예: release-adr-number)로 정한다.
-   - decisions 가 proceed 인 묶음은 관문이 결정 뒤 관찰로 재발을 자동으로 다시 판정한다. 같은 문제가 다시 나오면 그 id 에 새 관찰만 넣고, 재발을 알리려고 rework 묶음을 따로 만들지 않는다.
-3. examples 는 사용자가 내린 결정 예시다(positive 는 진행·티켓, negative 는 거절). negative 와 같은 경우는 묶음으로 올리지 않는다.
+3. examples 는 사용자가 내린 결정 예시다(positive 는 수락, negative 는 거절). negative 와 같은 경우는 묶음으로 올리지 않는다.
 4. 결정 대상마다 대상 파일을 실제로 Read 로 읽고 verified 를 채운다.
    - 관찰 당시 버전: 관찰의 skill.hash 또는 meta.scripts·meta.guidelines 의 hash. 내용은 <스냅샷 디렉터리>/<hash> 를 Read 하거나, 없으면 대상 저장소에서 git cat-file -p <hash> 로 읽는다.
    - 현재 버전: 대상 경로를 Read 로 읽는다.
@@ -187,17 +186,17 @@ harness-loop 묶기·검증을 맡는다. 사용자에게 묻지 말고, problem
 - `<위치>` 는 `repeat` 관찰이면 관찰의 `file`(저장한 스크립트 경로), 그 밖에는 `skill.path`, 없으면 `cwd` 다.
 - `verified.line` 이 없으면 `:<verified.line>` 을 뺀다.
 - `rework` 항목은 `rework_kind` 를 결정 대상 뒤 괄호에 쓰고, `recurrence` 가 있으면 `- 재발 관찰: <id 목록>` 한 줄을 더한다.
-- `apply_target.kind` 가 `plugin_cache` 인 항목은 `- 외부 플러그인 캐시: 진행 불가, 티켓만 고를 수 있음` 한 줄을 더한다.
-- 항목 뒤에 `보류 N건, 버림 M건(<reason>별 개수)` 한 줄을 쓴다. 보류는 `held` 만 센다. 버림은 `dropped` 중 `reason` 이 `rejected` 인 것을 빼고 센다. `waiting`(티켓·진행 결정 뒤 기다리는 묶음)이 있으면 줄 끝에 `, 결정 후 대기 K건` 을 더한다. 셋 다 0 이면 쓰지 않는다.
+- `apply_target.kind` 가 `plugin_cache` 인 항목은 `- 외부 플러그인 캐시: 직접 고치지 않음` 한 줄을 더한다.
+- 항목 뒤에 `보류 N건, 버림 M건(<reason>별 개수)` 한 줄을 쓴다. 보류는 `held` 만 센다. 버림은 `dropped` 중 `reason` 이 `decided` 인 것을 빼고 센다. 셋 다 0 이면 쓰지 않는다.
 - `notices` 가 있으면 그 뒤에 한 줄에 하나씩 그대로 쓴다. 고치거나 줄이지 않는다.
 - `rubric-candidates` 출력의 `ready` 에 true 인 kind 가 있으면 `rubric 보강 후보 있음(<kind> N건) — "보강할게"로 진행` 한 줄을 쓴다.
 - `report` 가 비면 `결정 대상 없음` 한 줄을 쓰고 위의 보류·버림, `notices`, rubric 줄만 쓴다.
-- `report` 가 있으면 끝에 `결정을 입력하세요. 예: 1 진행, 2 티켓, 3 거절 사소함` 한 줄을 쓴다.
+- `report` 가 있으면 끝에 `결정을 입력하세요. 예: 1 수락, 2 거절 사소함` 한 줄을 쓴다.
 
 ## 결정
 
 1. 입력의 번호를 직전 보고에서 찾아 그 항목의 `id` 로 바꾼다. 직전 보고가 이 대화에 없으면 `gate` 를 다시 실행해 같은 순서로 번호를 매긴다. 번호가 보고에 없거나 뜻이 모호하면 그 부분만 실행하지 않고 되묻는다.
-2. 진행·거절을 먼저 처리한다. 진행은 "진행" 절, 거절은 아래 명령과 표를 따른다. 사용자 사유를 표의 `--kind` 로 바꾸고, 이유 문장은 `--reason` 에 그대로 넘긴다.
+2. 수락은 "수락" 절, 거절은 아래 명령과 표를 따른다. 사용자 사유를 표의 `--kind` 로 바꾸고, 이유 문장은 `--reason` 에 그대로 넘긴다.
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" decide <id> reject --kind <kind> --reason '<이유>'
@@ -212,37 +211,20 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT
 - 사유가 없거나 두 kind 에 걸치면 그 항목만 실행하지 않고 위 세 사유 중 무엇인지 되묻는다.
 - 이유 문장이 없으면 `--reason` 을 뺀다.
 
-3. 진행·거절 결과를 항목마다 한 줄로 보고한다: `<번호>. <결정> — <고친 경로 | 거절 사유>`.
-4. 티켓 항목이 있으면 "티켓" 절의 1~2단계를 모든 티켓 항목에 대해 한 번에 하고, `확인 대기: <번호 목록>` 한 줄을 쓴 뒤 턴을 끝낸다. 다음 입력에서 번호마다 확인·수정·취소를 받아 3~4단계를 한다.
+3. 결과를 항목마다 한 줄로 보고한다: `<번호>. <결정> — <고친 경로 | 거절 사유>`.
 
-### 진행
+### 수락
 
-1. 항목의 `apply_target.kind` 가 `plugin_cache` 면 고치지 않는다. `원본 저장소에 티켓을 내세요: <apply_target.real_path>` 를 알리고 티켓을 고를 수 있다고 안내한다.
+1. 항목의 `apply_target.kind` 가 `plugin_cache` 면 고치지 않는다. 원본 저장소에서 고쳐야 한다고 `<apply_target.real_path>` 와 함께 알린다.
 2. `proposal.diff` 를 `apply_target.real_path` 에 반영한다. `new` 면 파일을 만든다. 대상이 다른 저장소·worktree 여도 그 작업 트리를 직접 고치고 고친 경로를 알린다.
 3. 근거가 된 문제를 다시 확인한다: 고친 스크립트를 실행하거나, 고친 지시를 근거 장면에 비춰 다시 읽는다. 확인 결과를 한 줄로 알린다.
 4. 반영과 확인이 끝난 뒤에 기록한다.
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" decide <id> proceed
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" decide <id> accept
 ```
 
 5. 커밋하지 않는다. 사용자가 커밋·PR 을 요청하면 그 저장소 규칙(`apply_target.rules` 의 파일, `contribute` 스킬 등)을 따른다.
-
-### 티켓
-
-1. 티켓 근거 파일을 만든다.
-
-```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" ticket-file <id> --out-dir "<tmp>/ticket-<id>"
-```
-
-2. 출력 `file` 을 Read 로 읽어 번호와 함께 미리보기로 보이고, 세션 발췌가 외부로 나간다는 점을 한 줄로 알린다.
-3. 사용자가 그 번호를 명시적으로 확인하면 `ticket-creator` 스킬을 Skill 도구로 위임 호출한다. 인자에는 그 파일 경로와 `사용자가 이미 확인한 사양 파일이다. 인터뷰·미리보기 없이 이대로 생성한다` 를 넣는다. 사용자가 고칠 내용을 말하면 파일을 고쳐 그 번호의 미리보기를 다시 보이고 턴을 끝낸다. 취소하면 기록하지 않는다.
-4. 받은 티켓 키로 기록한다.
-
-```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" uv run --script "${CLAUDE_PLUGIN_ROOT}/scripts/retro.py" decide <id> ticket --ticket <KEY>
-```
 
 ## rubric 갱신
 

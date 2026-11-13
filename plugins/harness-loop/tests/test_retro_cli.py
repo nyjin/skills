@@ -64,24 +64,25 @@ def test_cli_pipeline_end_to_end(redesign_sessions, tmp_path, capsys, monkeypatc
     assert gate["report"][0]["id"] == "release-adr-number"
     assert gate["report"][0]["apply_target"]["kind"] == "repo"
 
-    rec = cli(capsys, "decide", "release-adr-number", "proceed", "--reason", "맞다")
-    assert rec["decision"] == "proceed" and rec["note"] == "맞다"
+    rec = cli(capsys, "decide", "release-adr-number", "accept", "--reason", "맞다")
+    assert rec["decision"] == "accept" and rec["note"] == "맞다"
     metrics = cli(capsys, "metrics")
-    assert metrics["precision"] == 1.0
+    assert set(metrics) == {"overall", "by_target", "by_rubric_version"}
+    assert metrics["overall"] == {"accepted": 1, "rejected": 0, "rate": 1.0}
     replay = cli(capsys, "replay-inputs")
     assert replay == [str(paths.data_dir() / "replay" / "release-adr-number" / "input.json")]
-    ticket = cli(capsys, "ticket-file", "release-adr-number", "--out-dir", tmp_path / "t")
-    assert Path(ticket["file"]).read_text().startswith("# [결정 대상] a — 문제")
 
 
 def test_cli_validation_error_exit_1(tmp_path, capsys):
     bad = write(tmp_path / "bad.json", {"observations": [{"evidence_id": "x"}]})
     code, cap = cli_fail(capsys, "observe", "--file", bad)
     assert code == 1 and cap.out == "" and "필수 항목" in cap.err
-    code, cap = cli_fail(capsys, "decide", "없는-묶음", "proceed")
+    code, cap = cli_fail(capsys, "decide", "없는-묶음", "accept")
     assert code == 1 and "알 수 없는 묶음" in cap.err
-    code, cap = cli_fail(capsys, "ticket-file", "없는-묶음", "--out-dir", tmp_path)
-    assert code == 1 and cap.out == ""
+    code, cap = cli_fail(capsys, "decide", "g", "proceed")
+    assert code == 1 and "invalid choice" in cap.err
+    code, cap = cli_fail(capsys, "ticket-file", "g", "--out-dir", tmp_path)
+    assert code == 1 and cap.out == "" and "invalid choice" in cap.err
     code, cap = cli_fail(capsys, "decide", "g", "maybe")
     assert code == 1 and "invalid choice" in cap.err
     code, cap = cli_fail(capsys, "observe", "--file", tmp_path / "없음.json")
@@ -104,7 +105,7 @@ def test_context_label_examples_alternate(labels_mix, capsys):
     train, _ = labels_mix
     pos = ids("train", 2, "p")
     for gid in pos:
-        decision(gid, "proceed")
+        decision(gid, "accept")
     decision(ids("train", 1, "w")[0], "reject", "wont-fix")
     ex = cli(capsys, "context")["examples"]
     assert [e["label"] for e in ex] == ["positive", "negative", "positive", "negative", "negative", "negative"]
@@ -147,7 +148,7 @@ def test_cli_subprocess_smoke():
     r = subprocess.run(["uv", "run", "--script", str(PLUGIN / "scripts" / "retro.py"), "metrics"],
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
-    assert json.loads(r.stdout) == {"positive": 0, "negative": 0, "precision": None}
+    assert json.loads(r.stdout)["overall"] == {"accepted": 0, "rejected": 0, "rate": None}
 
 
 def test_observe_pending_requires_every_evidence_id(tmp_path, capsys):

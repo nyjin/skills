@@ -34,7 +34,7 @@ def labels_mix():
         decision(g, "reject", "trivial")
     decision(train[3], "reject", "not-defect")
     decision(test[0], "reject", "trivial")
-    decision(test[1], "proceed")
+    decision(test[1], "accept")
     return train, test
 
 
@@ -116,7 +116,7 @@ def test_apply_out_writes_only_there(labels_mix, tmp_path):
 def test_replay_score_regression_and_eligibility(labels_mix):
     train, test = labels_mix
     pt = ids("train", 1, "pt")[0]
-    decision(pt, "ticket")
+    decision(pt, "accept")
     pos = [pt, test[1]]
     cur = {"rubric_version": 1, "results": [{"group": g, "surfaces": True} for g in pos + [test[0]]]}
     cand = {"rubric_version": 2, "results": [{"group": test[1], "surfaces": False}, {"group": pt, "surfaces": True},
@@ -130,7 +130,7 @@ def test_replay_score_regression_and_eligibility(labels_mix):
 
 def test_replay_score_eligible_at_min_labels():
     for g in ids("test", 30, "e"):
-        decision(g, "proceed")
+        decision(g, "accept")
     assert rubric.replay_score({"rubric_version": 1, "results": []},
                                {"rubric_version": 2, "results": []})["eligible"] is True
 

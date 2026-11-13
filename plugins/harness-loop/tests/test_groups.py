@@ -231,33 +231,15 @@ def test_inconsistent_finding_and_target_dropped(obs_factory):
     assert dropped == {"m": "inconsistent", "h": "inconsistent", "w": "inconsistent"}
 
 
-def test_decisions_reject_and_ticket(obs_factory, monkeypatch):
+def test_any_decision_drops_group_as_decided(obs_factory, monkeypatch):
     a, b = obs_factory("failure"), obs_factory("failure")
     groups.merge(result(group("r", "fix", [a], finding="wrong"), group("t", "fix", [b], finding="wrong")))
     monkeypatch.setattr(groups, "_last_decisions", lambda: {
         "r": {"group": "r", "decision": "reject", "kind": "trivial", "at": NOW},
-        "t": {"group": "t", "decision": "ticket", "at": NOW}})
+        "t": {"group": "t", "decision": "accept", "at": NOW}})
     out = groups.gate(NOW)
-    assert out["dropped"] == [{"id": "r", "reason": "rejected"}] and out["held"] == [] and out["waiting"] == ["t"]
-
-
-def test_proceeded_group_reports_recurrence_as_rework(repo, obs_factory, monkeypatch):
-    target = str(repo / "skills/a/SKILL.md")
-    a = obs_factory("failure", at="2026-11-01T10:00:00+09:00", skill=_skill(repo))
-    groups.merge(result(group("g", "fix", [a], finding="wrong", target_path=target)))
-    monkeypatch.setattr(groups, "_last_decisions", lambda: {
-        "g": {"group": "g", "decision": "proceed", "at": "2026-11-02T00:00:00+09:00", "baseline_hash": "h"}})
-    out = groups.gate(NOW)
-    assert out["held"] == [] and out["waiting"] == ["g"]
-    no_hash = obs_factory("failure", at="2026-11-03T09:00:00+09:00")
-    groups.merge(result(group("g", "fix", [no_hash], finding="wrong", target_path=target)))
-    assert groups.gate(NOW)["waiting"] == ["g"]
-    b = obs_factory("failure", at="2026-11-03T10:00:00+09:00", skill=_skill(repo))
-    groups.merge(result(group("g", "fix", [b], finding="wrong", target_path=target)))
-    [rep] = groups.gate(NOW)["report"]
-    assert rep["id"] == "g" and rep["target_type"] == "rework" and rep["rework_kind"] == "recurrence"
-    assert rep["recurrence"] == [b]
-    assert groups.load()["g"]["target_type"] == "fix"
+    assert out["dropped"] == [{"id": "r", "reason": "decided"}, {"id": "t", "reason": "decided"}]
+    assert out["held"] == [] and out["report"] == [] and "waiting" not in out
 
 
 def test_merge_rejects_empty_group_id(obs_factory):
@@ -322,22 +304,3 @@ def test_untracked_notice_expands_tilde(obs_factory):
     groups.merge(result(group("g", "fix", [a], finding="wrong", target_path="~/plain/SKILL.md")))
     out = groups.gate(NOW)
     assert ids(out, "report") == ["g"] and str(Path.home() / "plain") in out["notices"][0]
-
-
-def test_rework_recurrence_after_proceed_decision(repo, obs_factory, monkeypatch):
-    # v1 → v2(baseline) → v1 로 되돌림: history 는 v1 을 첫 위치로만 남기므로 순서 규칙이면 재발을 놓친다
-    target = str(repo / "skills/a/SKILL.md")
-    (repo / "skills/a/SKILL.md").write_text("v2\n")
-    commit(repo, "v2", "2026-10-25T00:00:00+00:00")
-    base = git(repo, "rev-parse", "HEAD:skills/a/SKILL.md").strip()
-    (repo / "skills/a/SKILL.md").write_text("v1\n")
-    commit(repo, "revert", "2026-10-28T00:00:00+00:00")
-    before = obs_factory("correction", at="2026-11-01T10:00:00+09:00", skill=_skill(repo))
-    groups.merge(result(group("g", "rework", [before], target_path=target, rework_kind="recurrence")))
-    monkeypatch.setattr(groups, "_last_decisions", lambda: {
-        "g": {"group": "g", "decision": "proceed", "at": "2026-11-02T00:00:00+09:00", "baseline_hash": base}})
-    assert ids(groups.gate(NOW), "waiting") == ["g"]
-    later = obs_factory("correction", at="2026-11-03T10:00:00+09:00", skill=_skill(repo))
-    groups.merge(result(group("g", "rework", [later], target_path=target, rework_kind="recurrence")))
-    out = groups.gate(NOW)
-    assert ids(out, "report") == ["g"] and out["report"][0]["recurrence"] == [later]

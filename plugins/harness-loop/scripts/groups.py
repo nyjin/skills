@@ -147,36 +147,22 @@ def judge_group(group: dict, observations_by_id: dict, decisions: dict, cfg: dic
         return "dropped", "not_specific", {}
     if group.get("failure_ref") not in {o["evidence_id"] for o in true_obs}:
         return "dropped", "no_failure_ref", {}
-    decision = decisions.get(group["id"])
-    choice = (decision or {}).get("decision")
-    if choice == "reject":
-        return "dropped", "rejected", {}
+    if decisions.get(group["id"]):
+        return "dropped", "decided", {}
     ttype = group["target_type"]
     if ttype != "rework" and ttype not in ALLOWED.get(group["verified"].get("finding"), set()):
         return "dropped", "inconsistent", {}
 
     cut = paths.aware(now) - timedelta(days=cfg["window_days"])
-    after = paths.aware(decision["at"]) if choice == "proceed" and decision.get("at") else None
-    obs = [o for o in true_obs if o.get("at") and paths.aware(o["at"]) >= cut
-           and (after is None or paths.aware(o["at"]) > after)]
+    obs = [o for o in true_obs if o.get("at") and paths.aware(o["at"]) >= cut]
     extra = {"count": len(obs), "sessions": len({o.get("session") for o in obs}),
              "projects": len({o.get("project") for o in obs})}
-    if choice == "ticket":
-        return "held", None, extra
-    if choice == "proceed" and ttype != "rework":
-        # 진행한 묶음은 결정 뒤 버전에서 관찰이 하나라도 다시 나오면 수정 방식 재검토(재발)로 올린다(설계 8장)
-        target = _real(group["target_path"])
-        rec = [o["evidence_id"] for o in obs if obs_hash(o, target)]
-        if not rec or versions.git_root(target) is None:
-            return "held", None, extra
-        return "report", None, {**extra, "target_type": "rework", "rework_kind": "recurrence", "recurrence": rec}
-
     types = {o.get("type") for o in obs}
     count, sessions = extra["count"], extra["sessions"]
     if ttype == "rework":
         if versions.git_root(_real(group["target_path"])) is None:
             return "dropped", "untracked", extra
-        ok, more = _rework(group, obs, decision if choice == "proceed" else None, cfg)
+        ok, more = _rework(group, obs, None, cfg)
         return ("report" if ok else "held"), None, {**extra, **more}
     if ttype == "script":
         ok = count >= cfg["script_min_count"] and sessions >= cfg["script_min_sessions"]
@@ -199,7 +185,7 @@ def gate(now: str | None = None) -> dict:
     cfg = paths.load_config()
     by_id = {o["evidence_id"]: o for o in observe.observations() if o.get("verdict") is True and o.get("evidence_id")}
     decisions = _last_decisions()
-    out = {"report": [], "held": [], "waiting": [], "dropped": [], "notices": []}
+    out = {"report": [], "held": [], "dropped": [], "notices": []}
     untracked: dict[str, list[str]] = {}
     for gid, group in load().items():
         status, reason, extra = judge_group(group, by_id, decisions, cfg, now)
@@ -209,8 +195,6 @@ def gate(now: str | None = None) -> dict:
                 continue
         elif status == "report":
             out["report"].append({**group, **extra})
-        elif (decisions.get(gid) or {}).get("decision") in ("ticket", "proceed"):
-            out["waiting"].append(gid)
         else:
             out["held"].append(gid)
         if reason == "untracked" or versions.git_root(_real(group["target_path"])) is None:

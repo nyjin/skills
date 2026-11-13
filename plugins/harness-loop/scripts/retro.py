@@ -182,9 +182,8 @@ COMMANDS = {
     "context": cmd_context,
     "groups": lambda a, cfg: {"changed": groups.merge(_read_json(a.file))},
     "gate": cmd_gate,
-    "decide": lambda a, cfg: decide.record(a.id, a.choice, kind=a.kind, reason=a.reason, ticket=a.ticket),
-    "ticket-file": lambda a, cfg: {"file": str(decide.ticket_file(a.id, a.out_dir).resolve())},
-    "metrics": lambda a, cfg: decide.precision(),
+    "decide": lambda a, cfg: decide.record(a.id, a.choice, kind=a.kind, reason=a.reason),
+    "metrics": lambda a, cfg: decide.metrics(),
     "rubric-candidates": lambda a, cfg: rubric.candidates(),
     "rubric-apply": cmd_rubric_apply,
     "replay-score": lambda a, cfg: rubric.replay_score(_read_json(a.current), _read_json(a.candidate)),
@@ -211,10 +210,6 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("choice", choices=decide.CHOICES)
     s.add_argument("--kind", choices=decide.KINDS)
     s.add_argument("--reason")
-    s.add_argument("--ticket")
-    s = sub.add_parser("ticket-file")
-    s.add_argument("id")
-    s.add_argument("--out-dir", required=True)
     sub.add_parser("metrics")
     sub.add_parser("rubric-candidates")
     s = sub.add_parser("rubric-apply")
