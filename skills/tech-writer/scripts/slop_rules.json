@@ -1,0 +1,150 @@
+{
+  "_comment": "AI slop 루브릭(references/slop-rubric.md)의 항목별 상태·임계값·근거. 보정 모드가 제안하고 사람이 승인해 고친다. 근거에는 수치만 두고 문서 본문이나 페이지 ID는 두지 않는다.",
+  "rubric_version": 1,
+  "measured_at": "2026-10-19",
+  "corpus": {
+    "reference": 11,
+    "slop": 17,
+    "holdout": 7,
+    "total": 35
+  },
+  "items": {
+    "A1": {
+      "name": "기호로 말을 이은 문장",
+      "kind": "script",
+      "status": "gate",
+      "lint_rule": "symbol-operator",
+      "evidence": {
+        "reference_false_lines": 0,
+        "slop_docs_hit": 6,
+        "holdout_hit": 3,
+        "user_false": 0
+      }
+    },
+    "A2": {
+      "name": "한글과 영문이 뒤섞인 문장",
+      "kind": "script",
+      "status": "gate",
+      "lint_rule": "mixed-script",
+      "threshold": 10,
+      "evidence": {
+        "reference_false_lines": 0,
+        "slop_docs_hit": 5,
+        "holdout_hit": 3,
+        "user_false": 0
+      }
+    },
+    "A3": {
+      "name": "굵은 결정 문장으로 여는 문단",
+      "kind": "script",
+      "status": "gate",
+      "lint_rule": "bold-verdict",
+      "evidence": {
+        "reference_false_lines": 0,
+        "slop_docs_hit": 9,
+        "holdout_hit": 2,
+        "user_false": 0
+      }
+    },
+    "A4": {
+      "name": "장식처럼 쓴 강조",
+      "kind": "script",
+      "status": "advisory",
+      "limits": {
+        "bold_per100s": 25.0,
+        "dash_per100s": 32.0,
+        "paren_per100s": 39.4
+      },
+      "evidence": {
+        "reference_false_lines": 0,
+        "slop_docs_hit": 15,
+        "user_false": 0
+      }
+    },
+    "A5": {
+      "name": "명사 조각으로 끝나는 문장",
+      "kind": "judgment",
+      "status": "judge"
+    },
+    "B1": {
+      "name": "여러 곳에서 되풀이한 내용",
+      "kind": "script",
+      "status": "advisory",
+      "redundancy_kind": "repeated-claim",
+      "evidence": {
+        "reference_false_lines": 3,
+        "slop_docs_hit": 8,
+        "user_false": 0
+      }
+    },
+    "B2": {
+      "name": "구조만 바꿔 다시 쓴 목록",
+      "kind": "script",
+      "status": "hold",
+      "evidence": {
+        "reference_false_lines": 1,
+        "slop_docs_hit": 8,
+        "holdout_hit": 5,
+        "user_false": 0,
+        "note": "승인한 문서(v2)에서도 나옴. 보정 제안: 보류→지시, 사용자 승인 대기"
+      }
+    },
+    "B3": {
+      "name": "그림을 글로 다시 옮긴 곳",
+      "kind": "script",
+      "status": "advisory",
+      "redundancy_kind": "diagram-transcribed",
+      "evidence": {
+        "reference_false_lines": 2,
+        "slop_docs_hit": 0,
+        "user_false": 0
+      }
+    },
+    "B4": {
+      "name": "근거 없이 늘어놓은 결정",
+      "kind": "judgment",
+      "status": "judge"
+    },
+    "C1": {
+      "name": "독자가 풀 수 없는 번호 참조",
+      "kind": "script",
+      "status": "gate",
+      "lint_rule": "unlinked-ref",
+      "policy": true,
+      "evidence": {
+        "reference_false_lines": 1,
+        "slop_docs_hit": 9,
+        "holdout_hit": 2,
+        "user_false": 0,
+        "note": "사용자가 정한 규칙(E-10). 보정은 수치만 보고하고 상태를 바꾸지 않는다"
+      }
+    },
+    "C2": {
+      "name": "본문을 차지한 작업 메모",
+      "kind": "judgment",
+      "status": "judge"
+    },
+    "C3": {
+      "name": "본문에 남은 작성 과정",
+      "kind": "judgment",
+      "status": "judge"
+    },
+    "C4": {
+      "name": "제목의 질문에 답하지 않은 절",
+      "kind": "judgment",
+      "status": "judge"
+    },
+    "D1": {
+      "name": "고치면서 사라진 사실",
+      "kind": "script",
+      "status": "gate",
+      "policy": true
+    },
+    "D2": {
+      "name": "고치면서 바뀐 뜻",
+      "kind": "judgment",
+      "status": "judge"
+    }
+  },
+  "method": "calibrate.py, 검증용 3분의 1 분리(--holdout-every 3)"
+}
